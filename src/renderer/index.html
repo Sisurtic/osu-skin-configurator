@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:;">
+  <title>osu! Skin Configurator</title>
+  <link rel="stylesheet" href="css/variables.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- Title Bar -->
+    <header class="titlebar">
+      <div class="titlebar__title">
+        <span class="titlebar__dot"></span>
+        osu! Skin Configurator
+      </div>
+      <span class="titlebar__version" id="app-version"></span>
+    </header>
+
+    <!-- Toolbar -->
+    <nav class="toolbar">
+      <div class="toolbar__left">
+        <button class="btn btn--ghost btn--sm" id="btn-settings" title="快捷键">🔧</button>
+        <button class="btn btn--ghost btn--sm" id="btn-rescan" title="刷新">🔄️</button>
+        <span class="toolbar__path" id="toolbar-path">未设置 osu! 路径</span>
+      </div>
+      <div class="toolbar__right" id="toolbar-actions">
+        <button class="btn btn--secondary btn--sm" id="btn-apply-preset" disabled title="应用此预设到皮肤">▶ 应用</button>
+        <button class="btn btn--secondary btn--sm" id="btn-toggle-mode" title="切换使用/编辑模式">✏️</button>
+      </div>
+    </nav>
+
+    <!-- Body -->
+    <div class="app-body">
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar__section sidebar__section--skins">
+          <div class="sidebar__header">
+            <span>📁 皮肤列表</span>
+            <span id="skin-count"></span>
+          </div>
+          <div class="search-input">
+            <input type="text" id="skin-search" placeholder="搜索皮肤...">
+          </div>
+          <div class="sidebar__list" id="skin-list">
+            <!-- populated by skin-list.js -->
+          </div>
+        </div>
+        <div class="sidebar__section sidebar__section--skin-header" id="skin-header-section" style="display:none">
+          <div class="sidebar__header">
+            <span>🎨 当前皮肤</span>
+          </div>
+          <div style="padding:8px 14px;font-size:13px;font-weight:500;color:var(--accent)" id="skin-header-name"></div>
+        </div>
+        <div class="sidebar__section sidebar__section--presets" id="preset-section">
+          <div class="sidebar__header">
+            <span>📄 预设</span>
+            <span id="preset-count"></span>
+          </div>
+          <div class="sidebar__list" id="preset-list">
+            <!-- populated by preset-list.js -->
+          </div>
+          <div id="preset-bottom-actions" style="display:none"></div>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+
+        <!-- View: Settings -->
+        <div class="view centered-view" id="view-settings">
+          <!-- populated by settings-view.js -->
+        </div>
+
+        <!-- View: Welcome / No skin selected -->
+        <div class="view centered-view" id="view-welcome">
+          <div class="card">
+            <div class="card__icon">🎨</div>
+            <h2 class="card__title">欢迎使用 osu! Skin Configurator</h2>
+            <p class="card__desc">从左侧选择一个皮肤以查看和管理预设</p>
+          </div>
+        </div>
+
+        <!-- View: Preset Selector (Use Mode) -->
+        <div class="view" id="view-selector">
+          <!-- populated by preset-selector.js -->
+        </div>
+
+        <!-- View: Preset Editor -->
+        <div class="view" id="view-editor">
+          <!-- populated by preset-editor.js -->
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="js/utils/ini-field-defs.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/shortcuts.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/components/toast.js"></script>
+  <script src="js/components/settings-view.js"></script>
+  <script src="js/components/skin-list.js"></script>
+  <script src="js/components/preset-list.js"></script>
+  <script src="js/components/preset-selector.js"></script>
+  <script src="js/components/ini-editor.js"></script>
+  <script src="js/components/file-copy-editor.js"></script>
+  <script src="js/components/color-picker.js"></script>
+  <script src="js/components/preview-upload.js"></script>
+  <script src="js/components/preset-editor.js"></script>
+  <script src="js/components/apply-dialog.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

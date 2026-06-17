@@ -1,0 +1,89 @@
+// Keyboard shortcut registry — manages bindings, matching, and rebinding
+(function () {
+  const DEFAULTS = [
+    { id: 'refresh',     key: 'Ctrl+R',  desc: '刷新皮肤列表',           modes: ['use','edit'] },
+    { id: 'toggle-mode', key: 'Ctrl+E',  desc: '切换 使用/编辑 模式',    modes: ['use','edit'] },
+    { id: 'save',        key: 'Ctrl+S',  desc: '保存当前预设',           modes: ['edit'] },
+    { id: 'new-preset',  key: 'Ctrl+N',  desc: '新建预设',              modes: ['edit'] },
+    { id: 'new-group',   key: 'Ctrl+G',  desc: '新建分组',              modes: ['edit'] },
+    { id: 'copy-preset', key: 'Ctrl+C',  desc: '复制选中预设',           modes: ['edit'] },
+    { id: 'apply',       key: 'Space',   desc: '应用当前预设',           modes: ['use'] },
+  ];
+
+  // Current bindings (id → key string). Loaded from config on startup.
+  let bindings = {};
+
+  function getBinding(id) {
+    return bindings[id] || getDefaultKey(id);
+  }
+
+  function getDefaultKey(id) {
+    const def = DEFAULTS.find(d => d.id === id);
+    return def ? def.key : null;
+  }
+
+  function setBinding(id, newKey) {
+    bindings[id] = newKey;
+    state.set('shortcutBindings', { ...bindings });
+  }
+
+  function getAll() {
+    return DEFAULTS.map(d => ({
+      id: d.id,
+      key: getBinding(d.id),
+      desc: d.desc,
+      modes: d.modes,
+    }));
+  }
+
+  // Parse a KeyboardEvent into a canonical key string, e.g. "Ctrl+S", "Delete"
+  // Returns null for modifier-only presses.
+  function keyToString(e) {
+    const key = e.key;
+    // Ignore pure modifier keys
+    if (key === 'Control' || key === 'Shift' || key === 'Alt' || key === 'Meta') return null;
+    const parts = [];
+    if (e.ctrlKey || e.metaKey) parts.push('Ctrl');
+    if (e.altKey) parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+    // Normalize key name
+    let keyName = key;
+    if (key === ' ') {
+      keyName = 'Space';
+    } else if (key.length === 1) {
+      keyName = key.toUpperCase();
+    }
+    parts.push(keyName);
+    return parts.join('+');
+  }
+
+  // Build a normalized string from a binding string (e.g. "Ctrl+S") for comparison
+  function normalize(str) {
+    return str.split('+').map(s => s.trim()).sort().join('+');
+  }
+
+  // Match a KeyboardEvent against all bindings. Returns the action id or null.
+  function matchAction(e) {
+    const str = keyToString(e);
+    if (!str) return null;
+    const norm = normalize(str);
+    for (const d of DEFAULTS) {
+      const bound = getBinding(d.id);
+      if (!bound) continue;
+      if (normalize(bound) === norm) return d.id;
+    }
+    return null;
+  }
+
+  // Initialize bindings from loaded data
+  function init(loadedBindings) {
+    bindings = loadedBindings || {};
+  }
+
+  // Get raw bindings for persistence
+  function getRawBindings() {
+    return { ...bindings };
+  }
+
+  window.Shortcuts = { getBinding, setBinding, getAll, keyToString, matchAction, init, getRawBindings, DEFAULTS };
+})();

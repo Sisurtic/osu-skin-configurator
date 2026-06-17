@@ -1,0 +1,173 @@
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ── Title Bar ── */
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--titlebar-height);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 0 12px;
+  -webkit-app-region: drag;
+}
+.titlebar__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.titlebar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.titlebar__version {
+  font-size: 11px;
+  color: var(--text-muted);
+  -webkit-app-region: no-drag;
+}
+
+/* ── Toolbar ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--toolbar-height);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  gap: 12px;
+}
+.toolbar__left, .toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.toolbar__path {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Body (sidebar + main) ── */
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: var(--sidebar-width);
+  min-width: 200px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar__section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.sidebar__section--skins {
+  flex: 1;
+  overflow: hidden;
+}
+.sidebar__section--presets {
+  flex: 0 0 auto;
+  max-height: 40%;
+  border-top: 1px solid var(--border);
+}
+.sidebar__section--skin-header {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+}
+/* Edit mode: preset section fills the sidebar */
+.sidebar--edit .sidebar__section--presets {
+  flex: 1;
+  max-height: none;
+}
+.sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+.sidebar__list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 4px 8px;
+}
+
+#preset-bottom-actions {
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  z-index: 10;
+}
+
+/* ── Main Content ── */
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-primary);
+}
+
+/* ── Views ── */
+.view {
+  display: none;
+  height: 100%;
+}
+.view--active {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Centered card (settings, welcome) ── */
+.centered-view {
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  max-width: 520px;
+  width: 100%;
+}
+.card__icon {
+  font-size: 48px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.card__title {
+  text-align: center;
+  margin-bottom: 8px;
+}
+.card__desc {
+  text-align: center;
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  font-size: 13px;
+}

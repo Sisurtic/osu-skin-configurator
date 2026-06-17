@@ -1,0 +1,53 @@
+:root {
+  /* Background */
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #252528;
+  --bg-tertiary: #303036;
+  --bg-hover: #35353a;
+  --bg-active: #3a3a40;
+
+  /* Accent (osu!lazer green) */
+  --accent: #66cc88;
+  --accent-hover: #88dda0;
+  --accent-dim: #448855;
+  --accent-bg: rgba(102, 204, 136, 0.1);
+
+  /* Text */
+  --text-primary: #e8e8e8;
+  --text-secondary: #b0b0b0;
+  --text-muted: #707070;
+
+  /* Semantic */
+  --danger: #e05555;
+  --danger-hover: #f07070;
+  --warning: #e0a040;
+  --success: #66cc88;
+  --info: #55aadd;
+
+  /* Border & Radius */
+  --border: #3a3a3e;
+  --border-light: #45454a;
+  --radius: 8px;
+  --radius-sm: 4px;
+  --radius-lg: 12px;
+
+  /* Sizing */
+  --sidebar-width: 280px;
+  --titlebar-height: 36px;
+  --toolbar-height: 48px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
+
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease;
+}
+
+/* Override browser default selection highlight (avoid white/blue flash in dark theme) */
+::selection {
+  background: var(--accent-bg);
+  color: var(--text-primary);
+}

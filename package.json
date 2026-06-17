@@ -1,0 +1,29 @@
+{
+  "name": "osu-skin-configurator",
+  "version": "1.0.0",
+  "description": "osu! 皮肤配置工具 - 管理并一键应用皮肤预设",
+  "main": "src/main/main.js",
+  "author": "Lenovo",
+  "license": "MIT",
+  "scripts": {
+    "start": "node scripts/launch.js",
+    "dev": "node scripts/launch.js --dev",
+    "build": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^41.6.1",
+    "electron-builder": "^26.15.2"
+  },
+  "build": {
+    "appId": "osu-skin-configurator",
+    "win": {
+      "icon": "exe.ico"
+    },
+    "extraResources": [
+      { "from": "osp.ico", "to": "osp.ico" }
+    ],
+    "fileAssociations": [
+      { "ext": "osp", "name": "osu! Skin Preset", "icon": "osp.ico" }
+    ]
+  }
+}
