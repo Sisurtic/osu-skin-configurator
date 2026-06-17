@@ -737,6 +737,10 @@ select.form-input {
   flex-direction: column;
   padding: 8px 12px 8px 0;
   flex-shrink: 0;
+  scrollbar-width: none;  /* Firefox: hide scrollbar */
+}
+.preset-selector__list::-webkit-scrollbar {
+  display: none;  /* Chromium/electron: hide scrollbar but keep scrolling */
 }
 .preset-selector__divider {
   width: 4px;
@@ -1005,7 +1009,7 @@ select.form-input {
   border-radius: 4px;
   transition: background 0.15s;
   position: sticky;
-  left: 0;
+  left: 8px;
   background: var(--bg-secondary);
   width: calc(var(--sidebar-width) - 17px);
 }
@@ -1041,8 +1045,11 @@ select.form-input {
   background: var(--bg-tertiary);
   padding: 1px 6px;
   border-radius: 8px;
-  position: fixed;
-  z-index: 5;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.preset-tree__group-count--hidden {
+  display: none;
 }
 #preset-count {
   font-size: 10px;
@@ -1050,7 +1057,7 @@ select.form-input {
   background: var(--bg-tertiary);
   padding: 1px 6px;
   border-radius: 8px;
-  margin-right: -6px;
+  margin-right: 3px;
 }
 .preset-tree__group--drop-target {
   position: relative;
@@ -1068,11 +1075,12 @@ select.form-input {
   pointer-events: none;
   z-index: 0;
 }
-/* Drop target: make children transparent so the ::before accent shows through */
+/* Drop target: make children transparent so the ::before accent shows through.
+   Do NOT override `position` here — the header is position:sticky and changing
+   it would drop it out of its sticky pin, making the whole group visually shift. */
 .preset-tree__group--drop-target .preset-tree__group-header,
 .preset-tree__group--drop-target .preset-tree__item {
   background: transparent;
-  position: relative;
   z-index: 1;
 }
 .preset-tree__group--drop-target .preset-tree__group-header:hover,
@@ -1102,7 +1110,7 @@ select.form-input {
   transition: background 0.15s;
   margin: 1px 0;
   position: sticky;
-  left: 0;
+  left: 8px;
   background: var(--bg-secondary);
   width: calc(var(--sidebar-width) - 17px);
 }
@@ -1139,9 +1147,9 @@ select.form-input {
 }
 
 /* ── Preset tree root (ungrouped presets at top level) ── */
-.preset-tree {
-  width: max-content;
-}
+/* Width set inline by JS = clientWidth + deepest indent, so max scroll equals
+   the deepest indent exactly. No padding here (would inflate scrollWidth and
+   break that equality). Rows carry their own left padding for the visual gap. */
 
 /* ── Editor tabs: flex layout so only tbody scrolls, header + thead stay fixed ── */
 .tab-content--active#tab-ini,

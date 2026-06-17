@@ -91,7 +91,6 @@
     const inRoot = new Set(rootGroupIds);
     for (const g of groups) {
       if (!inRoot.has(g.id)) {
-        // Check if it's a child of another group
         let isChild = false;
         for (const pg of groups) {
           if (pg.children && pg.children.some(c => c.type === 'group' && c.id === g.id)) {
@@ -106,6 +105,24 @@
     }
 
     listEl.innerHTML = `<div class="preset-tree">${html}</div>`;
+
+    // Horizontal scroll should stop exactly when the deepest row pins flush-left,
+    // i.e. at scrollLeft == deepest row's margin-left (maxIndent). Make the tree
+    // wide enough to scroll and CLAMP scrollLeft to maxIndent.
+    const treeEl = listEl.querySelector('.preset-tree');
+    let maxIndent = 0;
+    listEl.querySelectorAll('.preset-tree__group-header, .preset-tree__item').forEach(el => {
+      const ml = parseInt(el.style.marginLeft, 10) || 0;
+      if (ml > maxIndent) maxIndent = ml;
+    });
+    if (treeEl) {
+      treeEl.style.width = (listEl.clientWidth + maxIndent) + 'px';
+    }
+    if (listEl._ospClamp) listEl.removeEventListener('scroll', listEl._ospClamp);
+    listEl._ospClamp = () => {
+      if (listEl.scrollLeft > maxIndent) listEl.scrollLeft = maxIndent;
+    };
+    listEl.addEventListener('scroll', listEl._ospClamp, { passive: true });
 
     // Build bottom actions
     buildBottomActions();
@@ -416,19 +433,14 @@
           if (!ticking) {
             requestAnimationFrame(() => {
               updateCountBadgeVisibility(scrollContainer);
-              syncNameEllipsis();
               ticking = false;
             });
             ticking = true;
           }
         });
-        // Resize → recompute ellipsis positions
-        const ro = new ResizeObserver(() => syncNameEllipsis());
-        ro.observe(scrollContainer);
       }
       // Update initial visibility after render
       updateCountBadgeVisibility(scrollContainer);
-      syncNameEllipsis();
     }
   }
 
@@ -503,43 +515,9 @@
     });
   }
 
-  function updateCountBadgeVisibility(container) {
-    const containerRect = container.getBoundingClientRect();
-    const cRight = containerRect.right;
-    container.querySelectorAll('.preset-tree__group-count').forEach(badge => {
-      const header = badge.closest('.preset-tree__group-header');
-      if (!header) return;
-      const headerRect = header.getBoundingClientRect();
-      const visibleLeft = Math.max(headerRect.left, containerRect.left);
-      const visibleRight = Math.min(headerRect.right, containerRect.right);
-      const visibleWidth = Math.max(0, visibleRight - visibleLeft);
-      const totalWidth = headerRect.width;
-      const hidden = totalWidth > 0 && visibleWidth < totalWidth * 0.5;
-      badge.style.visibility = hidden ? 'hidden' : 'visible';
-      if (!hidden) {
-        const bRect = badge.getBoundingClientRect();
-        // Pin to the viewport's right edge (8px inset), vertically centered on the header
-        badge.style.left = (cRight - bRect.width - 8) + 'px';
-        badge.style.top = (headerRect.top + (headerRect.height - bRect.height) / 2) + 'px';
-      }
-    });
-  }
-
-  // Cap each name's max-width so its ellipsis sits at the viewport's right edge
-  // (a bit further left when the row has a count badge). Always a concrete
-  // pixel value — never 'none' — so the box width stays stable across frames.
-  function syncNameEllipsis() {
-    const cRect = listEl.getBoundingClientRect();
-    const cRight = cRect.right;
-    listEl.querySelectorAll('.preset-tree__group-name, .preset-tree__item-name').forEach(name => {
-      const r = name.getBoundingClientRect();
-      const header = name.parentElement;
-      const badge = header.querySelector(':scope > .preset-tree__group-count');
-      const reserve = badge ? (badge.getBoundingClientRect().width + 16) : 12;
-      let maxW = cRight - r.left - reserve;
-      if (maxW < 24) maxW = 24;
-      name.style.maxWidth = maxW + 'px';
-    });
+  function updateCountBadgeVisibility(_container) {
+    // Badges live inside their header (flex child, margin-left:auto) and follow
+    // it naturally — no JS positioning needed.
   }
 
   async function refreshSkinData(skin) {

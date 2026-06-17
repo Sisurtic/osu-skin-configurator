@@ -1,5 +1,8 @@
 node_modules/
 dist/
+cache/
+temp-default-app/
+.claude/
 *.log
 .DS_Store
 Thumbs.db

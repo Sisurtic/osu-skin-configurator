@@ -115,7 +115,12 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: auto;
-  padding: 4px 8px;
+  padding: 4px 0;
+}
+/* The corner where the two scrollbars meet renders as a white box by default;
+   paint it with the page background so it blends in. */
+.sidebar__list::-webkit-scrollbar-corner {
+  background: var(--bg-secondary);
 }
 
 #preset-bottom-actions {

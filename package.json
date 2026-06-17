@@ -16,8 +16,13 @@
   },
   "build": {
     "appId": "osu-skin-configurator",
+    "electronFuses": {
+      "enableEmbeddedAsarIntegrityValidation": false,
+      "runAsNode": false
+    },
     "win": {
-      "icon": "exe.ico"
+      "icon": "exe.ico",
+      "signExecutable": false
     },
     "extraResources": [
       { "from": "osp.ico", "to": "osp.ico" }
