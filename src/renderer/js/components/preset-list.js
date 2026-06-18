@@ -167,7 +167,11 @@
         e.stopPropagation();
         const header = icon.closest('.preset-tree__group-header');
         const groupId = parseInt(header.dataset.groupId, 10);
-        toggleGroupCollapse(groupId);
+        if (e.shiftKey) {
+          toggleGroupCollapseRecursive(groupId);
+        } else {
+          toggleGroupCollapse(groupId);
+        }
       });
     });
 
@@ -389,6 +393,11 @@
           e.preventDefault();
           e.dataTransfer.dropEffect = 'move';
           listEl.classList.add('preset-list--drop-root');
+          // Dragged out of any group → clear stale group drop-target highlight.
+          listEl.querySelectorAll('.preset-tree__group--drop-target').forEach(el => {
+            el.style.removeProperty('--drop-indent');
+            el.classList.remove('preset-tree__group--drop-target');
+          });
         }
       });
 
@@ -543,6 +552,34 @@
     await api.setGroupCollapsed(skin, groupId, newCollapsed);
     // Update local state immediately for responsive UI
     group.collapsed = newCollapsed;
+    state.set('groups', [...groups]);
+  }
+
+  // Shift+click: toggle this group and every descendant group to the same state.
+  async function toggleGroupCollapseRecursive(groupId) {
+    const skin = state.get('selectedSkin');
+    if (!skin) return;
+    const groups = state.get('groups') || [];
+    const byId = new Map(groups.map(g => [g.id, g]));
+    const root = byId.get(groupId);
+    if (!root) return;
+    const target = !root.collapsed;
+    const toToggle = [];
+    const collect = (g) => {
+      toToggle.push(g);
+      if (!g.children) return;
+      for (const c of g.children) {
+        if (c.type === 'group') {
+          const sub = byId.get(c.id);
+          if (sub) collect(sub);
+        }
+      }
+    };
+    collect(root);
+    for (const g of toToggle) {
+      await api.setGroupCollapsed(skin, g.id, target);
+      g.collapsed = target;
+    }
     state.set('groups', [...groups]);
   }
 

@@ -3,6 +3,8 @@ dist/
 cache/
 temp-default-app/
 .claude/
+src-tauri/target/
+src-tauri/gen/
 *.log
 .DS_Store
 Thumbs.db

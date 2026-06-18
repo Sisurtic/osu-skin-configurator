@@ -17,6 +17,11 @@ body {
   background: var(--bg-primary);
   -webkit-font-smoothing: antialiased;
   user-select: none;
+  opacity: 0;                          /* fade-in: hidden until init finishes */
+  transition: opacity 0.3s ease-out;
+}
+body.is-ready {
+  opacity: 1;
 }
 
 /* Override inherited user-select:none — Chromium bug prevents dragstart on [draggable] otherwise */

@@ -26,6 +26,13 @@
   async function init() {
     state.set('_initializing', true);
 
+    // Reveal the window now that the webview has loaded (window starts hidden in
+    // tauri.conf.json to avoid a white frame before WebView2 paints).
+    try {
+      const T = window.__TAURI__;
+      if (T && T.window) T.window.getCurrentWindow().show();
+    } catch (_) { /* ignore — window may already be visible */ }
+
     try {
       state.set('appMode', 'use');
 
@@ -34,13 +41,20 @@
         state.set('appMode', 'use');
       });
 
-      const versionResult = await api.getAppVersion();
+      // Parallelize independent IPC calls to cut cold-start wait — these fan
+      // out together instead of awaiting one-by-one.
+      const [versionResult, shortcutsResult, pathResult, openFileResult] = await Promise.all([
+        api.getAppVersion(),
+        api.loadShortcuts(),
+        api.getOsuPath(),
+        api.getOpenFileArg(),
+      ]);
+
       if (versionResult.success && versionResult.data) {
         const versionEl = document.getElementById('app-version');
         if (versionEl) versionEl.textContent = 'v' + versionResult.data;
       }
 
-      const shortcutsResult = await api.loadShortcuts();
       if (shortcutsResult.success && shortcutsResult.data) {
         Shortcuts.init(shortcutsResult.data);
         state.set('shortcutBindings', shortcutsResult.data);
@@ -53,8 +67,7 @@
         SettingsView.render();
       });
 
-      // 1. Check saved osu! path
-      const pathResult = await api.getOsuPath();
+      // 1. osu! path
       if (pathResult.success && pathResult.data) {
         state.set('osuPath', pathResult.data);
         toolbarPath.textContent = pathResult.data;
@@ -75,8 +88,8 @@
         await scanSkins();
       }
 
-      // 3. Restore last skin
-      const openFileSkin = await api.getOpenFileArg();
+      // 3. Restore last skin (openFileArg takes priority; it was fetched above)
+      const openFileSkin = (openFileResult && openFileResult.success) ? openFileResult.data : null;
       if (openFileSkin) {
         state.set('selectedSkin', openFileSkin);
         state.set('appMode', 'use');
@@ -103,12 +116,18 @@
         }
       }
     } catch (err) {
+      console.error('init failed:', err);
       if (window.Toast && typeof window.Toast.error === 'function') {
-        window.Toast.error('应用初始化失败，请刷新页面重试');
+        window.Toast.error('应用初始化失败: ' + (err && (err.message || String(err)) || '未知错误'));
       }
     } finally {
       state.set('_initializing', false);
       renderCurrentView();
+      // Defer the fade-in to the next frame so renderCurrentView's layout
+      // settles before transitioning opacity (avoids a flash of reflowed content).
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        document.body.classList.add('is-ready');
+      }));
     }
   }
 
@@ -218,6 +237,8 @@
       return;
     }
     state.set('_welcomeDismissed', true);
+    // Persist the selected skin so the next launch restores it.
+    api.setLastSkin(skinName);
     // Clear any preset selection from the previous skin (ids are skin-specific)
     state.set('activePresets', {});
     // Re-register global shortcuts for the new skin
@@ -295,6 +316,7 @@
   });
 
   btnToggleMode.addEventListener('click', async () => {
+    if (!state.get('selectedSkin')) return;
     const currentMode = state.get('appMode');
     const newMode = currentMode === 'use' ? 'edit' : 'use';
     if (currentMode === 'edit' && newMode === 'use' && state.get('presetDirty')) {
@@ -343,7 +365,7 @@
 
   function updateModeButton() {
     const mode = state.get('appMode');
-    btnToggleMode.textContent = mode === 'use' ? '✏️ 编辑模式' : '👁️ 使用模式';
+    btnToggleMode.textContent = mode === 'use' ? '👁️ 使用模式' : '✏️ 编辑模式';
     btnToggleMode.title = mode === 'use' ? '切换到编辑模式' : '切换到使用模式';
   }
 
@@ -639,6 +661,8 @@
     if (!action) return;
     // Disable custom shortcuts while any modal/dialog overlay is open
     if (isModal) return;
+    // Disable all action shortcuts when no skin is selected
+    if (!state.get('selectedSkin')) return;
 
     const shortcutDef = Shortcuts.getAll().find(s => s.id === action);
     if (shortcutDef && shortcutDef.modes && !shortcutDef.modes.includes(state.get('appMode'))) return;

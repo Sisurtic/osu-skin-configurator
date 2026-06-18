@@ -54,9 +54,7 @@
                 <div class="ini-combo__dropdown" id="ini-key-dropdown"></div>
               </div>
             </div>
-            <!-- 值列 flex spacer -->
-            <div style="flex:1;min-width:0"></div>
-            <!-- 按钮在右侧 -->
+            <!-- 按钮紧挨键名右侧 -->
             <div style="flex-shrink:0;display:flex;gap:4px;margin-left:8px">
               <button class="btn btn--primary btn--sm" id="btn-add-ini" style="font-size:11px;padding:4px 6px">+ 添加</button>
               <button class="btn btn--danger btn--sm" id="btn-delete-ini" style="font-size:11px;padding:4px 6px" title="删除选中的 INI 键">- 删除</button>

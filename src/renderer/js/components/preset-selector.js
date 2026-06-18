@@ -151,7 +151,11 @@
           e.stopPropagation();
           const groupId = header.dataset.groupId;
           if (!groupId) return;
-          toggleCollapse(groupId);
+          if (e.shiftKey) {
+            toggleCollapseRecursive(groupId);
+          } else {
+            toggleCollapse(groupId);
+          }
         });
       }
     });
@@ -618,6 +622,34 @@
     if (!group) return;
     group.collapsed = !group.collapsed;
     await api.setGroupCollapsed(skin, numericId, group.collapsed);
+    state.set('groups', [...groups]);
+  }
+
+  // Shift+click: toggle this group AND every descendant group to the same state.
+  async function toggleCollapseRecursive(groupId) {
+    const skin = state.get('selectedSkin');
+    if (!skin) return;
+    const groups = state.get('groups') || [];
+    const byId = new Map(groups.map(g => [g.id, g]));
+    const root = byId.get(parseInt(groupId, 10));
+    if (!root) return;
+    const target = !root.collapsed;
+    const toToggle = [];
+    const collect = (g) => {
+      toToggle.push(g);
+      if (!g.children) return;
+      for (const c of g.children) {
+        if (c.type === 'group') {
+          const sub = byId.get(c.id);
+          if (sub) collect(sub);
+        }
+      }
+    };
+    collect(root);
+    for (const g of toToggle) {
+      g.collapsed = target;
+      await api.setGroupCollapsed(skin, g.id, target);
+    }
     state.set('groups', [...groups]);
   }
 

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "osu! Skin Configurator",
+  "version": "1.0.0",
+  "identifier": "com.citrusis.osu-skin-configurator",
+  "build": {
+    "frontendDist": "../src/renderer",
+    "beforeBuildCommand": "",
+    "beforeDevCommand": ""
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "osu! Skin Configurator",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "backgroundColor": "#1a1a1a",
+        "resizable": true,
+        "fullscreen": false,
+        "dragDropEnabled": false,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "resources": ["icons/osp.ico"],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "fileAssociations": [
+      {
+        "ext": ["osp"],
+        "name": "osu! Skin Preset",
+        "description": "osu! Skin Preset"
+      }
+    ]
+  }
+}

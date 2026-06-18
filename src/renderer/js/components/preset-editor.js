@@ -104,7 +104,7 @@
     tab.innerHTML = `
       <div class="form-group">
         <label class="form-label">预设名称 *</label>
-        <input type="text" class="form-input" id="preset-name" value="${escapeHtml(meta.name)}" placeholder="如：Instant Fade">
+        <input type="text" class="form-input" id="preset-name" value="${escapeHtml(meta.name)}" placeholder="如：Instant Fade" autocomplete="off" spellcheck="false">
       </div>
       <div class="form-group">
         <label class="form-label">描述</label>

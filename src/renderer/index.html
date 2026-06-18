@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost file:; connect-src 'self' ipc: http://ipc.localhost;">
+  <style>html,body{background:#1a1a1a;}</style>
   <title>osu! Skin Configurator</title>
   <link rel="stylesheet" href="css/variables.css">
   <link rel="stylesheet" href="css/base.css">
@@ -104,12 +105,38 @@
   <!-- Toast container -->
   <div class="toast-container" id="toast-container"></div>
 
+  <!-- Info dialog (about) -->
+  <div class="info-overlay" id="info-overlay" hidden>
+    <div class="info-dialog">
+      <button class="info-dialog__close" id="info-close" title="关闭">✕</button>
+      <div class="info-dialog__particles" id="info-particles"></div>
+      <div class="info-dialog__body">
+        <div class="info-dialog__logo-wrap" id="info-logo-wrap">
+          <span class="info-dialog__ripple" aria-hidden="true"></span>
+          <div class="info-dialog__logo"><img src="assets/logo.svg" alt=""></div>
+        </div>
+        <div class="info-dialog__content">
+          <h2 class="info-dialog__name">osu! Skin Configurator</h2>
+          <div class="info-dialog__version" id="info-version"></div>
+          <div class="info-dialog__section">
+            <ul class="info-dialog__credits">
+              <li><a href="https://github.com/Sisurtic/osu-skin-configurator" target="_blank" rel="noopener">GitHub / osu-skin-configurator</a></li>
+              <li><a href="https://osu.ppy.sh/users/30298378" target="_blank" rel="noopener">osu! / Citrusis</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts -->
+  <script src="js/tauri-api.js"></script>
   <script src="js/utils/ini-field-defs.js"></script>
   <script src="js/state.js"></script>
   <script src="js/shortcuts.js"></script>
   <script src="js/api.js"></script>
   <script src="js/components/toast.js"></script>
+  <script src="js/components/info-dialog.js"></script>
   <script src="js/components/settings-view.js"></script>
   <script src="js/components/skin-list.js"></script>
   <script src="js/components/preset-list.js"></script>

@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 256 256">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #bbbdbf;
+      }
+
+      .cls-1, .cls-2, .cls-3, .cls-4, .cls-5, .cls-6, .cls-7, .cls-8, .cls-9, .cls-10, .cls-11, .cls-12, .cls-13, .cls-14, .cls-15, .cls-16 {
+        stroke-width: 0px;
+      }
+
+      .cls-17 {
+        stroke: #fff;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 22px;
+      }
+
+      .cls-17, .cls-6 {
+        fill: none;
+      }
+
+      .cls-2 {
+        fill: url(#_未命名的渐变_39);
+      }
+
+      .cls-3 {
+        fill: #6d6e70;
+      }
+
+      .cls-4 {
+        fill: #636466;
+      }
+
+      .cls-5 {
+        fill: #a6a8ab;
+      }
+
+      .cls-18 {
+        filter: url(#drop-shadow-1);
+      }
+
+      .cls-19 {
+        clip-path: url(#clippath-1);
+      }
+
+      .cls-20 {
+        opacity: .15;
+      }
+
+      .cls-7 {
+        fill: #f1f1f2;
+      }
+
+      .cls-8 {
+        fill: #59595c;
+      }
+
+      .cls-9 {
+        fill: #808184;
+      }
+
+      .cls-21 {
+        opacity: .1;
+      }
+
+      .cls-22 {
+        clip-path: url(#clippath);
+      }
+
+      .cls-10 {
+        fill: #404041;
+      }
+
+      .cls-11 {
+        fill: #221f1f;
+      }
+
+      .cls-12 {
+        fill: #231f20;
+      }
+
+      .cls-13 {
+        fill: #fff;
+      }
+
+      .cls-14 {
+        fill: #929497;
+      }
+
+      .cls-15 {
+        fill: #d0d2d3;
+      }
+
+      .cls-16 {
+        fill: #a7a8ab;
+      }
+    </style>
+    <radialGradient id="_未命名的渐变_39" data-name="未命名的渐变 39" cx="128" cy="126" fx="26.05" fy="21.17" r="159.56" gradientTransform="translate(0 -13.54) scale(1 1.11)" gradientUnits="userSpaceOnUse">
+      <stop offset=".39" stop-color="#4cb290"/>
+      <stop offset=".98" stop-color="#3d5c52"/>
+    </radialGradient>
+    <clipPath id="clippath">
+      <path class="cls-6" d="M220,68.41v166.59c0,.55-.45,1-1,1H37c-.55,0-1-.45-1-1V17c0-.55.45-1,1-1h130.59c.27,0,.52.11.71.29l51.41,51.41c.19.19.29.44.29.71Z"/>
+    </clipPath>
+    <filter id="drop-shadow-1" filterUnits="userSpaceOnUse">
+      <feOffset dx="0" dy="4"/>
+      <feGaussianBlur result="blur" stdDeviation="4"/>
+      <feFlood flood-color="#000" flood-opacity=".3"/>
+      <feComposite in2="blur" operator="in"/>
+      <feComposite in="SourceGraphic"/>
+    </filter>
+    <clipPath id="clippath-1">
+      <circle class="cls-6" cx="448" cy="128" r="117"/>
+    </clipPath>
+  </defs>
+  <g id="_图层_4" data-name="图层 4">
+    <g id="_图层_3" data-name="图层 3">
+      <path class="cls-2" d="M220,68.41v166.59c0,.55-.45,1-1,1H37c-.55,0-1-.45-1-1V17c0-.55.45-1,1-1h130.59c.27,0,.52.11.71.29l51.41,51.41c.19.19.29.44.29.71Z"/>
+      <g class="cls-20">
+        <g class="cls-22">
+          <g>
+            <polygon class="cls-7" points="-527.29 409.14 -52.72 -412.82 421.82 409.14 -527.29 409.14"/>
+            <polygon class="cls-12" points="-249.43 607.12 225.13 -214.84 699.67 607.12 -249.43 607.12"/>
+            <polygon class="cls-14" points="-263.11 78.15 211.46 -743.8 686 78.15 -263.11 78.15"/>
+            <polygon class="cls-4" points="-788.82 489.13 -314.25 -332.83 160.29 489.13 -788.82 489.13"/>
+            <polygon class="cls-8" points="-562.25 983.41 -87.68 161.45 386.85 983.41 -562.25 983.41"/>
+            <polygon class="cls-3" points="-128.12 194.14 52.09 -118.01 232.3 194.14 -128.12 194.14"/>
+            <polygon class="cls-11" points="139.28 351.84 229.38 195.78 319.48 351.84 139.28 351.84"/>
+            <polygon class="cls-11" points="-291.3 526.12 -111.08 213.98 69.13 526.12 -291.3 526.12"/>
+            <polygon class="cls-10" points="-311.47 401.08 -131.26 88.94 48.95 401.08 -311.47 401.08"/>
+            <polygon class="cls-9" points="60.36 469.14 240.57 157 420.78 469.14 60.36 469.14"/>
+            <polygon class="cls-10" points="-11.71 266.24 77.38 111.93 166.46 266.24 -11.71 266.24"/>
+            <polygon class="cls-7" points="147.31 228.42 236.41 74.11 325.49 228.42 147.31 228.42"/>
+            <polygon class="cls-1" points="-30.1 .41 14.45 -76.74 58.99 .41 -30.1 .41"/>
+            <polygon class="cls-5" points="-171.69 399.94 -82.6 245.63 6.48 399.94 -171.69 399.94"/>
+            <polygon class="cls-16" points="19.43 313.56 63.98 236.41 108.52 313.56 19.43 313.56"/>
+            <polygon class="cls-16" points="9.44 94.9 53.99 17.75 98.53 94.9 9.44 94.9"/>
+            <polygon class="cls-5" points="114.64 212.26 148.59 153.46 182.54 212.26 114.64 212.26"/>
+            <polygon class="cls-9" points="192.64 36.3 226.6 -22.51 260.55 36.3 192.64 36.3"/>
+            <polygon class="cls-13" points="148 22.64 181.95 -36.16 215.9 22.64 148 22.64"/>
+            <polygon class="cls-16" points="154.56 282.67 171.53 253.27 188.51 282.67 154.56 282.67"/>
+            <polygon class="cls-15" points="12.23 23.24 32.49 -11.84 52.74 23.24 12.23 23.24"/>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g id="_图层_2" data-name="图层 2" class="cls-18">
+      <g>
+        <path class="cls-17" d="M220,68.41v166.59c0,.55-.45,1-1,1H37c-.55,0-1-.45-1-1V17c0-.55.45-1,1-1h130.59c.27,0,.52.11.71.29l51.41,51.41c.19.19.29.44.29.71Z"/>
+        <path class="cls-17" d="M155,16v59c0,3.3,2.7,6,6,6h59"/>
+      </g>
+      <path class="cls-13" d="M155.05,157.01l-7.05-7.05v-9.97c0-6.6-5.4-12-12-12h-9.97l-7.05-7.05c-4.67-4.67-12.3-4.67-16.97,0l-7.05,7.05h-9.97c-6.6,0-12,5.4-12,12v9.97l-7.05,7.05c-4.67,4.67-4.67,12.3,0,16.97l7.05,7.05v9.97c0,6.6,5.4,12,12,12h9.97l7.05,7.05c4.67,4.67,12.3,4.67,16.97,0l7.05-7.05h9.97c6.6,0,12-5.4,12-12v-9.97l7.05-7.05c4.67-4.67,4.67-12.3,0-16.97ZM110.5,183c-9.66,0-17.5-7.84-17.5-17.5s7.84-17.5,17.5-17.5,17.5,7.84,17.5,17.5-7.84,17.5-17.5,17.5Z"/>
+    </g>
+  </g>
+  <g id="_图层_5" data-name="图层 5">
+    <g class="cls-21">
+      <g class="cls-19">
+        <g>
+          <polygon class="cls-7" points="-152.88 310.59 448.15 -730.39 1049.13 310.59 -152.88 310.59"/>
+          <polygon class="cls-12" points="199.01 561.32 800.04 -479.66 1401.02 561.32 199.01 561.32"/>
+          <polygon class="cls-9" points="-923.8 372.95 -322.77 -668.04 278.22 372.95 -923.8 372.95"/>
+          <polygon class="cls-4" points="-484.1 411.9 116.92 -629.08 717.91 411.9 -484.1 411.9"/>
+          <polygon class="cls-8" points="-197.16 1037.89 403.87 -3.09 1004.85 1037.89 -197.16 1037.89"/>
+          <polygon class="cls-11" points="145.99 458.75 374.23 63.43 602.46 458.75 145.99 458.75"/>
+          <polygon class="cls-10" points="120.44 300.39 348.68 -94.93 576.9 300.39 120.44 300.39"/>
+          <polygon class="cls-9" points="-107.55 298.17 -51.13 200.46 5.28 298.17 -107.55 298.17"/>
+          <polygon class="cls-16" points="-192.17 49.02 -79.34 -146.41 33.49 49.02 -192.17 49.02"/>
+          <polygon class="cls-8" points="70.38 158.86 113.38 84.39 156.38 158.86 70.38 158.86"/>
+          <polygon class="cls-1" points="143.87 67.13 186.87 -7.35 229.87 67.13 143.87 67.13"/>
+          <polygon class="cls-7" points="207.21 212.57 250.21 138.1 293.21 212.57 207.21 212.57"/>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>

@@ -6,6 +6,7 @@ const api = {
   autoDetectOsuPath: () => window.electronAPI.autoDetectOsuPath(),
   getOsuPath: () => window.electronAPI.getOsuPath(),
   getLastSkin: () => window.electronAPI.getLastSkin(),
+  setLastSkin: (skinName) => window.electronAPI.setLastSkin(skinName),
   setOsuPath: (p) => window.electronAPI.setOsuPath(p),
   browseForOsuPath: () => window.electronAPI.browseForOsuPath(),
 
