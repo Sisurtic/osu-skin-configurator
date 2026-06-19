@@ -19,10 +19,6 @@ pub fn auto_detect() -> Option<String> {
     None
 }
 
-pub fn validate(p: &str) -> bool {
-    std::path::Path::new(p).join("osu!.exe").exists()
-}
-
 pub fn get_skins_path(osu_path: &str) -> PathBuf {
     PathBuf::from(osu_path).join("Skins")
 }

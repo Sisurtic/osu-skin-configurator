@@ -1348,6 +1348,22 @@ select.form-input {
   color: var(--text-muted);
   margin-bottom: 14px;
 }
+.info-dialog__update {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.info-dialog__update-status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.info-dialog__update-status--available {
+  color: var(--accent);
+}
+.info-dialog__update-status--error {
+  color: var(--danger);
+}
 .info-dialog__section {
   border-top: 1px solid var(--border);
   padding-top: 12px;

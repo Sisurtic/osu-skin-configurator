@@ -11,7 +11,7 @@
     particlesEl.innerHTML = '';
     // Equilateral triangles pointing up, fixed green, random size + opacity.
     const GREEN = 'hsl(140, 60%, 75%)';
-    const N = 48;
+    const N = 42;
     for (let i = 0; i < N; i++) {
       const s = document.createElement('span');
       const size = 8 + Math.floor(Math.random() * 22);    // half base width
@@ -39,6 +39,8 @@
     overlay.hidden = false;
     overlay.classList.remove('info-overlay--closing');
     spawnParticles();
+    // Reflect any cached update result (from the startup check).
+    reflectUpdateStatus();
   }
   function close() {
     if (!overlay || overlay.hidden) return;
@@ -119,6 +121,61 @@
         // no opener plugin; let WebView2 try
         window.open(a.href, '_blank');
       }
+    });
+  }
+
+  // ── Update check (manual refresh in the about dialog) ──
+
+  const updateBtn = document.getElementById('info-check-update');
+  const updateStatus = document.getElementById('info-update-status');
+
+  function setUpdateStatus(text, cls) {
+    if (!updateStatus) return;
+    updateStatus.textContent = text || '';
+    updateStatus.className = 'info-dialog__update-status' + (cls ? ' info-dialog__update-status--' + cls : '');
+  }
+
+  // Show the cached update result; offer a one-click download/run if available.
+  function reflectUpdateStatus() {
+    if (!updateStatus) return;
+    const uc = window.UpdateCheck;
+    if (uc && uc.hasUpdate()) {
+      const latest = uc.lastResult ? uc.lastResult.latestVersion : '';
+      setUpdateStatus(`发现新版本 ${latest}，点击更新将下载并运行安装程序`, 'available');
+      updateBtn.textContent = '立即更新';
+    } else {
+      setUpdateStatus('');
+      updateBtn.textContent = '检查更新';
+    }
+  }
+
+  if (updateBtn) {
+    updateBtn.addEventListener('click', async () => {
+      const uc = window.UpdateCheck;
+      if (!uc) return;
+      // If we already know an update is available, the button acts as "update now".
+      if (uc.hasUpdate()) {
+        updateBtn.disabled = true;
+        await uc.downloadAndRun();
+        updateBtn.disabled = false;
+        return;
+      }
+      // Otherwise: manual refresh.
+      updateBtn.disabled = true;
+      setUpdateStatus('检查中…');
+      try {
+        const data = await uc.check();
+        if (data && data.isUpdate) {
+          reflectUpdateStatus();
+        } else if (data) {
+          setUpdateStatus('已是最新版本');
+        } else {
+          setUpdateStatus('检查失败，请稍后再试', 'error');
+        }
+      } catch (_) {
+        setUpdateStatus('检查失败', 'error');
+      }
+      updateBtn.disabled = false;
     });
   }
 

@@ -20,6 +20,7 @@ const api = {
   loadPreset: (skinName, presetId) => window.electronAPI.loadPreset(skinName, presetId),
   savePreset: (skinName, presetId, data) => window.electronAPI.savePreset(skinName, presetId, data),
   deletePreset: (skinName, presetId) => window.electronAPI.deletePreset(skinName, presetId),
+  deletePresets: (skinName, presetIds) => window.electronAPI.deletePresets(skinName, presetIds),
   applyPreset: (skinName, presetId) => window.electronAPI.applyPreset(skinName, presetId),
   applyMultiplePresets: (skinName, presetIds) => window.electronAPI.applyMultiplePresets(skinName, presetIds),
 
@@ -53,6 +54,8 @@ const api = {
   // --- file open (double-click .osp) ---
   getOpenFileArg: () => window.electronAPI.getOpenFileArg(),
   getAppVersion: () => window.electronAPI.getAppVersion(),
+  checkLatestRelease: () => window.electronAPI.checkLatestRelease(),
+  downloadAndRunLatestRelease: () => window.electronAPI.downloadAndRunLatestRelease(),
   onOpenOspFile: (callback) => window.electronAPI.onOpenOspFile(callback),
 };
 

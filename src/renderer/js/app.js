@@ -55,6 +55,10 @@
         if (versionEl) versionEl.textContent = 'v' + versionResult.data;
       }
 
+      // Non-blocking update check — fire and forget so cold start is never
+      // delayed by a network round-trip. Fails silent offline.
+      if (window.UpdateCheck) UpdateCheck.check().catch(() => {});
+
       if (shortcutsResult.success && shortcutsResult.data) {
         Shortcuts.init(shortcutsResult.data);
         state.set('shortcutBindings', shortcutsResult.data);

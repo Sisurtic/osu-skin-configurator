@@ -118,6 +118,10 @@
         <div class="info-dialog__content">
           <h2 class="info-dialog__name">osu! Skin Configurator</h2>
           <div class="info-dialog__version" id="info-version"></div>
+          <div class="info-dialog__update">
+            <button class="btn btn--secondary btn--sm" id="info-check-update">检查更新</button>
+            <span class="info-dialog__update-status" id="info-update-status"></span>
+          </div>
           <div class="info-dialog__section">
             <ul class="info-dialog__credits">
               <li><a href="https://github.com/Sisurtic/osu-skin-configurator" target="_blank" rel="noopener">GitHub / osu-skin-configurator</a></li>
@@ -137,6 +141,7 @@
   <script src="js/api.js"></script>
   <script src="js/components/toast.js"></script>
   <script src="js/components/info-dialog.js"></script>
+  <script src="js/components/update-check.js"></script>
   <script src="js/components/settings-view.js"></script>
   <script src="js/components/skin-list.js"></script>
   <script src="js/components/preset-list.js"></script>

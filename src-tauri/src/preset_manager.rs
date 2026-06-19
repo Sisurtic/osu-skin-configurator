@@ -105,19 +105,6 @@ fn find_group_mut<'a>(cfg: &'a mut Config, group_id: i64) -> Option<usize> {
     cfg.groups.iter().position(|g| g.id == group_id)
 }
 
-fn find_parent(cfg: &Config, child_id: i64, kind: &str) -> Option<Option<i64>> {
-    // returns Some(parent_group_id_or_None_for_root) if found
-    if kind == "group" {
-        if cfg.root_group_ids.contains(&child_id) { return Some(None); }
-    }
-    for g in &cfg.groups {
-        if g.children.iter().any(|c| c.kind == kind && c.id == child_id) {
-            return Some(Some(g.id));
-        }
-    }
-    None
-}
-
 fn remove_from_parent(cfg: &mut Config, child_id: i64, kind: &str) -> bool {
     if kind == "group" {
         if let Some(pos) = cfg.root_group_ids.iter().position(|x| *x == child_id) {
@@ -204,6 +191,11 @@ pub fn compact_ids(cfg: &mut Config) {
 
 pub fn scan_skin(skin_path: &str) -> Value {
     let cfg = load_config(skin_path);
+    // Self-clean: if both presets and groups are empty, the config.osp is a
+    // dead husk left by a full deletion — remove it so the skin folder is clean.
+    if cfg.presets.is_empty() && cfg.groups.is_empty() {
+        let _ = fs::remove_file(config_path(skin_path));
+    }
     let preset_summaries: Vec<Value> = cfg.presets.iter().map(|p| {
         let id = p.get("id").cloned().unwrap_or(json!(0));
         let meta = p.get("meta").cloned().unwrap_or_else(|| json!({"name": format!("预设 {}", id)}));
@@ -263,7 +255,41 @@ pub fn delete_preset(skin_path: &str, preset_id: i64) {
     cfg.presets.retain(|p| p.get("id").and_then(|v| v.as_i64()) != Some(preset_id));
     remove_from_parent(&mut cfg, preset_id, "preset");
     compact_ids(&mut cfg);
-    save_config(skin_path, &cfg);
+    save_or_prune(skin_path, &cfg);
+}
+
+/// Delete many presets in one pass. MUST be used for multi-select deletion:
+/// compact_ids() re-numbers every preset id after each delete, so deleting one
+/// at a time with stale ids silently misses half of them.
+pub fn delete_presets(skin_path: &str, preset_ids: &[i64]) -> usize {
+    if preset_ids.is_empty() {
+        return 0;
+    }
+    let mut cfg = load_config(skin_path);
+    let to_delete: HashSet<i64> = preset_ids.iter().copied().collect();
+    cfg.presets.retain(|p| {
+        let id = p.get("id").and_then(|v| v.as_i64());
+        id.map_or(true, |id| !to_delete.contains(&id))
+    });
+    let mut removed = 0;
+    for id in preset_ids {
+        if remove_from_parent(&mut cfg, *id, "preset") {
+            removed += 1;
+        }
+    }
+    compact_ids(&mut cfg);
+    save_or_prune(skin_path, &cfg);
+    removed
+}
+
+/// Persist config, OR — if every preset (and group) is gone — delete config.osp
+/// so the skin folder is clean again rather than holding an empty tree.
+fn save_or_prune(skin_path: &str, cfg: &Config) {
+    if cfg.presets.is_empty() && cfg.groups.is_empty() {
+        let _ = fs::remove_file(config_path(skin_path));
+    } else {
+        save_config(skin_path, cfg);
+    }
 }
 
 // ── Group CRUD ──

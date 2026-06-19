@@ -135,6 +135,12 @@ fn presets_delete(app: AppHandle, skin_name: String, preset_id: i64) -> Value {
     wrap_ok(json!(true))
 }
 #[tauri::command]
+fn presets_delete_multiple(app: AppHandle, skin_name: String, preset_ids: Vec<i64>) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    let removed = preset_manager::delete_presets(&sp, &preset_ids);
+    wrap_ok(json!(removed))
+}
+#[tauri::command]
 fn presets_apply(app: AppHandle, skin_name: String, preset_id: i64) -> Value {
     let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
     match preset_applier::apply_preset(&sp, preset_id) {
@@ -282,6 +288,132 @@ fn app_get_version(app: AppHandle) -> Value {
     wrap_ok(json!(v))
 }
 
+// ── update check (GitHub releases) ──
+//
+// Checks the latest GitHub release and, on user action, downloads the
+// installer asset and runs it (the installer replaces the app in place).
+// All failure modes are silent (offline / rate-limited / parse error) —
+// "no update found" simply leaves the UI unchanged.
+
+const GH_API_LATEST: &str = "https://api.github.com/repos/Sisurtic/osu-skin-configurator/releases/latest";
+
+#[derive(serde::Deserialize)]
+struct GhAsset {
+    name: String,
+    browser_download_url: String,
+}
+#[derive(serde::Deserialize)]
+struct GhRelease {
+    tag_name: String,
+    html_url: String,
+    #[serde(default)]
+    assets: Vec<GhAsset>,
+}
+#[derive(serde::Serialize)]
+struct UpdateInfo {
+    latest_version: String,
+    release_url: String,
+    is_update: bool,
+}
+
+/// Parse "v1.2.3" or "1.2.3" into (major, minor, patch); unparseable → 0.
+fn parse_semver(s: &str) -> (u32, u32, u32) {
+    let s = s.trim().trim_start_matches('v');
+    let mut it = s.split('.').map(|p| p.trim().trim_end_matches(|c: char| !c.is_ascii_digit()).parse::<u32>().unwrap_or(0));
+    (it.next().unwrap_or(0), it.next().unwrap_or(0), it.next().unwrap_or(0))
+}
+
+fn gh_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent("osu-skin-configurator-updater")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("client build failed: {}", e))
+}
+
+/// Fetch the latest release and compare to the running version.
+#[tauri::command]
+async fn check_latest_release(app: AppHandle) -> Value {
+    let current = app.package_info().version.to_string();
+    let client = match gh_client() { Ok(c) => c, Err(e) => return wrap_err(&e) };
+    let resp = match client.get(GH_API_LATEST).header("Accept", "application/vnd.github+json").send().await {
+        Ok(r) => r,
+        Err(_) => return wrap_err("network error"),
+    };
+    if !resp.status().is_success() {
+        return wrap_err("github request failed"); // rate-limit (403) etc. → silent
+    }
+    let body: GhRelease = match resp.json().await {
+        Ok(b) => b,
+        Err(_) => return wrap_err("parse error"),
+    };
+    let is_update = parse_semver(&body.tag_name) > parse_semver(&current);
+    wrap_ok(json!(UpdateInfo {
+        latest_version: body.tag_name,
+        release_url: body.html_url,
+        is_update,
+    }))
+}
+
+/// Download the latest release's installer asset to a temp file and launch it.
+/// Returns the asset name so the UI can report what was launched. Fails silent.
+#[tauri::command]
+async fn download_and_run_latest_release() -> Value {
+    let client = match gh_client() { Ok(c) => c, Err(e) => return wrap_err(&e) };
+
+    let resp = match client.get(GH_API_LATEST).header("Accept", "application/vnd.github+json").send().await {
+        Ok(r) => r,
+        Err(_) => return wrap_err("network error"),
+    };
+    if !resp.status().is_success() {
+        return wrap_err("github request failed");
+    }
+    let release: GhRelease = match resp.json().await {
+        Ok(b) => b,
+        Err(_) => return wrap_err("parse error"),
+    };
+
+    // Prefer a Windows installer asset; fall back to the first asset.
+    let asset = release.assets.iter()
+        .find(|a| {
+            let n = a.name.to_ascii_lowercase();
+            n.ends_with(".exe") || n.ends_with(".msi")
+        })
+        .or_else(|| release.assets.first());
+    let asset = match asset {
+        Some(a) => a,
+        None => return wrap_err("no installer asset found"),
+    };
+
+    // Stream into a temp file next to the chosen name.
+    let tmp_dir = match std::env::temp_dir().canonicalize() {
+        Ok(d) => d,
+        Err(_) => return wrap_err("temp dir unavailable"),
+    };
+    let dest = tmp_dir.join(&asset.name);
+    let bytes = match client.get(&asset.browser_download_url).send().await {
+        Ok(r) => r,
+        Err(_) => return wrap_err("download failed"),
+    };
+    let content = match bytes.bytes().await {
+        Ok(b) => b,
+        Err(_) => return wrap_err("download read failed"),
+    };
+    if let Err(_) = std::fs::write(&dest, &content) {
+        return wrap_err("write failed");
+    }
+
+    // Launch the installer (detached). The installer replaces the app in place.
+    #[cfg(windows)]
+    let spawn = std::process::Command::new(&dest).spawn();
+    #[cfg(not(windows))]
+    let spawn = std::process::Command::new("open").arg(&dest).spawn();
+    match spawn {
+        Ok(_) => wrap_ok(json!(asset.name)),
+        Err(_) => wrap_err("launch failed"),
+    }
+}
+
 // ── .osp argv parsing ──
 
 fn skin_name_from_osp(arg: &str) -> Option<String> {
@@ -354,12 +486,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             osu_auto_detect, osu_get_path, osu_get_last_skin, osu_set_last_skin, osu_set_path,
             skins_scan, skins_read_ini, skins_get_path,
-            presets_scan, presets_load, presets_save, presets_delete, presets_apply, presets_apply_multiple,
+            presets_scan, presets_load, presets_save, presets_delete, presets_delete_multiple, presets_apply, presets_apply_multiple,
             groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_delete_recursive,
             image_get_preview,
             shortcuts_load, shortcuts_save,
             global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_reload,
-            app_get_open_file, app_get_version,
+            app_get_open_file, app_get_version, check_latest_release, download_and_run_latest_release,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

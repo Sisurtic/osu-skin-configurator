@@ -40,6 +40,7 @@
     loadPreset: (skinName, presetId) => call('presets_load', { skinName, presetId }),
     savePreset: (skinName, presetId, data) => call('presets_save', { skinName, presetId, data }),
     deletePreset: (skinName, presetId) => call('presets_delete', { skinName, presetId }),
+    deletePresets: (skinName, presetIds) => call('presets_delete_multiple', { skinName, presetIds }),
     applyPreset: (skinName, presetId) => call('presets_apply', { skinName, presetId }),
     applyMultiplePresets: (skinName, presetIds) => call('presets_apply_multiple', { skinName, presetIds }),
 
@@ -86,6 +87,8 @@
     // --- file open (.osp double-click) ---
     getOpenFileArg: () => call('app_get_open_file'),
     getAppVersion: () => call('app_get_version'),
+    checkLatestRelease: () => call('check_latest_release'),
+    downloadAndRunLatestRelease: () => call('download_and_run_latest_release'),
     onOpenOspFile: (callback) => {
       if (!T || !T.event || !T.event.listen) return;
       T.event.listen('open-osp-file', (event) => {

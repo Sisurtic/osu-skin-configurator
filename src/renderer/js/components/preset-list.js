@@ -31,6 +31,7 @@
     const groups = state.get('groups') || [];
     const rootGroupIds = state.get('rootGroupIds') || [];
     countEl.textContent = presets.length > 0 ? presets.length : '';
+    countEl.style.display = presets.length > 0 ? '' : 'none';
 
     if (presets.length === 0 && groups.length === 0) {
       const isCreatingNew = selectedPreset === '__new__';
@@ -352,17 +353,17 @@
         const skin = state.get('selectedSkin');
         if (!skin) return;
         if (dragPresetIds && dragPresetIds.length > 0) {
-          for (const pid of dragPresetIds) {
-            await api.deletePreset(skin, pid);
-            if (state.get('selectedPreset') === pid) {
-              state.set('selectedPreset', null);
-            }
+          const ids = [...dragPresetIds];
+          // Batch delete — one-by-one leaves stale ids after compact_ids.
+          const result = await api.deletePresets(skin, ids);
+          if (result.success && ids.includes(state.get('selectedPreset'))) {
+            state.set('selectedPreset', null);
           }
           await refreshSkinData(skin);
           multiSelected.clear();
           lastClickedId = null;
           updateMultiSelectHighlights();
-          Toast.info(`已删除 ${dragPresetIds.length} 个预设`);
+          Toast.info(`已删除 ${ids.length} 个预设`);
         } else if (dragGroupId) {
           const result = await api.deleteGroupRecursive(skin, dragGroupId);
           if (result.success) {
@@ -828,19 +829,18 @@
     );
     if (!confirmed || confirmed !== 'delete') return;
 
-    let deleted = 0;
-    for (const id of ids) {
-      const result = await api.deletePreset(skin, id);
-      if (result.success) {
-        deleted++;
-        if (state.get('selectedPreset') === id) {
-          state.set('selectedPreset', null);
-        }
+    // Batch delete in one pass — deletePresets compacts ids once, whereas
+    // deleting one-by-one leaves the frontend holding stale ids (compact_ids
+    // re-numbers every preset after each delete) and only removes ~half.
+    const result = await api.deletePresets(skin, ids);
+    if (result.success) {
+      if (ids.includes(state.get('selectedPreset'))) {
+        state.set('selectedPreset', null);
       }
+      multiSelected.clear();
+      lastClickedId = null;
+      if (result.data > 0) Toast.success(`已删除 ${result.data} 个预设`);
     }
-    multiSelected.clear();
-    lastClickedId = null;
-    if (deleted > 0) Toast.success(`已删除 ${deleted} 个预设`);
     await refreshSkinData(skin);
   }
 
