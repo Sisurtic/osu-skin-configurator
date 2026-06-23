@@ -1,156 +1,110 @@
 # osu! Skin Configurator
 
-一个用于给 osu! 皮肤创建**预设**并一键切换的桌面工具。把一组「skin.ini 改动 + 文件复制 + 文件删除」打包成一个预设，手动点击或绑定全局快捷键即可瞬间应用——无需反复手改 ini、无需备份还原。
+A desktop tool for creating **presets** of osu! skin changes and switching between them instantly. Bundle skin.ini edits + file copies + file deletions into a named preset, apply with a click or a global hotkey — no more manual ini editing or backup/restore.
 
-- 平台：**Windows**(osu! stable 为 Windows 专属)
-- 技术栈：Tauri v2(Rust 后端 + 原生 JS 渲染层),单文件 exe 仅约 **4.8 MB**,免安装直接运行
-- 界面语言：简体中文 / English / 繁體中文 / 日本語 / 한국어 / Русский(按系统语言自动选择)
-- **前置要求**：[WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)(Windows 10/11 通常已预装；如未安装可从该链接下载)
+- **Platform:** Windows (osu! stable is Windows-only)
+- **Tech:** Tauri v2 (Rust backend + vanilla JS renderer), standalone **~4.8 MB** exe, no installation required
+- **Languages:** English / 简体中文 / 繁體中文 / 日本語 / 한국어 / Русский (auto-detected from system locale)
+- **中文文档:** [README.zh-CN.md](README.zh-CN.md)
 
 ---
 
-## 功能总览
+## Features
 
-| 能力 | 说明 |
+| Feature | Description |
 |---|---|
-| 🎨 **预设系统** | 把 ini 改动、文件复制、文件删除组合成一个可命名的「预设」,存放在每个皮肤的 `config.osp` 中 |
-| 📂 **分组树** | 用分组(支持任意层级嵌套)整理预设,拖拽排序 / 嵌套 / 移动 |
-| ⚡ **一键应用** | 单选或多选预设,确认后批量应用;相同 ini 字段以「后应用的预设」为准 |
-| 🌐 **全局快捷键** | 给预设绑定全局热键,**仅当 osu! 在前台时触发**,应用在后台/最小化也能用 |
-| 🖱️ **拖拽编辑** | 拖拽预设入组、拖组嵌套、拖到删除区、Ctrl+C 复制、Ctrl+G 智能建组 |
-| 🔧 **可重绑快捷键** | 应用内所有操作(刷新、切换模式、保存、新建…)均可自定义热键 |
-| 🔄 **自动更新** | 检测 GitHub 新版本,标题栏圆点发光提示,点击直接下载安装包并升级 |
-| 📎 **`.osp` 文件关联** | 双击皮肤文件夹里的 `config.osp` 即可打开该皮肤的预设配置 |
+| 🎨 **Preset system** | Bundle skin.ini edits, file moves, and file deletions into named presets, stored per-skin in `config.osp` |
+| 📂 **Group tree** | Organize presets into nested groups with drag-and-drop reordering |
+| ⚡ **One-click apply** | Select presets, confirm, apply — or bind global hotkeys for instant switching |
+| 🌐 **Global hotkeys** | Bind per-preset global shortcuts that fire **only when osu! is focused** |
+| 🖱️ **Drag-and-drop editing** | Drag presets into groups, drag to delete, Ctrl+C duplicate, Ctrl+G smart grouping |
+| 🔧 **Rebindable shortcuts** | All in-app actions (refresh, mode toggle, save, new, etc.) have customizable hotkeys |
+| 🔄 **Auto-update** | Checks GitHub for new releases on startup, one-click download and upgrade |
+| 📎 **`.osp` file association** | Double-click a skin's `config.osp` to open it directly |
 
-### 两种工作模式
+### Two modes
 
-工具栏的 **✏️** 按钮(或 `Ctrl+E`)在两种模式间切换:
+Toggle with the ✏️ button or `Ctrl+E`:
 
-- **👁️ 使用模式**(默认):左侧皮肤列表,右侧预设选择器。选中预设 → 点「应用」或按 `Space`。
-- **✏️ 编辑模式**:左侧变为预设/分组树,右侧是预设编辑器(4 个标签页)。
-
----
-
-## 使用教程
-
-### 1. 设置 osu! 路径
-
-首次启动会自动探测(依次查找 `%LOCALAPPDATA%\osu!`、`C:\osu!`…`F:\osu!`)。若未找到,点顶部路径文字手动选择包含 `osu!.exe` 的目录。
-
-### 2. 选择皮肤 & 新建预设
-
-1. **使用模式**左侧选中目标皮肤。
-2. 切到 **✏️ 编辑模式**。
-3. 左侧树底部点 **+ 新建分组** → 再点 **+ 新建预设**(预设必须放在分组内)。
-
-### 3. 编辑预设内容(4 个标签页,可用 `1`~`4` 切换)
-
-| 标签 | 内容 |
-|---|---|
-| **基本信息** | 预设名称(必填)、描述、预览图 |
-| **INI 编辑** | 从内置 skin.ini 字段表里选 section + key,按类型填写(布尔/颜色色块/路径/数字/列表)。`[Mania]` 字段需先填 **Keys 数(1–18)**;`Colour#` 等按列字段会自动展开成 N 行,并提供「# 填充」一键填充 |
-| **文件操作** | **＋ 复制**:选外部文件,填入皮肤内目标路径(如 `mania/`);**＋ 删除**:选要删除的皮肤内文件。图片有缩略图预览 |
-| **预览图片** | 从皮肤文件夹里挑一张图作为预览,使用模式悬停时显示 |
-
-> 路径安全:所有复制/删除路径都经过双重校验(拒绝 `..` 与绝对路径,再做词法规范化后限定在皮肤目录内)。
-
-### 4. 应用预设
-
-- **使用模式**:左侧分组树里点选(可 `Ctrl+点击` 多选)→ 顶部 **▶ 应用 (N)** 或按 `Space`。
-- 弹窗会列出每个预设的 INI/复制/删除条数与合计,确认后执行,并返回跳过的操作警告。
-
-### 5. 绑定全局快捷键(核心玩法)
-
-1. 使用模式下,对某个预设 **右键** → 开始录制。
-2. 按下想要的热键(如 `Ctrl+Alt+1`);`Ctrl+右键` 可把多个预设绑到同一个热键。
-3. 绑定后,**只要 osu! 在前台**,按下该热键即自动应用对应预设,并弹出系统通知。
-
-> 修饰键:`Ctrl/Alt/Shift` + 任意键,或 `F1`~`F12`、数字键、字母键。裸 `Esc/Space/Tab` 等不可单独绑定。热键会在切换皮肤时自动重新注册,仅在 osu! 前台时触发,后台不影响其它程序。
-
-### 6. 分组与预设管理(编辑模式左侧树)
-
-- **多选**:`Ctrl/Cmd+点击` 切换、`Shift+点击` 范围选
-- **拖拽**:预设拖入分组=移动;预设拖到空白=变为根级;分组拖到另一分组=嵌套(禁止拖进自己的子分组)
-- **删除**:选中后拖到底部删除区;分组删除会连同子项一并递归删除
-- **重命名**:双击分组名(Enter 保存 / Esc 取消)
-- **折叠**:`Shift+点击` 箭头可递归折叠/展开整棵子树
-- **复制**:`Ctrl+C` 复制为「副本」
-- **智能建组**:`Ctrl+G` 选中若干预设后新建分组,自动归入它们的共同父级
-
-### 7. 应用内快捷键
-
-点 🔧 按钮打开设置,点任意行重新绑定:
-
-| 操作 | 默认 | 操作 | 默认 |
-|---|---|---|---|
-| 刷新 | `Ctrl+R` | 新建预设 | `Ctrl+N` |
-| 切换模式 | `Ctrl+E` | 新建分组 | `Ctrl+G` |
-| 保存 | `Ctrl+S` | 应用 | `Space` |
-| 复制预设 | `Ctrl+C` | 切换标签 | `1`~`4` |
-
-### 8. 更新检测
-
-启动时自动后台查询 GitHub 最新版本(不阻塞启动、离线静默)。有新版本时,**标题栏左侧圆点**会呈现渐变 + 呼吸发光;点击它或在「关于」对话框(点标题文字打开)里点「立即更新」,即可下载安装包并自动运行升级。
-
-### 9. `.osp` 文件关联
-
-皮肤目录下的 `config.osp` 就是该皮肤的预设配置文件。**双击它**会直接启动本工具并定位到对应皮肤(已运行则切换到该皮肤并聚焦窗口)。首次运行时程序会自动注册该关联(注册到当前用户)。
+- **👁️ Use mode** (default): Skin list + preset selector grid. Select presets and apply.
+- **✏️ Edit mode**: Preset/group tree editor with 3 tabs:
+  - **Basic info:** Name, description, preview image picker
+  - **INI edits:** Type-aware skin.ini field editor (bool/number/color/path/enum) with sorting and Mania perColumn support
+  - **File moves:** Copy files within the skin folder, mark files for deletion
 
 ---
 
-## 数据存储
+## Download & Usage
 
-- **每个皮肤**: `osu!\Skins\<皮肤名>\config.osp`(预设树)
-- **应用全局配置**: 系统 AppData 目录下的 `config.json`(osu 路径、上次皮肤、窗口位置、快捷键绑定)
-- 当某皮肤的预设和分组**全部清空**时,`config.osp` 会被自动删除,保持皮肤目录干净。
+### Download
+
+Get `osu-skin-configurator.exe` from [Releases](https://github.com/Sisurtic/osu-skin-configurator/releases).
+
+### Prerequisites
+
+- **Windows 10/11**
+- **[WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)** — usually pre-installed on Windows 10/11
+
+### Quick start
+
+1. Launch the exe — it auto-detects your osu! installation (`%LOCALAPPDATA%\osu!`)
+2. Select a skin from the left sidebar
+3. Click ✏️ to enter edit mode → create a preset group → create a preset
+4. Add skin.ini edits and/or file operations
+5. Click 💾 Save
+6. Switch back to 👁️ Use mode, hover a preset to preview, click ▶ Apply (or `Space`)
 
 ---
 
-## 构建与开发
+## Data storage
 
-### 前置要求
+- **Per skin:** `osu!\Skins\<SkinName>\config.osp` (preset tree)
+- **App config:** System AppData directory (`config.json`: osu! path, last skin, window bounds, shortcut bindings)
+- **File paths:** All preview images and file sources are stored as **skin-relative paths** for portability across machines
 
-- **Rust**(stable,edition 2021)+ `cargo`
-- **Tauri CLI v2**:`cargo install tauri-cli --version "^2"`
-- **Windows 10/11** + MSVC 构建工具链
-- **WebView2 Runtime**(打包安装器会自动按需下载)
+---
 
-### 常用命令
+## Localization
+
+The app supports 6 languages, auto-detected from the system locale. To add a new language, see [Localization guide](README.md#localization-contribution) below.
+
+### Localization contribution
+
+Translation files are in [`src/renderer/js/locales/`](src/renderer/js/locales/). To add a new language:
+
+1. Copy [`en.json`](src/renderer/js/locales/en.json), rename to `xx-XX.json` (BCP-47 code)
+2. Translate all values (keep `{placeholders}` and keys unchanged)
+3. Set `"_name"` to the native language name
+4. `easterEggs` array can be customized per language
+5. Submit a Pull Request — the app auto-discovers new locale files
+
+For skin.ini field label translations, add entries to the `iniFields` and `iniOptions` objects in each locale file.
+
+---
+
+## Build & Development
+
+### Prerequisites
+
+- **Rust** (stable, edition 2021) + `cargo`
+- **Tauri CLI v2:** `cargo install tauri-cli --version "^2"`
+- **Windows 10/11** + MSVC build tools
+- **WebView2 Runtime** (bootstrapped by the installer)
+
+### Commands
 
 ```bash
-# 开发模式(热重载)
-npm run dev        # 等价于 cargo tauri dev
+# Development (hot reload)
+npm run dev        # → cargo tauri dev
 
-# 打包安装器(产出 src-tauri/target/release/bundle/nsis/*.exe)
-npm run build      # 等价于 cargo tauri build
+# Build standalone exe (~4.8MB)
+npm run build     # → cargo tauri build
 ```
 
-> 渲染层是无框架、无打包步骤的纯 JS,因此无需 `npm install` 应用依赖,只需 Tauri CLI。发布构建已开启 `opt-level="z"` + LTO + strip,以压到最小体积。
+The renderer is unbundled vanilla JS — no `npm install` of app dependencies needed, only the Tauri CLI.
 
 ---
 
-## 本地化贡献
-
-应用支持多语言，所有翻译文件位于 [`src/renderer/js/locales/`](src/renderer/js/locales/)。
-
-### 添加新语言
-
-1. 复制 [`en.json`](src/renderer/js/locales/en.json)（或任意已有语言），重命名为 `xx-XX.json`（BCP-47 语言代码，如 `es-ES.json`、`fr-FR.json`）。
-2. 翻译 JSON 中的所有 `value` 值（**不要改 key 名**）。
-3. 在文件顶部设置 `"_name"` 为该语言的母语名称（如 `"Español"`）。
-4. `easterEggs` 数组可自由定制该语言的彩蛋文本和触发概率。
-5. 提交 Pull Request 即可。程序会自动识别新语言文件并出现在语言菜单中。
-
-### 要点
-
-- **占位符**（如 `{count}`、`{name}`、`{id}`、`{msg}` 等）必须原样保留，不要翻译或删除。
-- **emoji**（📁📄🎨✏️👁️ 等）可保留或替换为该语言习惯的符号。
-- **osu! 专有术语**（HitCircle、Mania、SliderBall、Combo 等）建议保留英文或使用社区惯用译法。
-- 界面文本翻译完成后，如需翻译 **skin.ini 字段标签**，在 [`src/renderer/js/utils/ini-field-defs.js`](src/renderer/js/utils/ini-field-defs.js) 中为每个字段添加 `xx` 属性（如 `ko`、`ru`），并在 `fieldLabel()` / `optionLabel()` 函数中添加对应语言的回退分支。
-- 后端错误消息位于 [`src-tauri/src/i18n.rs`](src-tauri/src/i18n.rs) 的 `lookup()` 函数中，添加对应语言的翻译即可。
-
----
-
-## 许可证
+## License
 
 MIT © Citrusis

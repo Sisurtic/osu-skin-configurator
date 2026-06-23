@@ -211,16 +211,24 @@
       try {
         fileDialogOpen = true;
         blockUI();
-        const defaultPath = await skinPath() || '';
+        const skPath = await skinPath() || '';
         const result = await api.selectFile([
           { name: i18n.t('file.allFilesFilter'), extensions: ['*'] }
-        ], defaultPath);
+        ], skPath);
         if (!result.success || !result.data || !result.data.length) return;
 
-        const filePaths = result.data;
+        // Only allow files inside the skin folder; store as skin-relative path.
         const copies = getCopies ? [...getCopies()] : [];
-        for (const filePath of filePaths) {
-          copies.push({ source: filePath, destination: '' });
+        for (const absPath of result.data) {
+          let relPath = '';
+          if (skPath && absPath.toLowerCase().startsWith(skPath.toLowerCase())) {
+            relPath = absPath.slice(skPath.length).replace(/^[/\\]/, '');
+          }
+          if (!relPath) {
+            Toast.warning(i18n.t('file.outsideSkin'));
+            continue;
+          }
+          copies.push({ source: relPath, destination: '' });
         }
         setCopies(copies);
         render(container);
@@ -539,13 +547,11 @@
       const raw = span.dataset.path;
       // Skip spans that already show an image (rendered from cache synchronously).
       if (span.querySelector('img')) continue;
-      // Resolve the on-disk path to fetch (delete items use relative paths).
+      // Resolve the on-disk path to fetch (both copy and delete use skin-relative paths).
       let p = raw;
-      if (span.classList.contains('file-del-thumb') && skPath) {
-        const isAbs = /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('/');
-        if (!isAbs) {
-          p = skPath.replace(/\\/g, '/').replace(/\/$/, '') + '/' + p.replace(/\\/g, '/');
-        }
+      const isAbs = /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('/');
+      if (!isAbs && skPath) {
+        p = skPath.replace(/\\/g, '/').replace(/\/$/, '') + '/' + p.replace(/\\/g, '/');
       }
       if (!isImagePath(p)) continue;
       // Cache keyed by the RAW data-path so re-renders can use it synchronously.

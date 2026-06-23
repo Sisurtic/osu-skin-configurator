@@ -196,7 +196,8 @@
     "tagDelete": "Delete",
     "destPlaceholder": "e.g. mania/ (blank = skin root)",
     "removeLabel": "— Remove —",
-    "deleteRowsConfirm": "Delete the {n} selected file action(s)?"
+    "deleteRowsConfirm": "Delete the {n} selected file action(s)?",
+    "outsideSkin": "Only files inside the skin folder can be selected"
   },
   "preview": {
     "heading": "Preview image",
@@ -207,7 +208,8 @@
     "selectSkinFirst": "Select a skin first",
     "imageFilter": "Image",
     "setToast": "Preview image set",
-    "removedToast": "Preview image removed"
+    "removedToast": "Preview image removed",
+    "outsideSkin": "Only files inside the skin folder can be selected"
   },
   "settings": {
     "pathSet": "osu! path is set",

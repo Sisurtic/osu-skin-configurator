@@ -196,7 +196,8 @@
     "tagDelete": "刪除",
     "destPlaceholder": "如: mania/ (留空為根目錄)",
     "removeLabel": "— 移除 —",
-    "deleteRowsConfirm": "確定要刪除選中的 {n} 個檔案操作嗎?"
+    "deleteRowsConfirm": "確定要刪除選中的 {n} 個檔案操作嗎?",
+    "outsideSkin": "只能選擇皮膚資料夾內的檔案"
   },
   "preview": {
     "heading": "預覽圖片",
@@ -207,7 +208,8 @@
     "selectSkinFirst": "請先選擇皮膚",
     "imageFilter": "圖片",
     "setToast": "預覽圖已設定",
-    "removedToast": "預覽圖已移除"
+    "removedToast": "預覽圖已移除",
+    "outsideSkin": "只能選擇皮膚資料夾內的檔案"
   },
   "settings": {
     "pathSet": "osu! 路徑已設定",

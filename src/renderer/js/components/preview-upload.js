@@ -86,18 +86,22 @@
   // the image blank while re-fetching.
   const previewCache = new Map();
 
-  async function loadPreviewImage(imagePath) {
-    if (!imagePath) return;
+  async function loadPreviewImage(relPath) {
+    if (!relPath) return;
     const img = document.getElementById('preview-img');
-    // Synchronous restore from cache to avoid a flash.
-    if (img && previewCache.has(imagePath)) {
-      img.src = previewCache.get(imagePath);
+    if (img && previewCache.has(relPath)) {
+      img.src = previewCache.get(relPath);
       img.style.display = '';
       return;
     }
-    const result = await api.getPreviewDataUrl(imagePath);
+    // Resolve skin-relative path to absolute for the API.
+    const skin = skinNameFn();
+    const skPathResult = skin ? await api.getSkinPath(skin) : null;
+    const skPath = skPathResult && skPathResult.success ? skPathResult.data : '';
+    const absPath = skPath ? skPath.replace(/\\/g, '/') + '/' + relPath : relPath;
+    const result = await api.getPreviewDataUrl(absPath);
     if (img && result.success && result.data) {
-      previewCache.set(imagePath, result.data);
+      previewCache.set(relPath, result.data);
       img.src = result.data;
       img.style.display = '';
     }
@@ -123,15 +127,25 @@
     dialogOpen = true;
     blockUI();
     const skPathResult = await api.getSkinPath(skin);
-    const defaultPath = skPathResult.success ? skPathResult.data : '';
+    const skPath = skPathResult.success ? skPathResult.data : '';
+    const defaultPath = skPath || '';
     const result = await api.selectFile([
       { name: i18n.t('preview.imageFilter'), extensions: ['png', 'jpg', 'jpeg', 'gif'] }
     ], defaultPath);
     dialogOpen = false;
     unblockUI();
     if (!result.success || !result.data || !result.data.length) return;
-    const imagePath = result.data[0];
-    setPreviewDataUrl(imagePath);
+    const absPath = result.data[0];
+    // Only allow files inside the skin folder; store as skin-relative path.
+    let relPath = '';
+    if (skPath && absPath.toLowerCase().startsWith(skPath.toLowerCase())) {
+      relPath = absPath.slice(skPath.length).replace(/^[/\\]/, '');
+    }
+    if (!relPath) {
+      Toast.warning(i18n.t('preview.outsideSkin'));
+      return;
+    }
+    setPreviewDataUrl(relPath);
     Toast.info(i18n.t('preview.setToast'));
     const container = document.getElementById('preview-content');
     if (container) {

@@ -94,6 +94,12 @@ fn apply_one_set(
             warnings.push(crate::i18n::t("warn.copy_invalid_path", &[("name", &source_name)]));
             continue;
         }
+        // Source is stored as a skin-relative path; resolve to absolute.
+        let source_abs = if is_absolute_js(source) || Path::new(source).is_absolute() {
+            source.to_string()
+        } else {
+            PathBuf::from(skin_path).join(source).to_string_lossy().to_string()
+        };
         let is_dir_only = dest_rel.is_empty() || dest_rel.ends_with('/') || dest_rel.ends_with('\\');
         let dest_path = if is_dir_only {
             PathBuf::from(skin_path).join(dest_rel).join(&source_name)
@@ -108,8 +114,8 @@ fn apply_one_set(
         if let Some(parent) = dest_path.parent() {
             if !parent.exists() { let _ = std::fs::create_dir_all(parent); }
         }
-        if Path::new(source).exists() {
-            if std::fs::copy(source, &dest_path).is_ok() { files_copied += 1; }
+        if Path::new(&source_abs).exists() {
+            if std::fs::copy(&source_abs, &dest_path).is_ok() { files_copied += 1; }
         } else {
             warnings.push(crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
         }

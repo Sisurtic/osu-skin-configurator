@@ -497,15 +497,20 @@
     if (previewCache.__skin !== skin) {
       previewCache = { __skin: skin };
     }
-    for (const p of presets) {
-      const path = p.meta?.previewPath;
-      if (path && previewCache[p.id] === undefined) {
-        previewCache[p.id] = null; // mark as loading
-        api.getPreviewDataUrl(path).then(result => {
-          previewCache[p.id] = result?.success ? result.data : false;
-        });
+    // Resolve skin path once for resolving relative preview paths.
+    api.getSkinPath(skin).then(spResult => {
+      const skPath = spResult.success ? spResult.data.replace(/\\/g, '/') : '';
+      for (const p of presets) {
+        const relPath = p.meta?.previewPath;
+        if (relPath && previewCache[p.id] === undefined) {
+          previewCache[p.id] = null; // mark as loading
+          const absPath = skPath ? skPath + '/' + relPath : relPath;
+          api.getPreviewDataUrl(absPath).then(result => {
+            previewCache[p.id] = result?.success ? result.data : false;
+          });
+        }
       }
-    }
+    });
   }
 
   function renderPreviewContent(presetName, description, imgSrc) {
@@ -544,7 +549,12 @@
 
     clearTimeout(hoverTimer);
     hoverTimer = setTimeout(async () => {
-      const result = await api.getPreviewDataUrl(previewPath);
+      // Resolve skin-relative path to absolute for the API.
+      const skin = state.get('selectedSkin');
+      const spResult = skin ? await api.getSkinPath(skin) : null;
+      const skPath = spResult && spResult.success ? spResult.data.replace(/\\/g, '/') : '';
+      const absPath = skPath ? skPath + '/' + previewPath : previewPath;
+      const result = await api.getPreviewDataUrl(absPath);
       if (result?.success && result.data) {
         previewCache[presetId] = result.data;
         const curPanel = document.getElementById('preset-preview-panel');

@@ -196,7 +196,8 @@
     "tagDelete": "Удалить",
     "destPlaceholder": "напр. mania/ (пусто = корень скина)",
     "removeLabel": "— Удалить",
-    "deleteRowsConfirm": "Удалить выбранные {n} файловых действий?"
+    "deleteRowsConfirm": "Удалить выбранные {n} файловых действий?",
+    "outsideSkin": "Можно выбрать только файлы внутри папки скина"
   },
   "preview": {
     "heading": "Превью изображение",
@@ -207,7 +208,8 @@
     "selectSkinFirst": "Сначала выберите скин",
     "imageFilter": "Изображение",
     "setToast": "Превью установлено",
-    "removedToast": "Превью удалено"
+    "removedToast": "Превью удалено",
+    "outsideSkin": "Можно выбрать только файлы внутри папки скина"
   },
   "settings": {
     "pathSet": "Путь osu! задан",
