@@ -75,7 +75,7 @@
   "update": {
     "downloadFailed": "업데이트 다운로드 실패",
     "downloadFailedDetail": "업데이트 다운로드 실패: {msg}",
-    "downloaded": "{name} 다운로드 완료, 설치 프로그램을 시작합니다…"
+    "downloaded": "{name}에 다운로드했습니다. 앱을 닫고 이전 exe를 교체하세요."
   },
   "apply": {
     "confirmTitle": "프리셋 적용 확인",

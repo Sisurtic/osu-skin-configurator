@@ -75,7 +75,7 @@
   "update": {
     "downloadFailed": "更新のダウンロードに失敗しました",
     "downloadFailedDetail": "更新のダウンロードに失敗しました: {msg}",
-    "downloaded": "{name} をダウンロードしました。インストーラーを起動します…"
+    "downloaded": "{name} にダウンロードしました。アプリを閉じて古い exe を置き換えてください。"
   },
   "apply": {
     "confirmTitle": "プリセット適用の確認",

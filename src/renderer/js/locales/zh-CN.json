@@ -75,7 +75,7 @@
   "update": {
     "downloadFailed": "下载更新失败",
     "downloadFailedDetail": "下载更新失败: {msg}",
-    "downloaded": "已下载 {name}，即将启动安装程序…"
+    "downloaded": "已下载到 {name}，请关闭程序后替换旧 exe"
   },
   "apply": {
     "confirmTitle": "确认应用预设",

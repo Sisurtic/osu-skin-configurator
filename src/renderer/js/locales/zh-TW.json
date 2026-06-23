@@ -75,7 +75,7 @@
   "update": {
     "downloadFailed": "下載更新失敗",
     "downloadFailedDetail": "下載更新失敗: {msg}",
-    "downloaded": "已下載 {name},即將啟動安裝程式…"
+    "downloaded": "已下載到 {name}，請關閉程式後替換舊 exe"
   },
   "apply": {
     "confirmTitle": "確認套用預設",

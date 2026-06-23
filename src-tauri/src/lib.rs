@@ -362,6 +362,7 @@ struct GhRelease {
     assets: Vec<GhAsset>,
 }
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct UpdateInfo {
     latest_version: String,
     release_url: String,
@@ -393,7 +394,7 @@ async fn check_latest_release(app: AppHandle) -> Value {
         Err(_) => return wrap_err("network error"),
     };
     if !resp.status().is_success() {
-        return wrap_err("github request failed"); // rate-limit (403) etc. → silent
+        return wrap_err("github request failed");
     }
     let body: GhRelease = match resp.json().await {
         Ok(b) => b,
@@ -407,10 +408,10 @@ async fn check_latest_release(app: AppHandle) -> Value {
     }))
 }
 
-/// Download the latest release's installer asset to a temp file and launch it.
-/// Returns the asset name so the UI can report what was launched. Fails silent.
+/// Download the latest release's exe to a user-chosen path (save dialog).
+/// Does NOT auto-launch — the user replaces the old exe manually.
 #[tauri::command]
-async fn download_and_run_latest_release() -> Value {
+async fn download_and_run_latest_release(app: AppHandle) -> Value {
     let client = match gh_client() { Ok(c) => c, Err(e) => return wrap_err(&e) };
 
     let resp = match client.get(GH_API_LATEST).header("Accept", "application/vnd.github+json").send().await {
@@ -425,11 +426,11 @@ async fn download_and_run_latest_release() -> Value {
         Err(_) => return wrap_err("parse error"),
     };
 
-    // Prefer a Windows installer asset; fall back to the first asset.
+    // Prefer a Windows exe asset; fall back to the first asset.
     let asset = release.assets.iter()
         .find(|a| {
             let n = a.name.to_ascii_lowercase();
-            n.ends_with(".exe") || n.ends_with(".msi")
+            n.ends_with(".exe")
         })
         .or_else(|| release.assets.first());
     let asset = match asset {
@@ -437,33 +438,34 @@ async fn download_and_run_latest_release() -> Value {
         None => return wrap_err("no installer asset found"),
     };
 
-    // Stream into a temp file next to the chosen name.
-    let tmp_dir = match std::env::temp_dir().canonicalize() {
-        Ok(d) => d,
-        Err(_) => return wrap_err("temp dir unavailable"),
+    // Ask the user where to save via a file dialog.
+    use tauri_plugin_dialog::DialogExt;
+    let dest = match app.dialog().file()
+        .set_file_name(&asset.name)
+        .add_filter("Executable", &["exe"])
+        .blocking_save_file()
+    {
+        Some(p) => match p.as_path() {
+            Some(path) => path.to_path_buf(),
+            None => return wrap_err("invalid path"),
+        },
+        None => return wrap_ok(json!("cancelled")),
     };
-    let dest = tmp_dir.join(&asset.name);
-    let bytes = match client.get(&asset.browser_download_url).send().await {
+
+    // Download to the chosen path.
+    let dl_resp = match client.get(&asset.browser_download_url).send().await {
         Ok(r) => r,
         Err(_) => return wrap_err("download failed"),
     };
-    let content = match bytes.bytes().await {
+    let content = match dl_resp.bytes().await {
         Ok(b) => b,
         Err(_) => return wrap_err("download read failed"),
     };
-    if let Err(_) = std::fs::write(&dest, &content) {
+    if std::fs::write(&dest, &content).is_err() {
         return wrap_err("write failed");
     }
 
-    // Launch the installer (detached). The installer replaces the app in place.
-    #[cfg(windows)]
-    let spawn = std::process::Command::new(&dest).spawn();
-    #[cfg(not(windows))]
-    let spawn = std::process::Command::new("open").arg(&dest).spawn();
-    match spawn {
-        Ok(_) => wrap_ok(json!(asset.name)),
-        Err(_) => wrap_err("launch failed"),
-    }
+    wrap_ok(json!(dest.to_string_lossy().to_string()))
 }
 
 // ── .osp argv parsing ──

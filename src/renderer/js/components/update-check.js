@@ -60,6 +60,7 @@
         return false;
       }
       if (!result || !result.success) {
+        if (result && result.data === 'cancelled') return false;
         Toast.error(i18n.t('update.downloadFailedDetail', { msg: (result && result.error) || '' }));
         return false;
       }

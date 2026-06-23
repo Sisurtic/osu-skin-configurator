@@ -25,8 +25,8 @@ serde_json = "1"
 indexmap = { version = "2", features = ["serde"] }
 base64 = "0.22"
 # Used only for the GitHub update check + installer download.
-# default-features=false + rustls-tls avoids pulling native OpenSSL on Windows.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# rustls-tls-native-roots uses Windows system root certs (no OpenSSL needed).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
 # OS locale detection for backend-side i18n.
 sys-locale = "0.3"
 

@@ -75,7 +75,7 @@
   "update": {
     "downloadFailed": "Update download failed",
     "downloadFailedDetail": "Update download failed: {msg}",
-    "downloaded": "Downloaded {name}, launching installer…"
+    "downloaded": "Downloaded to {name}. Close this app and replace the old exe."
   },
   "apply": {
     "confirmTitle": "Confirm applying preset",

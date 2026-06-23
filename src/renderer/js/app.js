@@ -912,28 +912,6 @@
     e.preventDefault();
   });
 
-  // ── Titlebar: re-implement dragging and swallow double-click ──
-  // The native drag region (-webkit-app-region: drag) lets the OS maximize on
-  // double-click before the webview can intercept it. We removed that region
-  // (see layout.css) and drag via Tauri's startDragging() instead, so a plain
-  // dblclick listener can now suppress maximize.
-  const titlebar = document.querySelector('.titlebar');
-  if (titlebar) {
-    titlebar.addEventListener('dblclick', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    titlebar.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
-      // Don't start a drag from interactive children.
-      if (e.target.closest('button, a, input, [contenteditable], [data-no-drag]')) return;
-      try {
-        const T = window.__TAURI__;
-        if (T && T.window) T.window.getCurrentWindow().startDragging();
-      } catch (_) { /* ignore */ }
-    });
-  }
-
   // ── Boot ──
   init();
 })();
