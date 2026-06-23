@@ -24,7 +24,7 @@
     setLastSkin: (skinName) => call('osu_set_last_skin', { skinName }),
     setOsuPath: (p) => call('osu_set_path', { p }),
     browseForOsuPath: async () => {
-      const chosen = await dlg.open({ directory: true, title: '选择 osu! 安装目录 (包含 osu!.exe)' });
+      const chosen = await dlg.open({ directory: true, title: i18n.t('dialog.browseOsuTitle') });
       if (!chosen) return { success: true, data: null };
       const p = Array.isArray(chosen) ? chosen[0] : chosen;
       return { success: true, data: p };
@@ -80,13 +80,14 @@
       return { success: true, data: p };
     },
     showConfirm: async (message) => {
-      const ok = await dlg.ask(message, { title: '确认', kind: 'info' });
+      const ok = await dlg.ask(message, { title: i18n.t('dialog.confirm'), kind: 'info' });
       return { success: true, data: ok };
     },
 
     // --- file open (.osp double-click) ---
     getOpenFileArg: () => call('app_get_open_file'),
     getAppVersion: () => call('app_get_version'),
+    listLocales: () => call('locales_list'),
     checkLatestRelease: () => call('check_latest_release'),
     downloadAndRunLatestRelease: () => call('download_and_run_latest_release'),
     onOpenOspFile: (callback) => {

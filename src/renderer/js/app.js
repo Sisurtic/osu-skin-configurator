@@ -26,12 +26,24 @@
   async function init() {
     state.set('_initializing', true);
 
-    // Reveal the window now that the webview has loaded (window starts hidden in
-    // tauri.conf.json to avoid a white frame before WebView2 paints).
+    // Reveal the window now that the webview has loaded (window starts hidden
+    // in tauri.conf.json to avoid a white frame before WebView2 paints).
     try {
       const T = window.__TAURI__;
       if (T && T.window) T.window.getCurrentWindow().show();
     } catch (_) { /* ignore — window may already be visible */ }
+
+    // Load locale dictionaries from the backend (auto-discovered from the
+    // bundled locales folder), then apply the active locale to static HTML.
+    try {
+      const locRes = await api.listLocales();
+      if (locRes && locRes.success && locRes.data) i18n.load(locRes.data);
+    } catch (_) { /* fall back to keys/raw */ }
+    i18n.applyLocale();
+
+    // Register the full re-render hook so language switches update everything
+    // in one frame (no reload).
+    i18n.onRerender(rerenderAll);
 
     try {
       state.set('appMode', 'use');
@@ -65,7 +77,7 @@
       }
 
       toolbarPath.style.cursor = 'pointer';
-      toolbarPath.title = '点击设置 osu! 路径';
+      toolbarPath.title = i18n.t('app.clickToSetPath');
       toolbarPath.addEventListener('click', () => {
         switchView('settings');
         SettingsView.render();
@@ -82,7 +94,7 @@
           state.set('osuPath', detectResult.data);
           toolbarPath.textContent = detectResult.data;
         } else {
-          toolbarPath.textContent = '未设置 osu! 路径 — 点击此处设置';
+          toolbarPath.textContent = i18n.t('app.pathUnsetClickHint');
         }
       }
 
@@ -122,7 +134,7 @@
     } catch (err) {
       console.error('init failed:', err);
       if (window.Toast && typeof window.Toast.error === 'function') {
-        window.Toast.error('应用初始化失败: ' + (err && (err.message || String(err)) || '未知错误'));
+        window.Toast.error(i18n.t('app.initFailed', { msg: (err && (err.message || String(err)) || i18n.t('app.unknownError')) }));
       }
     } finally {
       state.set('_initializing', false);
@@ -131,7 +143,62 @@
       // settles before transitioning opacity (avoids a flash of reflowed content).
       requestAnimationFrame(() => requestAnimationFrame(() => {
         document.body.classList.add('is-ready');
+        // Equivalent to the language-switch path: after layout has settled
+        // (container has a real width), re-render once so layoutColumns in the
+        // INI / file-move editors applies column widths correctly on the very
+        // first view — no need to resize/switch presets first.
+        rerenderAll();
+
+        // First-launch warning: INI editing removes comments.
+        if (typeof localStorage !== 'undefined') {
+          try {
+            if (!localStorage.getItem('ini-comment-warn-dismissed')) {
+              showIniCommentWarning();
+            }
+          } catch (_) { /* ignore */ }
+        }
       }));
+    }
+  }
+
+  async function showIniCommentWarning() {
+    const msg = i18n.t('warn.iniCommentLoss');
+    if (!msg || msg === 'warn.iniCommentLoss') return;
+    try {
+      await ApplyDialog.showConfirmDialog(msg, [
+        { label: i18n.t('dialog.iKnow'), cls: 'btn--primary', value: 'ok' },
+      ]);
+    } catch (_) { /* ignore */ }
+    try { localStorage.setItem('ini-comment-warn-dismissed', '1'); } catch (_) {}
+  }
+
+  // Force every component to re-render (used after a language switch so all
+  // dynamically-rendered text updates in one frame, without a reload).
+  //
+  // IMPORTANT: we deliberately do NOT re-fire `selectedPreset` or `appMode`.
+  // Those listeners reload the preset from disk and would discard unsaved form
+  // edits. Instead we re-render the current view (PresetEditor.render reads
+  // from in-memory editData, so form values are preserved; only labels
+  // re-translate) and re-fire only display-only keys.
+  function rerenderAll() {
+    i18n.applyStatic();
+    const keys = ['skins', 'osuPath', 'presetDirty', 'activePresets',
+                  'presets', 'groups', 'rootGroupIds'];
+    const updates = {};
+    for (const k of keys) {
+      const v = state.get(k);
+      updates[k] = Array.isArray(v) ? [...v]
+        : (v && typeof v === 'object') ? { ...v }
+        : v;
+    }
+    state.setMultiple(updates);
+    renderCurrentView();
+    // Re-apply locale to toolbar button labels (mode + apply) which aren't
+    // covered by state subscriptions.
+    updateModeButton();
+    updateToolbarButtons();
+    if (window.SkinList && typeof window.SkinList.render === 'function') {
+      window.SkinList.render(state.get('skins') || [], state.get('selectedSkin'));
     }
   }
 
@@ -199,16 +266,16 @@
     if (!welcomeCard || !welcomeTitle) return;
 
     if (!osuPath) {
-      welcomeTitle.textContent = '欢迎使用 osu! Skin Configurator';
-      welcomeCard.textContent = '请先设置 osu! 安装路径，点击皮肤列表右侧按钮';
+      welcomeTitle.textContent = i18n.t('welcome.title');
+      welcomeCard.textContent = i18n.t('welcome.setPathFirst');
     } else {
       const skins = state.get('skins') || [];
       if (skins.length === 0) {
-        welcomeTitle.textContent = '未找到皮肤';
-        welcomeCard.textContent = 'Skins 文件夹为空或不存在，请检查 osu! 路径设置';
+        welcomeTitle.textContent = i18n.t('welcome.noSkinsTitle');
+        welcomeCard.textContent = i18n.t('welcome.noSkinsDesc');
       } else {
-        welcomeTitle.textContent = '欢迎使用 osu! Skin Configurator';
-        welcomeCard.textContent = '从左侧选择一个皮肤以查看和管理预设';
+        welcomeTitle.textContent = i18n.t('welcome.title');
+        welcomeCard.textContent = i18n.t('welcome.descSelect');
       }
     }
   }
@@ -220,7 +287,7 @@
   });
 
   state.on('osuPath', (p) => {
-    toolbarPath.textContent = p || '未设置 osu! 路径 — 点击此处设置';
+    toolbarPath.textContent = p || i18n.t('app.pathUnsetClickHint');
     if (p) {
       if (!state.get('_initializing')) scanSkins();
       if (state.get('currentView') === 'settings') {
@@ -303,7 +370,84 @@
     showShortcutsDialog();
   });
 
-  btnRescan.addEventListener('click', async () => {
+  // ── Language switcher ──
+  // Builds the dropdown from i18n.available() (auto-discovers any registered
+  // locale) and switches via i18n.setLocale (persists + reloads).
+  const langBtn = document.getElementById('btn-lang');
+  const langMenu = document.getElementById('lang-menu');
+  function buildLangMenu() {
+    if (!langMenu) return;
+    const current = i18n.locale();
+    const tags = i18n.available();
+    langMenu.innerHTML = tags.map(tag => {
+      const isCur = tag === current;
+      return `<div class="lang-switch__item ${isCur ? 'lang-switch__item--current' : ''}" data-locale="${tag}">${i18n.labelFor(tag)}${isCur ? ' ✓' : ''}</div>`;
+    }).join('');
+    langMenu.querySelectorAll('.lang-switch__item').forEach(item => {
+      item.addEventListener('click', () => {
+        langMenu.classList.remove('lang-switch__menu--open');
+        i18n.setLocale(item.dataset.locale);
+      });
+    });
+  }
+  if (langBtn && langMenu) {
+    langBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      buildLangMenu();
+      langMenu.classList.toggle('lang-switch__menu--open');
+    });
+    // Close when clicking elsewhere
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#lang-switch')) {
+        langMenu.classList.remove('lang-switch__menu--open');
+      }
+    });
+  }
+
+  btnRescan.addEventListener('click', () => { actionRefresh(); });
+
+  btnToggleMode.addEventListener('click', async () => {
+    if (!state.get('selectedSkin')) return;
+    const currentMode = state.get('appMode');
+    const newMode = currentMode === 'use' ? 'edit' : 'use';
+    if (currentMode === 'edit' && newMode === 'use' && state.get('presetDirty')) {
+      const choice = await ApplyDialog.showConfirmDialog(
+        i18n.t('dialog.unsavedSwitch'),
+        [
+          { label: i18n.t('dialog.saveAndSwitch'), cls: 'btn--primary', value: 'save' },
+          { label: i18n.t('dialog.discard'), cls: 'btn--danger', value: 'discard' },
+          { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
+        ]
+      );
+      if (!choice || choice === 'cancel') return;
+      if (choice === 'save') {
+        // Save must succeed before switching; a failure (empty name, API error,
+        // or thrown exception) aborts the switch.
+        try {
+          if (window.PresetEditor && typeof window.PresetEditor.doSave === 'function') {
+            const ok = await window.PresetEditor.doSave();
+            if (!ok) return;
+          }
+        } catch (e) {
+          console.error('save before mode switch failed:', e);
+          return;
+        }
+      } else if (choice === 'discard') {
+        // Just clear dirty — the mode switch will change the view; no need to
+        // rebuild the editor (resetNew would interfere with the view switch).
+        state.set('presetDirty', false);
+      }
+    }
+    state.set('appMode', newMode);
+  });
+
+  btnApplyPreset.addEventListener('click', () => { actionApply(); });
+
+  // ── Shared action functions ──
+  // Single source of truth for each toolbar action. Both the toolbar button
+  // and its keyboard shortcut call these so behavior never diverges.
+
+  async function actionRefresh() {
     await scanSkins();
     const skin = state.get('selectedSkin');
     if (skin) {
@@ -316,61 +460,48 @@
         });
       }
     }
-    Toast.info('皮肤列表已刷新');
-  });
+    Toast.info(i18n.t('toast.skinsRefreshed'));
+  }
 
-  btnToggleMode.addEventListener('click', async () => {
-    if (!state.get('selectedSkin')) return;
-    const currentMode = state.get('appMode');
-    const newMode = currentMode === 'use' ? 'edit' : 'use';
-    if (currentMode === 'edit' && newMode === 'use' && state.get('presetDirty')) {
-      const choice = await ApplyDialog.showConfirmDialog(
-        '当前预设尚未保存，是否保存后切换？',
-        [
-          { label: '保存并切换', cls: 'btn--primary', value: 'save' },
-          { label: '不保存', cls: 'btn--danger', value: 'discard' },
-          { label: '取消', cls: 'btn--secondary', value: 'cancel' },
-        ]
-      );
-      if (!choice || choice === 'cancel') return;
-      if (choice === 'save') {
-        if (window.PresetEditor && typeof window.PresetEditor.doSave === 'function') {
-          await window.PresetEditor.doSave();
-        }
-      } else if (choice === 'discard') {
-        // Discard unsaved edits: clear the form to a fresh state so stale
-        // dirty data doesn't persist into the next edit session.
-        if (window.PresetEditor && typeof window.PresetEditor.resetNew === 'function') {
-          window.PresetEditor.resetNew();
-        } else {
-          state.set('presetDirty', false);
-        }
-      }
-    }
-    state.set('appMode', newMode);
-  });
-
-  btnApplyPreset.addEventListener('click', () => {
+  function actionApply() {
     const mode = state.get('appMode');
     if (mode === 'use') {
       const active = state.get('activePresets') || {};
       const ids = [].concat(...Object.values(active).filter(a => Array.isArray(a)));
       if (ids.length === 0) {
-        Toast.warning('请先在左侧选择要应用的预设');
+        Toast.warning(i18n.t('toast.selectPresetFirst'));
         return;
       }
       ApplyDialog.showMulti(ids);
     } else {
       ApplyDialog.show();
     }
-  });
+  }
+
+  function actionNewPreset() {
+    const skin = state.get('selectedSkin');
+    if (!skin) { Toast.warning(i18n.t('toast.selectSkinFirst')); return; }
+    // Delegate to the sidebar button so confirmSwitchIfDirty + resetNew logic
+    // is shared (same pattern as toggle-mode → btnToggleMode.click()).
+    const btn = document.getElementById('btn-new-preset-sidebar');
+    if (btn) { btn.click(); return; }
+    // Fallback if button not found.
+    if (window.PresetList && typeof window.PresetList.clearSelection === 'function') {
+      window.PresetList.clearSelection();
+    }
+    state.set('selectedPreset', '__new__');
+    if (window.PresetEditor && typeof window.PresetEditor.resetNew === 'function') {
+      window.PresetEditor.resetNew();
+    }
+    Toast.info(i18n.t('toast.newPreset'));
+  }
 
   // ── Helper functions ──
 
   function updateModeButton() {
     const mode = state.get('appMode');
-    btnToggleMode.textContent = mode === 'use' ? '👁️ 使用模式' : '✏️ 编辑模式';
-    btnToggleMode.title = mode === 'use' ? '切换到编辑模式' : '切换到使用模式';
+    btnToggleMode.textContent = mode === 'use' ? i18n.t('mode.use') : i18n.t('mode.edit');
+    btnToggleMode.title = mode === 'use' ? i18n.t('mode.switchToEdit') : i18n.t('mode.switchToUse');
   }
 
   function updateToolbarButtons() {
@@ -381,12 +512,12 @@
 
     if (mode === 'edit') {
       btnApplyPreset.disabled = isNew || !preset;
-      btnApplyPreset.textContent = '▶ 应用';
+      btnApplyPreset.textContent = i18n.t('toolbar.apply');
     } else {
       const active = state.get('activePresets') || {};
       const ids = [].concat(...Object.values(active).filter(a => Array.isArray(a)));
       btnApplyPreset.disabled = !skin || ids.length === 0;
-      btnApplyPreset.textContent = ids.length > 0 ? `▶ 应用 (${ids.length})` : '▶ 应用';
+      btnApplyPreset.textContent = ids.length > 0 ? i18n.t('toolbar.applyCount', { count: ids.length }) : i18n.t('toolbar.apply');
     }
     btnToggleMode.disabled = !skin;
   }
@@ -424,9 +555,9 @@
       if (!tbody) return;
       const list = Shortcuts.getAll();
       tbody.innerHTML = list.map(s => {
-        const modeLabel = (s.modes && s.modes.length === 2) ? '使用 / 编辑'
-          : (s.modes && s.modes[0] === 'edit') ? '编辑'
-          : '使用';
+        const modeLabel = (s.modes && s.modes.length === 2) ? i18n.t('mode.labelBoth')
+          : (s.modes && s.modes[0] === 'edit') ? i18n.t('mode.labelEdit')
+          : i18n.t('mode.labelUse');
         return `
         <tr class="shortcut-row" data-id="${escapeHtml(s.id)}">
           <td><code style="background:var(--bg-tertiary);padding:2px 8px;border-radius:var(--radius-sm);font-size:12px;color:var(--accent);white-space:nowrap">${escapeHtml(s.key)}</code></td>
@@ -452,7 +583,7 @@
           shortcutsRecording = { id, row };
           row.classList.add('row--selected');
           const code = row.querySelector('code');
-          code.textContent = '按下新快捷键…';
+          code.textContent = i18n.t('dialog.pressNewKey');
           code.style.color = 'var(--danger)';
           code.style.animation = 'pulse 1s infinite';
         });
@@ -489,20 +620,20 @@
     overlay.id = 'shortcuts-dialog';
     overlay.innerHTML = `
       <div class="modal" style="min-width:420px;max-width:520px">
-        <div class="modal__title">键盘快捷键</div>
+        <div class="modal__title">${i18n.t('dialog.shortcutsTitle')}</div>
         <div class="modal__body">
-          <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">点击任意行可重新绑定快捷键，按下新组合键即可完成修改。</p>
+          <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${i18n.t('dialog.shortcutsDesc')}</p>
           <div class="table-wrap">
             <table class="table">
-              <thead><tr><th>快捷键</th><th>功能</th><th>适用模式</th></tr></thead>
+              <thead><tr><th>${i18n.t('dialog.colShortcut')}</th><th>${i18n.t('dialog.colAction')}</th><th>${i18n.t('dialog.colModes')}</th></tr></thead>
               <tbody id="shortcuts-tbody">
               </tbody>
             </table>
           </div>
         </div>
         <div class="modal__actions">
-          <button class="btn btn--secondary btn--sm" id="shortcuts-reset">恢复默认</button>
-          <button class="btn btn--primary btn--sm" id="shortcuts-close">关闭</button>
+          <button class="btn btn--secondary btn--sm" id="shortcuts-reset">${i18n.t('dialog.resetDefault')}</button>
+          <button class="btn btn--primary btn--sm" id="shortcuts-close">${i18n.t('dialog.close')}</button>
         </div>
       </div>
     `;
@@ -552,20 +683,52 @@
     document.addEventListener('keydown', onKey);
   }
 
-  // ── Global wheel handler for number inputs ──
+  // ── Global wheel handler for number inputs (hover-to-scroll, no focus needed) ──
   document.addEventListener('wheel', (e) => {
     const target = e.target.closest('input[type="number"]');
-    if (!target || document.activeElement !== target) return;
+    if (!target) return;
     e.preventDefault();
     const step = parseFloat(target.step) || 1;
     let delta = e.deltaY > 0 ? -step : step;
     if (e.shiftKey) delta *= 10;
     if (e.ctrlKey) delta *= 0.1;
-    const newVal = (parseFloat(target.value) || 0) + delta;
+    let newVal = (parseFloat(target.value) || 0) + delta;
+    // Round to step precision to avoid floating-point artifacts (e.g. 0.30000000000000004).
+    const decimals = (String(step).split('.')[1] || '').length;
+    if (decimals > 0) newVal = parseFloat(newVal.toFixed(decimals));
     const min = target.min !== '' ? parseFloat(target.min) : -Infinity;
     const max = target.max !== '' ? parseFloat(target.max) : Infinity;
-    target.value = Math.max(min, Math.min(max, newVal));
+    newVal = Math.max(min, Math.min(max, newVal));
+    // Skip forbidden values (e.g. AnimationFramerate forbids 0): keep stepping
+    // in the same direction until we land on a permitted value.
+    const forbiddenRaw = target.dataset.forbidden;
+    if (forbiddenRaw) {
+      const forbidden = forbiddenRaw.split(',').map(Number);
+      let guard = 0;
+      while (forbidden.includes(newVal) && guard < 10) {
+        newVal = Math.max(min, Math.min(max, newVal + delta));
+        guard++;
+      }
+    }
+    target.value = newVal;
     target.dispatchEvent(new Event('change', { bubbles: true }));
+  }, { passive: false });
+
+  // ── Wheel over a <select> changes its selection (hover-to-scroll, no click needed) ──
+  document.addEventListener('wheel', (e) => {
+    const sel = e.target.closest('select');
+    if (!sel || sel.disabled) return;
+    e.preventDefault();
+    const opts = sel.options;
+    if (!opts.length) return;
+    let idx = sel.selectedIndex;
+    idx += e.deltaY > 0 ? 1 : -1;
+    if (idx < 0) idx = 0;
+    if (idx > opts.length - 1) idx = opts.length - 1;
+    if (idx !== sel.selectedIndex) {
+      sel.selectedIndex = idx;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
   }, { passive: false });
 
   // ── Esc key: blur focused element in edit mode ──
@@ -600,6 +763,18 @@
 
   // ── Keyboard shortcuts ──
   document.addEventListener('keydown', async (e) => {
+    // Swallow a BARE Alt keydown: on Windows/WebView2, pressing Alt alone
+    // activates the window's system menu bar, which steals mouse tracking and
+    // stops mousemove events (so cursor particles freeze) until Alt is pressed
+    // again. preventDefault here keeps the webview's mouse tracking intact.
+    // Alt combos (Alt+key) are unaffected — the menu only activates on lone Alt.
+    if (e.key === 'Alt' && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+      e.preventDefault();
+    }
+    // Suppress the webview's native find-in-page (Ctrl+F).
+    if (e.key === 'f' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+    }
     const activeEl = document.activeElement;
     const isInput = activeEl && activeEl.closest('input, textarea, select, [contenteditable]');
     const isButton = activeEl && activeEl.closest('button');
@@ -650,8 +825,8 @@
       e.preventDefault();
     }
 
-    if (e.key >= '1' && e.key <= '4' && !isInput && !isModal && state.get('appMode') === 'edit') {
-      const tabs = ['basic', 'ini', 'files', 'preview'];
+    if (e.key >= '1' && e.key <= '3' && !isInput && !isModal && state.get('appMode') === 'edit') {
+      const tabs = ['basic', 'ini', 'files'];
       const idx = parseInt(e.key) - 1;
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab--active'));
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('tab-content--active'));
@@ -673,6 +848,9 @@
 
     switch (action) {
       case 'save':
+        // Skip when there's nothing to save, UNLESS it's a new preset (allow
+        // continuous saving of a new preset without editing between saves).
+        if (!state.get('presetDirty') && state.get('selectedPreset') !== '__new__') break;
         e.preventDefault();
         if (window.PresetEditor && typeof window.PresetEditor.doSave === 'function') {
           window.PresetEditor.doSave();
@@ -682,16 +860,7 @@
       case 'new-preset':
         if (state.get('appMode') !== 'edit') break;
         e.preventDefault();
-        {
-          const skin = state.get('selectedSkin');
-          if (!skin) { Toast.warning('请先选择皮肤'); break; }
-          state.set('selectedPreset', '__new__');
-          // Force a fresh form even when already in __new__ (re-clicking 新建预设)
-          if (window.PresetEditor && typeof window.PresetEditor.resetNew === 'function') {
-            window.PresetEditor.resetNew();
-          }
-          Toast.info('新建预设');
-        }
+        actionNewPreset();
         break;
 
       case 'new-group':
@@ -699,7 +868,7 @@
         e.preventDefault();
         {
           const skin = state.get('selectedSkin');
-          if (!skin) { Toast.warning('请先选择皮肤'); break; }
+          if (!skin) { Toast.warning(i18n.t('toast.selectSkinFirst')); break; }
           if (window.PresetList && typeof window.PresetList.createGroupWithSelected === 'function') {
             window.PresetList.createGroupWithSelected();
           }
@@ -718,38 +887,12 @@
       case 'apply':
         if (isInput || isModal || isButton) break;
         e.preventDefault();
-        {
-          const mode = state.get('appMode');
-          if (mode === 'use') {
-            const active = state.get('activePresets') || {};
-            const ids = [].concat(...Object.values(active).filter(a => Array.isArray(a)));
-            if (ids.length > 0) {
-              ApplyDialog.showMulti(ids);
-            } else {
-              Toast.warning('请先在左侧选择要应用的预设');
-            }
-          }
-        }
+        actionApply();
         break;
 
       case 'refresh':
-        if (isInput) break;
         e.preventDefault();
-        scanSkins();
-        {
-          const skin = state.get('selectedSkin');
-          if (skin) {
-            const result = await api.scanPresets(skin);
-            if (result.success) {
-              state.setMultiple({
-                presets: result.data.presets,
-                groups: result.data.groups,
-                rootGroupIds: result.data.rootGroupIds,
-              });
-            }
-          }
-        }
-        Toast.info('皮肤列表已刷新');
+        actionRefresh();
         break;
 
       case 'toggle-mode':
@@ -759,6 +902,37 @@
         break;
     }
   });
+
+  // ── Suppress WebView2's default native context menu ──
+  // (The Electron→Tauri rewrite never ported the suppression.) Preset rows in
+  // preset-selector.js attach their own contextmenu handler + preventDefault;
+  // preventDefault is idempotent and we do NOT stopPropagation, so those custom
+  // right-click flows (shortcut binding) keep working.
+  document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+  });
+
+  // ── Titlebar: re-implement dragging and swallow double-click ──
+  // The native drag region (-webkit-app-region: drag) lets the OS maximize on
+  // double-click before the webview can intercept it. We removed that region
+  // (see layout.css) and drag via Tauri's startDragging() instead, so a plain
+  // dblclick listener can now suppress maximize.
+  const titlebar = document.querySelector('.titlebar');
+  if (titlebar) {
+    titlebar.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    titlebar.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      // Don't start a drag from interactive children.
+      if (e.target.closest('button, a, input, [contenteditable], [data-no-drag]')) return;
+      try {
+        const T = window.__TAURI__;
+        if (T && T.window) T.window.getCurrentWindow().startDragging();
+      } catch (_) { /* ignore */ }
+    });
+  }
 
   // ── Boot ──
   init();

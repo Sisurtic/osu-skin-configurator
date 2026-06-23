@@ -44,16 +44,14 @@
 
     viewEl.innerHTML = `
       <div class="tabs">
-        <div class="tab tab--active" data-tab="basic" tabindex="0">基本信息</div>
-        <div class="tab" data-tab="ini" tabindex="0">INI 编辑</div>
-        <div class="tab" data-tab="files" tabindex="0">文件操作</div>
-        <div class="tab" data-tab="preview" tabindex="0">预览图片</div>
+        <div class="tab tab--active" data-tab="basic" tabindex="0">${i18n.t('preset.tabBasic')}</div>
+        <div class="tab" data-tab="ini" tabindex="0">${i18n.t('preset.tabIni')}</div>
+        <div class="tab" data-tab="files" tabindex="0">${i18n.t('preset.tabFiles')}</div>
       </div>
 
       <div class="tab-content tab-content--active" id="tab-basic"></div>
       <div class="tab-content" id="tab-ini"></div>
       <div class="tab-content" id="tab-files"></div>
-      <div class="tab-content" id="tab-preview"></div>
     `;
 
     if (savedTabName !== 'basic') {
@@ -75,6 +73,20 @@
         const targetId = `tab-${tab.dataset.tab}`;
         const targetEl = document.getElementById(targetId);
         targetEl.classList.add('tab-content--active');
+        // Switching to the ini/files tab makes it visible (clientWidth > 0);
+        // apply column widths + re-trigger edge-fade now that the container
+        // has a real size.
+        if (tab.dataset.tab === 'ini' && window.IniEditor && window.IniEditor.layoutColumns) {
+          window.IniEditor.layoutColumns(targetEl);
+        } else if (tab.dataset.tab === 'files' && window.FileCopyEditor && window.FileCopyEditor.layoutColumns) {
+          window.FileCopyEditor.layoutColumns(targetEl);
+        }
+        // Re-trigger scroll event on next frame so edge-fade overlays
+        // re-calculate position (getBoundingClientRect needs visible layout).
+        requestAnimationFrame(() => {
+          const scroll = targetEl.querySelector('.ini-table-body-scroll, .files-table-body-scroll');
+          if (scroll) scroll.dispatchEvent(new Event('scroll'));
+        });
       });
 
       tab.addEventListener('keydown', (e) => {
@@ -95,7 +107,6 @@
     renderBasicTab();
     IniEditor.render(document.getElementById('tab-ini'));
     FileCopyEditor.render(document.getElementById('tab-files'));
-    PreviewUpload.render(document.getElementById('tab-preview'));
   }
 
   function renderBasicTab() {
@@ -103,13 +114,14 @@
     const tab = document.getElementById('tab-basic');
     tab.innerHTML = `
       <div class="form-group">
-        <label class="form-label">预设名称 *</label>
-        <input type="text" class="form-input" id="preset-name" value="${escapeHtml(meta.name)}" placeholder="如：Instant Fade" autocomplete="off" spellcheck="false">
+        <label class="form-label">${i18n.t('preset.nameLabel')}</label>
+        <input type="text" class="form-input" id="preset-name" value="${escapeHtml(meta.name)}" placeholder="${i18n.t('preset.namePlaceholder')}" autocomplete="off" spellcheck="false">
       </div>
       <div class="form-group">
-        <label class="form-label">描述</label>
-        <textarea class="form-input" id="preset-desc" placeholder="说明文本...">${escapeHtml(meta.description || '')}</textarea>
+        <label class="form-label">${i18n.t('preset.descLabel')}</label>
+        <textarea class="form-input" id="preset-desc" placeholder="${i18n.t('preset.descPlaceholder')}">${escapeHtml(meta.description || '')}</textarea>
       </div>
+      <div id="preview-slot"></div>
     `;
 
     // Bind input changes to editData + dirty tracking
@@ -124,13 +136,13 @@
       el.addEventListener('input', handler);
     });
 
-    // Tab cycling: preset-name → preset-desc → preset-name
+    // Tab cycling: preset-name → preset-desc → preview controls → ...
     if (!tab._tabBound) {
       tab._tabBound = true;
       tab.addEventListener('keydown', (e) => {
         if (e.key !== 'Tab') return;
-        const focusable = [...tab.querySelectorAll('#preset-name, #preset-desc')]
-          .filter(el => el && el.offsetParent !== null);
+        const focusable = [...tab.querySelectorAll('#preset-name, #preset-desc, #upload-zone, #btn-change-preview, #btn-remove-preview')]
+          .filter(el => el && !el.hidden);
         if (focusable.length <= 1) return;
         const activeEl = document.activeElement;
         const idx = focusable.indexOf(activeEl);
@@ -142,14 +154,18 @@
         focusable[next].focus();
       });
     }
+
+    // Preview image picker (merged into basic tab). Placed last + wrapped so
+    // any error here never blocks the name/desc input handlers above.
+    try { PreviewUpload.render(document.getElementById('preview-slot')); } catch (_) { /* ignore */ }
   }
 
   async function doSave() {
     const sk = skinName();
-    if (!sk) { Toast.error('请先选择皮肤'); return; }
+    if (!sk) { Toast.error(i18n.t('toast.selectSkinFirst')); return false; }
 
     const name = editData.meta.name.trim();
-    if (!name) { Toast.error('预设名称不能为空'); return; }
+    if (!name) { Toast.error(i18n.t('preset.nameRequired')); return false; }
 
     const currentId = presetId();
     const idToSend = (currentId === '__new__') ? null : currentId;
@@ -167,12 +183,11 @@
     const result = await api.savePreset(sk, idToSend, dataToSave);
     if (result.success) {
       state.set('presetDirty', false);
-      // result.data is the assigned id (number)
       if (currentId !== '__new__') {
         state.set('selectedPreset', result.data);
       } else {
-        // Re-assert '__new__' so listeners receive prev='__new__'
-        // and know to preserve form data
+        // New preset saved: keep selectedPreset='__new__' so the user can
+        // continue saving (Ctrl+S works for __new__ regardless of presetDirty).
         state.set('selectedPreset', '__new__');
       }
       // Preview images may have changed — drop the cached ones before re-scan
@@ -190,8 +205,10 @@
         });
       }
     } else {
-      Toast.error('保存失败: ' + (result.error || '未知错误'));
+      Toast.error(i18n.t('preset.saveFailed', { msg: result.error || i18n.t('app.unknownError') }));
+      return false;
     }
+    return true;
   }
 
   async function doDelete() {
@@ -199,13 +216,13 @@
     const pid = presetId();
     if (!sk || !pid || pid === '__new__') return;
 
-    const editName = editData.meta.name || ('预设 ' + pid);
-    const confirmed = await api.showConfirm(`确定要删除预设 "${editName}" 吗？此操作不可恢复。`);
+    const editName = editData.meta.name || i18n.t('preset.fallbackName', { id: pid });
+    const confirmed = await api.showConfirm(i18n.t('preset.deletePresetConfirm', { name: editName }));
     if (!confirmed.success || !confirmed.data) return;
 
     const result = await api.deletePreset(sk, pid);
     if (result.success) {
-      Toast.success('预设已删除');
+      Toast.success(i18n.t('preset.deletedToast'));
       state.set('selectedPreset', null);
       // Drop cached previews BEFORE re-scan: ids get compacted on delete, so
       // stale id→image entries would otherwise map to the wrong preset.
@@ -221,7 +238,7 @@
         });
       }
     } else {
-      Toast.error('删除失败: ' + (result.error || '未知错误'));
+      Toast.error(i18n.t('preset.deleteFailed', { msg: result.error || i18n.t('app.unknownError') }));
     }
   }
 
@@ -248,7 +265,7 @@
     const result = await api.loadPreset(sk, preset);
     if (result.success && result.data) {
       editData = {
-        meta: result.data.meta || { name: '预设 ' + preset, description: '' },
+        meta: result.data.meta || { name: i18n.t('preset.fallbackName', { id: preset }), description: '' },
         actions: result.data.actions || { skinIni: [], fileCopies: [], fileDeletes: [] },
         _previewPath: result.data.meta?.previewPath || null,
         _isNew: false,
@@ -281,7 +298,7 @@
     const result = await api.loadPreset(sk, preset);
     if (result.success && result.data) {
       editData = {
-        meta: result.data.meta || { name: '预设 ' + preset, description: '' },
+        meta: result.data.meta || { name: i18n.t('preset.fallbackName', { id: preset }), description: '' },
         actions: result.data.actions || { skinIni: [], fileCopies: [], fileDeletes: [] },
         _previewPath: result.data.meta?.previewPath || null,
         _isNew: false,
@@ -299,6 +316,7 @@
         const r = await api.getSkinPath(sn);
         return r.success ? r.data : null;
       });
+      PreviewUpload.init(getPresetMeta, setPreviewDataUrl, skinName, () => state.get('selectedPreset'));
       render();
     }
   });
@@ -307,7 +325,7 @@
     return editData;
   }
 
-  // Reset the form to a fresh "new preset" state (used when the user re-clicks 新建预设).
+  // Reset the form to a fresh "new preset" state (used when the user re-clicks New Preset).
   function resetNew() {
     editData = {
       meta: { name: '', description: '' },

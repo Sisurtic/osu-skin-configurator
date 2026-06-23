@@ -54,6 +54,7 @@ const api = {
   // --- file open (double-click .osp) ---
   getOpenFileArg: () => window.electronAPI.getOpenFileArg(),
   getAppVersion: () => window.electronAPI.getAppVersion(),
+  listLocales: () => window.electronAPI.listLocales(),
   checkLatestRelease: () => window.electronAPI.checkLatestRelease(),
   downloadAndRunLatestRelease: () => window.electronAPI.downloadAndRunLatestRelease(),
   onOpenOspFile: (callback) => window.electronAPI.onOpenOspFile(callback),

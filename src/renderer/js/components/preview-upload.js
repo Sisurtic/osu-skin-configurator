@@ -29,9 +29,8 @@
     const previewPath = meta._previewPath || meta.meta?.previewPath;
 
     container.innerHTML = `
-      <div style="margin-bottom:16px">
-        <h3 style="margin-bottom:4px">预览图片</h3>
-        <p style="font-size:12px;color:var(--text-muted)">从当前皮肤目录选择预览图片</p>
+      <div style="margin-bottom:8px">
+        <h3 style="margin-bottom:2px;font-size:13px">${i18n.t('preview.heading')}</h3>
       </div>
       <div id="preview-content">
         ${renderContent(previewPath)}
@@ -54,20 +53,7 @@
             return;
           }
         }
-
-        if (e.key !== 'Tab') return;
-        const btns = [...container.querySelectorAll('#upload-zone, #btn-change-preview, #btn-remove-preview')]
-          .filter(el => el && el.offsetParent !== null);
-        if (btns.length === 0) return;
-        const activeEl = document.activeElement;
-        // Include if active element is one of these or inside the container
-        const idx = btns.indexOf(activeEl);
-        if (idx < 0 && !container.contains(activeEl)) return;
-        e.preventDefault();
-        const next = e.shiftKey
-          ? (idx <= 0 ? btns.length - 1 : idx - 1)
-          : (idx >= btns.length - 1 || idx < 0 ? 0 : idx + 1);
-        btns[next].focus();
+        // Tab cycling is handled by the parent (preset-editor basic tab).
       });
     }
     // Load preview asynchronously
@@ -78,30 +64,40 @@
     if (previewPath) {
       return `
         <div style="text-align:center">
-          <img id="preview-img" src="" class="upload-zone__preview" alt="预览图" style="display:none">
-          <div style="font-size:12px;color:var(--text-muted);margin:8px 0">${escapeHtml(previewPath)}</div>
-          <div style="margin-top:12px">
-            <button class="btn btn--secondary btn--sm" id="btn-change-preview">🖼 更换图片</button>
-            <button class="btn btn--danger btn--sm" id="btn-remove-preview" style="margin-left:8px">✕ 移除</button>
+          <img id="preview-img" src="" class="upload-zone__preview" alt="${i18n.t('preview.alt')}" style="display:none;max-height:160px">
+          <div style="font-size:11px;color:var(--text-muted);margin:4px 0">${escapeHtml(previewPath)}</div>
+          <div style="margin-top:8px">
+            <button class="btn btn--secondary btn--sm" id="btn-change-preview">${i18n.t('preview.change')}</button>
+            <button class="btn btn--danger btn--sm" id="btn-remove-preview" style="margin-left:8px">${i18n.t('preview.remove')}</button>
           </div>
         </div>
       `;
     }
 
     return `
-      <div class="upload-zone" id="upload-zone" tabindex="0">
-        <div style="font-size:36px;margin-bottom:8px">🖼</div>
-        <div>点击选择图片</div>
-        <div style="font-size:11px;margin-top:4px">将从皮肤文件夹中选择图片</div>
+      <div class="upload-zone" id="upload-zone" tabindex="0" style="padding:12px">
+        <div style="font-size:24px;margin-bottom:4px">🖼</div>
+        <div style="font-size:12px">${i18n.t('preview.pick')}</div>
       </div>
     `;
   }
 
+  // Cache of previewPath → data URL, so re-renders (e.g. on save) don't flash
+  // the image blank while re-fetching.
+  const previewCache = new Map();
+
   async function loadPreviewImage(imagePath) {
     if (!imagePath) return;
-    const result = await api.getPreviewDataUrl(imagePath);
     const img = document.getElementById('preview-img');
+    // Synchronous restore from cache to avoid a flash.
+    if (img && previewCache.has(imagePath)) {
+      img.src = previewCache.get(imagePath);
+      img.style.display = '';
+      return;
+    }
+    const result = await api.getPreviewDataUrl(imagePath);
     if (img && result.success && result.data) {
+      previewCache.set(imagePath, result.data);
       img.src = result.data;
       img.style.display = '';
     }
@@ -121,7 +117,7 @@
     if (dialogOpen) return;
     const skin = skinNameFn();
     if (!skin) {
-      Toast.warning('请先选择皮肤');
+      Toast.warning(i18n.t('preview.selectSkinFirst'));
       return;
     }
     dialogOpen = true;
@@ -129,14 +125,14 @@
     const skPathResult = await api.getSkinPath(skin);
     const defaultPath = skPathResult.success ? skPathResult.data : '';
     const result = await api.selectFile([
-      { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif'] }
+      { name: i18n.t('preview.imageFilter'), extensions: ['png', 'jpg', 'jpeg', 'gif'] }
     ], defaultPath);
     dialogOpen = false;
     unblockUI();
     if (!result.success || !result.data || !result.data.length) return;
     const imagePath = result.data[0];
     setPreviewDataUrl(imagePath);
-    Toast.info('预览图已设置');
+    Toast.info(i18n.t('preview.setToast'));
     const container = document.getElementById('preview-content');
     if (container) {
       const parent = container.parentElement;
@@ -145,8 +141,13 @@
   }
 
   function doRemove() {
+    // Clear cached preview for the old path so re-adding the same image
+    // re-fetches instead of showing stale data.
+    const meta = getPreset ? getPreset() : {};
+    const oldPath = meta._previewPath || meta.meta?.previewPath;
+    if (oldPath && previewCache.has(oldPath)) previewCache.delete(oldPath);
     setPreviewDataUrl(null);
-    Toast.info('预览图已移除');
+    Toast.info(i18n.t('preview.removedToast'));
     const container = document.getElementById('preview-content');
     if (container) {
       const parent = container.parentElement;

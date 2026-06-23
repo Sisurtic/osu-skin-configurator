@@ -5,6 +5,13 @@
   let selectedIndices = new Set();
   let lastClickedIndex = null;
 
+  // Column sort state for the operation table. Default = by action type
+  // (modify/delete grouped), ascending. There is always an active sort.
+  let sortState = { col: 'action', dir: 'asc' };
+  // Last actions array reference rendered — used to detect real data changes
+  // vs. re-renders (sort/delete) so selection isn't wiped every render.
+  let lastActionsRef = null;
+
   function init(getter, setter, skPathFn) {
     getActions = getter;
     setActions = setter;
@@ -23,48 +30,53 @@
       });
     }
 
-    // Reset selection when data changes
-    selectedIndices = new Set();
-    lastClickedIndex = null;
+    // Reset selection only when the underlying data actually changed (different
+    // array reference), not on every re-render (sort toggle, delete) — otherwise
+    // re-rendering wipes the user's selection.
+    if (lastActionsRef !== actions) {
+      selectedIndices = new Set();
+      lastClickedIndex = null;
+      lastActionsRef = actions;
+    }
 
     container.innerHTML = `
       <div class="editor-sticky-header">
         <div style="padding-bottom:10px;border-bottom:1px solid var(--border)">
           <div style="margin-bottom:8px">
-            <h3 style="margin-bottom:4px">skin.ini 修改</h3>
-            <p style="font-size:12px;color:var(--text-muted)">选择并编辑需要修改的 skin.ini 字段。Mania 字段需先指定键数。</p>
+            <h3 style="margin-bottom:4px">${i18n.t('ini.heading')}</h3>
+            <p style="font-size:12px;color:var(--text-muted)">${i18n.t('ini.desc')}</p>
           </div>
 
           <div style="display:flex;margin-bottom:8px;gap:8px;align-items:center">
             <!-- Section列 -->
-            <select class="form-input" id="ini-section-select" style="width:120px;flex-shrink:0">
-              <option value="">选择分组</option>
+            <select class="form-input" id="ini-section-select" style="flex-shrink:0;min-width:100px">
+              <option value="">${i18n.t('ini.selectSection')}</option>
               ${INI_SECTIONS.map(s => `<option value="${s}">${s}</option>`).join('')}
             </select>
             <!-- Keys 输入：Section 与 Key 之间，带间距 -->
             <div id="ini-mania-keys-row" style="display:none;white-space:nowrap;flex-shrink:0">
               <span style="font-size:12px;color:var(--text-muted);margin-right:4px">Keys:</span>
-              <input type="number" class="form-input" id="ini-mania-keys-custom" placeholder="键数" min="1" max="18" style="width:70px">
+              <input type="number" class="form-input" id="ini-mania-keys-custom" placeholder="${i18n.t('ini.keysPlaceholder')}" min="1" max="18" style="width:70px">
             </div>
             <!-- Key列 flex -->
             <div style="flex:1;min-width:0;display:flex;gap:4px;align-items:center">
               <div class="ini-combo" style="flex:1;min-width:0">
                 <input type="text" class="form-input" id="ini-key-input"
-                       placeholder="请先选择分组" autocomplete="off" disabled>
+                       placeholder="${i18n.t('ini.keySearchPlaceholder')}" autocomplete="off" disabled>
                 <div class="ini-combo__dropdown" id="ini-key-dropdown"></div>
               </div>
             </div>
             <!-- 按钮紧挨键名右侧 -->
-            <div style="flex-shrink:0;display:flex;gap:4px;margin-left:8px">
-              <button class="btn btn--primary btn--sm" id="btn-add-ini" style="font-size:11px;padding:4px 6px">+ 添加</button>
-              <button class="btn btn--danger btn--sm" id="btn-delete-ini" style="font-size:11px;padding:4px 6px" title="删除选中的 INI 键">- 删除</button>
+            <div style="flex-shrink:0;display:flex;gap:8px;margin-left:8px">
+              <button class="btn btn--primary btn--sm" id="btn-add-ini" style="font-size:11px;padding:4px 6px">${i18n.t('ini.add')}</button>
+              <button class="btn btn--danger btn--sm" id="btn-delete-ini" style="font-size:11px;padding:4px 6px" title="${i18n.t('ini.deleteKeyTitle')}">${i18n.t('ini.deleteBtn')}</button>
             </div>
           </div>
 
           <!-- Delete drop zone -->
           <div class="editor-delete-zone" id="ini-delete-zone"
                style="padding:8px;border:2px dashed var(--danger);border-radius:var(--radius);text-align:center;color:var(--danger);font-size:12px;opacity:0.5;transition:all 0.2s">
-            拖拽操作到此处删除
+            ${i18n.t('ini.deleteZone')}
           </div>
         </div>
 
@@ -72,14 +84,19 @@
         <!-- Fixed header table (thead only, matching colgroup with body) -->
         <div class="ini-header-table" style="margin-top:12px">
           <div class="table-wrap">
-            <table class="table">
+            <table class="table ini-table">
               <colgroup>
-                <col style="width:68px">
-                <col style="width:110px">
-                <col style="min-width:160px">
-                <col style="min-width:200px">
+                <col style="width:72px">
+                <col style="width:120px">
+                <col style="width:240px">
+                <col>
               </colgroup>
-              <thead><tr><th>操作</th><th>Section</th><th>Key</th><th>值</th></tr></thead>
+              <thead><tr>
+                <th class="th--sortable" data-col="action">${i18n.t('ini.colAction')}${sortIndicatorHtml('action')}</th>
+                <th class="th--sortable" data-col="section">${i18n.t('ini.colSection')}${sortIndicatorHtml('section')}</th>
+                <th class="th--sortable" data-col="key">${i18n.t('ini.colKey')}${sortIndicatorHtml('key')}</th>
+                <th class="th--sortable" data-col="value">${i18n.t('ini.colValue')}${sortIndicatorHtml('value')}</th>
+              </tr></thead>
             </table>
           </div>
         </div>
@@ -105,10 +122,10 @@
       let fields = FIELDS_BY_SECTION[sec] || [];
       // Hide Keys field — managed by osu! automatically, not for preset config
       fields = fields.filter(f => f.key !== 'Keys');
-      currentFields = fields.map(f => ({ key: f.key, cn: f.cn }));
+      currentFields = fields.map(f => ({ key: f.key, label: INI_FIELD_LABELS.fieldLabel(f) }));
       keyInput.value = '';
       keyInput.disabled = currentFields.length === 0;
-      keyInput.placeholder = currentFields.length > 0 ? '输入搜索键名...' : '请先选择分组';
+      keyInput.placeholder = currentFields.length > 0 ? i18n.t('ini.searchKeyPlaceholder') : i18n.t('ini.keySearchPlaceholder');
       keyActiveIndex = -1;
       closeDropdown();
     }
@@ -116,17 +133,17 @@
     function filterFields(query) {
       if (!query) return currentFields;
       const q = query.toLowerCase();
-      return currentFields.filter(f => f.key.toLowerCase().includes(q) || f.cn.includes(q));
+      return currentFields.filter(f => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q));
     }
 
     function renderDropdown(filtered) {
       if (filtered.length === 0) {
-        keyDropdown.innerHTML = `<div class="ini-combo__empty">无匹配键名</div>`;
+        keyDropdown.innerHTML = `<div class="ini-combo__empty">${i18n.t('ini.noMatch')}</div>`;
       } else {
         keyDropdown.innerHTML = filtered.map((f, i) =>
           `<div class="ini-combo__option${i === keyActiveIndex ? ' ini-combo__option--active' : ''}" data-key="${escapeHtml(f.key)}" data-idx="${i}">
             <span class="ini-combo__option-key">${escapeHtml(f.key)}</span>
-            <span class="ini-combo__option-cn">${escapeHtml(f.cn)}</span>
+            <span class="ini-combo__option-cn">${escapeHtml(f.label)}</span>
           </div>`
         ).join('');
       }
@@ -227,6 +244,28 @@
       }
     });
 
+    // Wheel: cycle through filtered key names and set the value directly
+    keyInput.addEventListener('wheel', (e) => {
+      if (!keyDropdown.classList.contains('ini-combo__dropdown--open')) {
+        openDropdown();
+      }
+      e.preventDefault();
+      // Use ALL keys for cycling (not filtered by current text, since we're
+      // replacing the text with the selected key).
+      const all = currentFields;
+      if (all.length === 0) return;
+      // Find current key in the list; start from -1 if not found.
+      let curIdx = all.findIndex(f => f.key === keyInput.value.trim());
+      if (e.deltaY > 0) {
+        curIdx = (curIdx + 1) % all.length;
+      } else {
+        curIdx = curIdx <= 0 ? all.length - 1 : curIdx - 1;
+      }
+      keyInput.value = all[curIdx].key;
+      keyActiveIndex = curIdx;
+      renderDropdown(filterFields(keyInput.value));
+    }, { passive: false });
+
     // Add button
     container.querySelector('#btn-add-ini').addEventListener('click', () => {
       // Save selection state before render() destroys it
@@ -238,13 +277,13 @@
 
       const section = secSelect.value;
       const key = keyInput.value.trim();
-      if (!section || !key) { Toast.warning('请选择 Section 和 Key'); return; }
-      if (!currentFields.find(f => f.key === key)) { Toast.warning(`"${key}" 不是有效的键名`); return; }
+      if (!section || !key) { Toast.warning(i18n.t('ini.selectSectionKey')); return; }
+      if (!currentFields.find(f => f.key === key)) { Toast.warning(i18n.t('ini.invalidKey', { key })); return; }
 
       const keysInput = container.querySelector('#ini-mania-keys-custom');
       const maniaKeyVal = parseInt(keysInput?.value);
       if (section === 'Mania' && (!maniaKeyVal || maniaKeyVal < 1 || maniaKeyVal > 18)) {
-        Toast.warning('请先输入 Mania 键数（如 4、7）');
+        Toast.warning(i18n.t('ini.enterManiaKeys'));
         return;
       }
 
@@ -263,7 +302,7 @@
             maniaKeys,
             key: actualKey,
             value,
-            _cn: `${field.cn} (列${col})`,
+            _cn: INI_FIELD_LABELS.fieldLabel(field) + ' ' + i18n.t('ini.columnSuffix', { n: col }),
           });
         }
       } else {
@@ -272,7 +311,7 @@
           maniaKeys,
           key,
           value,
-          _cn: field?.cn || key,
+          _cn: INI_FIELD_LABELS.fieldLabel(field || { key }),
         }];
       }
 
@@ -287,11 +326,11 @@
         return !dup;
       });
       if (filtered.length === 0) {
-        Toast.warning('操作已存在，不能重复添加');
+        Toast.warning(i18n.t('ini.opExists'));
         return;
       }
       if (filtered.length < newEntries.length) {
-        Toast.info(`已跳过 ${newEntries.length - filtered.length} 个重复项`);
+        Toast.info(i18n.t('ini.skippedDup', { n: newEntries.length - filtered.length }));
       }
       const updated = [...iniEdits, ...filtered];
       setActions(updated);
@@ -310,13 +349,13 @@
 
       const section = secSelect.value;
       const key = keyInput.value.trim();
-      if (!section || !key) { Toast.warning('请选择要删除的 Section 和 Key'); return; }
-      if (!currentFields.find(f => f.key === key)) { Toast.warning(`"${key}" 不是有效的键名`); return; }
+      if (!section || !key) { Toast.warning(i18n.t('ini.selectDeleteTarget')); return; }
+      if (!currentFields.find(f => f.key === key)) { Toast.warning(i18n.t('ini.invalidKey', { key })); return; }
 
       const keysInput = container.querySelector('#ini-mania-keys-custom');
       const maniaKeyVal = parseInt(keysInput?.value);
       if (section === 'Mania' && (!maniaKeyVal || maniaKeyVal < 1 || maniaKeyVal > 18)) {
-        Toast.warning('请先输入 Mania 键数（如 4、7）');
+        Toast.warning(i18n.t('ini.enterManiaKeys'));
         return;
       }
 
@@ -330,13 +369,13 @@
           const actualKey = field.key.replace('#', String(col));
           newEntries.push({
             section, maniaKeys, key: actualKey, value: '',
-            _cn: `${field.cn} (列${col})`, _delete: true,
+            _cn: INI_FIELD_LABELS.fieldLabel(field) + ' ' + i18n.t('ini.columnSuffix', { n: col }), _delete: true,
           });
         }
       } else {
         newEntries = [{
           section, maniaKeys, key, value: '',
-          _cn: field?.cn || key, _delete: true,
+          _cn: INI_FIELD_LABELS.fieldLabel(field || { key }), _delete: true,
         }];
       }
 
@@ -351,11 +390,11 @@
         return !dup;
       });
       if (delFiltered.length === 0) {
-        Toast.warning('删除操作已存在，不能重复添加');
+        Toast.warning(i18n.t('ini.delOpExists'));
         return;
       }
       if (delFiltered.length < newEntries.length) {
-        Toast.info(`已跳过 ${newEntries.length - delFiltered.length} 个重复项`);
+        Toast.info(i18n.t('ini.skippedDup', { n: newEntries.length - delFiltered.length }));
       }
       const updated = [...iniEdits, ...delFiltered];
       setActions(updated);
@@ -367,11 +406,57 @@
         // Don't intercept clicks on interactive elements
         if (e.target.closest('input, select, button, label, .toggle')) return;
 
-        // Group main rows have string-based data-idx (e.g. "G-Colour-4")
         const groupIndicesRaw = row.dataset.groupIndices;
         const isGroupMain = !!groupIndicesRaw && !row.dataset.groupParent;
+        const groupIdxList = isGroupMain ? JSON.parse(groupIndicesRaw) : null;
+
+        // For range selection, the "effective index" of a group main row is
+        // its last sub-row index (so ranges work across collapsed groups).
+        const idx = isGroupMain
+          ? groupIdxList[groupIdxList.length - 1]
+          : parseInt(row.dataset.idx);
+        if (isNaN(idx)) return;
+
+        if (e.shiftKey && lastClickedIndex !== null) {
+          // Shift+click range select.
+          // - If the clicked row IS a group header (endpoint on group) → select
+          //   the whole group's sub-rows.
+          // - Range crosses a group header in the middle → SKIP the group
+          //   (don't expand), only select regular rows in range.
+          e.preventDefault();
+          if (!e.ctrlKey && !e.metaKey) selectedIndices.clear();
+          const start = Math.min(lastClickedIndex, idx);
+          const end = Math.max(lastClickedIndex, idx);
+          // Was the shift-click endpoint ON a group header?
+          const endpointOnGroup = isGroupMain;
+          container.querySelectorAll('.ini-edit-row').forEach(r => {
+            const gRaw = r.dataset.groupIndices;
+            const isMain = !!gRaw && !r.dataset.groupParent;
+            const rIdx = isMain
+              ? JSON.parse(gRaw)[0]
+              : parseInt(r.dataset.idx);
+            if (isNaN(rIdx)) return;
+            if (isMain) {
+              // Only expand a group if this group header IS the clicked endpoint.
+              // Groups in the middle of the range are skipped.
+              if (endpointOnGroup && r === row) {
+                const subIdxs = JSON.parse(gRaw);
+                for (const i of subIdxs) selectedIndices.add(i);
+              }
+              // else: skip — don't add the group header or its sub-rows.
+            } else {
+              if (rIdx < start || rIdx > end) return;
+              // Skip sub-rows of collapsed groups (they're hidden, their group
+              // header is visible but was skipped above).
+              if (r.style.display === 'none') return;
+              selectedIndices.add(rIdx);
+            }
+          });
+          updateRowHighlights(container);
+          return;
+        }
+
         if (isGroupMain) {
-          const groupIdxList = JSON.parse(groupIndicesRaw);
           if (e.ctrlKey || e.metaKey) {
             const allSelected = groupIdxList.every(i => selectedIndices.has(i));
             if (allSelected) {
@@ -379,50 +464,26 @@
             } else {
               for (const i of groupIdxList) selectedIndices.add(i);
             }
-            lastClickedIndex = groupIdxList[groupIdxList.length - 1];
           } else {
             selectedIndices.clear();
             for (const i of groupIdxList) selectedIndices.add(i);
-            lastClickedIndex = groupIdxList[groupIdxList.length - 1];
           }
+          lastClickedIndex = groupIdxList[groupIdxList.length - 1];
           updateRowHighlights(container);
           return;
         }
 
-        const idx = parseInt(row.dataset.idx);
-        if (isNaN(idx)) return;
-
-        const groupIdxList = [idx];
-
         if (e.ctrlKey || e.metaKey) {
-          // Ctrl/Cmd+click: toggle
-          if (isGroupMain) {
-            const allSelected = groupIdxList.every(i => selectedIndices.has(i));
-            if (allSelected) {
-              for (const i of groupIdxList) selectedIndices.delete(i);
-            } else {
-              for (const i of groupIdxList) selectedIndices.add(i);
-            }
+          if (selectedIndices.has(idx)) {
+            selectedIndices.delete(idx);
           } else {
-            if (selectedIndices.has(idx)) {
-              selectedIndices.delete(idx);
-            } else {
-              selectedIndices.add(idx);
-            }
+            selectedIndices.add(idx);
           }
           lastClickedIndex = idx;
-        } else if (e.shiftKey && lastClickedIndex !== null) {
-          // Shift+click: range select
-          const start = Math.min(lastClickedIndex, idx);
-          const end = Math.max(lastClickedIndex, idx);
-          if (!e.ctrlKey && !e.metaKey) selectedIndices.clear();
-          for (let i = start; i <= end; i++) {
-            selectedIndices.add(i);
-          }
         } else {
-          // Plain click: single select (select whole group if main row)
+          // Plain click: single select
           selectedIndices.clear();
-          for (const i of groupIdxList) selectedIndices.add(i);
+          selectedIndices.add(idx);
           lastClickedIndex = idx;
         }
         updateRowHighlights(container);
@@ -504,29 +565,49 @@
           updated.splice(i, 1);
         }
         setActions(updated);
-        Toast.info(`已删除 ${indices.length} 个 INI 操作`);
+        Toast.info(i18n.t('ini.deleted', { n: indices.length }));
         render(container);
       });
     }
 
-    // ── Tab cycling + container keyboard handling ──
+    // ── Column header sort (click toggles: same col flips asc/desc, new col = asc) ──
+    container.querySelectorAll('.ini-header-table th.th--sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.col;
+        if (sortState.col === col) {
+          sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortState.col = col;
+          sortState.dir = 'asc';
+        }
+        rerenderTable(container);
+      });
+    });
+
+    // ── Tab cycling: scope to the region of the focused element ──
+    // Top controls (section/key/add/delete) and the operation table rows each
+    // cycle independently — Tab never crosses between them.
     if (!container._ctrlABound) {
       container._ctrlABound = true;
       container.addEventListener('keydown', (e) => {
-        // Tab: cycle focus among all focusable elements within the tab content
-        if (e.key === 'Tab' && container.contains(document.activeElement)) {
-          const focusable = container.querySelectorAll(
-            'input:not([disabled]), select:not([disabled]), button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-          );
-          const visible = Array.from(focusable).filter(el => el.offsetParent !== null);
-          if (visible.length === 0) return;
-          e.preventDefault();
-          const cur = visible.indexOf(document.activeElement);
-          const next = e.shiftKey
-            ? (cur <= 0 ? visible.length - 1 : cur - 1)
-            : (cur >= visible.length - 1 ? 0 : cur + 1);
-          visible[next].focus();
-        }
+        if (e.key !== 'Tab' || !container.contains(document.activeElement)) return;
+        const active = document.activeElement;
+        const inBody = active.closest && active.closest('.ini-body-table');
+        const regionRoot = inBody
+          ? container.querySelector('.ini-body-table')
+          : container.querySelector('.editor-sticky-header');
+        if (!regionRoot) return;
+        const focusable = regionRoot.querySelectorAll(
+          'input:not([disabled]), select:not([disabled]), button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        const visible = Array.from(focusable).filter(el => el.offsetParent !== null);
+        if (visible.length === 0) return;
+        e.preventDefault();
+        const cur = visible.indexOf(active);
+        const next = e.shiftKey
+          ? (cur <= 0 ? visible.length - 1 : cur - 1)
+          : (cur >= visible.length - 1 ? 0 : cur + 1);
+        visible[next].focus();
       });
     }
 
@@ -593,19 +674,31 @@
         render(container);
       });
     });
-    // Double-click collapsed group main row to expand/collapse sub-rows
+    // Expand/collapse a perColumn group. Triggered by double-clicking the row
+    // OR single-clicking the group tag (the "分组" badge in the Action column).
+    function toggleGroupExpansion(row) {
+      const groupId = row.dataset.group;
+      const subRows = container.querySelectorAll(`.ini-sub-row[data-group-parent="${CSS.escape(groupId)}"]`);
+      if (subRows.length === 0) return;
+      const isExpanded = subRows[0].style.display !== 'none';
+      for (const sr of subRows) {
+        sr.style.display = isExpanded ? 'none' : '';
+      }
+      row.classList.toggle('ini-collapsed-row--expanded', !isExpanded);
+    }
     container.querySelectorAll('.ini-collapsed-row').forEach(row => {
       row.addEventListener('dblclick', (e) => {
         if (e.target.closest('button, input, select')) return;
-        const groupId = row.dataset.group;
-        const subRows = container.querySelectorAll(`.ini-sub-row[data-group-parent="${CSS.escape(groupId)}"]`);
-        if (subRows.length === 0) return;
-        const isExpanded = subRows[0].style.display !== 'none';
-        for (const sr of subRows) {
-          sr.style.display = isExpanded ? 'none' : '';
-        }
-        row.classList.toggle('ini-collapsed-row--expanded', !isExpanded);
+        toggleGroupExpansion(row);
       });
+      // Single-click the group tag to toggle (without selecting/interfering).
+      const tag = row.querySelector('.ini-group-toggle');
+      if (tag) {
+        tag.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleGroupExpansion(row);
+        });
+      }
     });
 
     // Fill-all buttons for list-type fields (ColumnSpacing etc.)
@@ -614,9 +707,13 @@
         const idx = parseInt(btn.dataset.idx);
         const edit = iniEdits[idx];
         if (!edit || edit.section !== 'Mania' || edit.maniaKeys == null || edit.maniaKeys <= 1) return;
+        const field = findFieldByTemplate(edit.section, edit.key);
+        let count = edit.maniaKeys;
+        if (field && field.fillCount === 'keys-1') count = edit.maniaKeys - 1;
+        else if (field && field.fillCount === 'keys+1') count = edit.maniaKeys + 1;
         const parts = (edit.value || '').split(',').map(s => s.trim()).filter(Boolean);
         const firstVal = parts.length > 0 ? parts[0] : '0';
-        edit.value = Array(edit.maniaKeys).fill(firstVal).join(',');
+        edit.value = Array(count).fill(firstVal).join(',');
         setActions([...iniEdits]);
         const input = container.querySelector(`.ini-value-input[data-idx="${idx}"]`);
         if (input) input.value = edit.value;
@@ -629,7 +726,7 @@
         const idx = parseInt(btn.dataset.idx);
         const skPath = skinPathFn ? await skinPathFn() : '';
         const result = await api.selectFile([
-          { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }
+          { name: i18n.t('ini.imageFilter'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }
         ], skPath || undefined);
         if (!result.success || !result.data || !result.data.length) return;
         const selectedPath = result.data[0];
@@ -651,6 +748,46 @@
         for (const sr of subRows) sr.style.display = '';
         row.classList.add('ini-collapsed-row--expanded');
       }
+    }
+
+    // Measure + apply column widths. If the tab is active but layoutColumns
+    // skipped (container width not settled yet this frame), retry next frame.
+    autosizeColumns(container);
+    layoutColumns(container);
+    if (container.classList.contains('tab-content--active')) {
+      requestAnimationFrame(() => layoutColumns(container));
+    }
+    adjustFillButtons();
+
+    // Edge-fade overlays: added to the scroll element's PARENT (container)
+    // so they stay fixed at the scroll viewport edges regardless of scroll
+    // position. Position is computed via getBoundingClientRect.
+    const scrollEl = container.querySelector('.ini-table-body-scroll');
+    if (scrollEl && !scrollEl._fadeBound) {
+      scrollEl._fadeBound = true;
+      container.style.position = 'relative';
+      const topFade = document.createElement('div');
+      topFade.className = 'scroll-edge-fade scroll-edge-fade--top';
+      const botFade = document.createElement('div');
+      botFade.className = 'scroll-edge-fade scroll-edge-fade--bottom';
+      container.appendChild(topFade);
+      container.appendChild(botFade);
+      const updateFade = () => {
+        const r = scrollEl.getBoundingClientRect();
+        const cr = container.getBoundingClientRect();
+        if (r.height === 0) return;
+        topFade.style.top = (r.top - cr.top) + 'px';
+        botFade.style.bottom = (cr.bottom - r.bottom) + 'px';
+        topFade.style.opacity = scrollEl.scrollTop > 2 ? '1' : '0';
+        botFade.style.opacity = (scrollEl.scrollTop + scrollEl.clientHeight < scrollEl.scrollHeight - 2) ? '1' : '0';
+      };
+      scrollEl.addEventListener('scroll', updateFade, { passive: true });
+      // Re-check on resize and after layout settles.
+      if (typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(updateFade).observe(scrollEl);
+      }
+      requestAnimationFrame(updateFade);
+      setTimeout(updateFade, 300);
     }
   }
 
@@ -725,23 +862,190 @@
     if (field) return field;
     return INI_FIELD_DEFS.find(f => {
       if (!f.perColumn || f.section !== section) return false;
-      const base = f.key.replace(/#$/, '');
-      return key.startsWith(base) && key.length > base.length;
+      // field.key uses '#' as a column-number placeholder (e.g. 'Colour#',
+      // 'KeyFlipWhenUpsideDown#D', 'NoteImage#H'). The actual key has a digit
+      // there (Colour0, KeyFlipWhenUpsideDown0D). Build a regex from the
+      // template: escape regex specials, then turn '#' into a digit capture.
+      const escaped = f.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp('^' + escaped.replace('#', '(\\d+)') + '$');
+      return re.test(key);
     }) || null;
   }
 
   // Get base key for grouping; uses field definition template for perColumn fields
   function getBaseKey(key, field) {
     if (field && field.perColumn) {
-      return field.key.replace(/#$/, '');
+      return field.key.replace('#', '');
     }
     return key;
   }
 
+  // A stable sort key that keeps perColumn (Mania #) entries of the same
+  // group ADJACENT — base key (with the #N suffix stripped) + mania key count.
+  // Without this, sorting by value/key would interleave columns of one group
+  // with another group's rows and split the collapsed group.
+  function groupSortKey(edit) {
+    const field = findFieldByTemplate(edit.section, edit.key);
+    const base = (field && field.perColumn) ? getBaseKey(edit.key, field) : edit.key;
+    const mk = edit.maniaKeys != null ? edit.maniaKeys : 0;
+    return base + '@' + mk;
+  }
+
+  function cmpStr(a, b) { return a < b ? -1 : (a > b ? 1 : 0); }
+
+  // Action-type rank for the "操作" sort: modify (green) < delete (red).
+  // (perColumn groups are formed AFTER sorting by collapsing adjacent equal
+  // base keys, so individual edits sort by modify/delete; the blue group header
+  // is a derived row, not sorted here.)
+  function actionRank(edit) { return edit._delete ? 1 : 0; }
+
+  // The per-header sort-key chain. Each header sorts by a specific sequence of
+  // fields so that, e.g., sorting by 操作 groups all modifies then deletes and
+  // within each by section→key→value. Reverse (desc) inverts the whole compare
+  // but keeps the field PRIORITY order.
+  // Sort key for the section column: section name (string) then maniaKeys
+  // (numeric) so "Mania (4K)" < "Mania (7K)" < "Mania (18K)" numerically,
+  // not lexicographically.
+  function sectionSortKey(edit) {
+    if (edit.section === 'Mania' && edit.maniaKeys != null) {
+      return edit.section + '\0' + String(edit.maniaKeys).padStart(3, '0');
+    }
+    return edit.section;
+  }
+
+  function editSortKeys(edit, col) {
+    const sec = sectionSortKey(edit);
+    const key = groupSortKey(edit);
+    const val = edit.value || '';
+    const act = actionRank(edit);
+    if (col === 'action')  return [act, sec, key, val];
+    if (col === 'section') return [sec, key, val, act];
+    if (col === 'key')     return [key, val, sec, act];
+    /* value */           return [val, sec, key, act];
+  }
+
+  function compareEdit(a, b, col) {
+    const ka = editSortKeys(a, col), kb = editSortKeys(b, col);
+    for (let i = 0; i < ka.length; i++) {
+      const c = cmpStr(ka[i], kb[i]);
+      if (c !== 0) return c;
+    }
+    return 0;
+  }
+
+  // Auto-size the operation table's first three columns to fit their content
+  // (headers + cells) in the current language, then lock to fixed layout so
+  // adding/removing rows never shifts them. The 4th (Value) column takes the
+  // remaining width.
+  // ── Column widths: ONE unified pipeline ──
+  //
+  // measureColumns(): probe-based; caches the three text columns' content
+  //   widths per locale (independent of the live table layout, so resizing
+  //   never corrupts the measurement). Called from render() and on locale
+  //   change — cheap when cached.
+  //
+  // layoutColumns(): the ONLY function that computes & applies colgroup widths.
+  //   Driven by a single ResizeObserver on the tab container, so it runs
+  //   whenever the container becomes visible (0 → >0) or the window resizes.
+  //   No render-time applying, no second observer — one source of truth.
+  //   Silently skips when tables/container width aren't ready (the observer
+  //   fires again once they are).
+  let lastMeasureLocale = null;
+  let measured = null;            // [wAction, wSection, wKey] content widths (px)
+  const COL_PAD = 24;
+  const VALUE_MIN = 200;
+  const KEY_MIN = 60;
+  const BASE_W = 578; // table content width at the minimum window (900 - 280 sidebar - 40 padding - 2 border)
+
+  function measureColumns(container) {
+    const loc = (window.i18n && window.i18n.locale()) || '';
+    if (measured && loc === lastMeasureLocale) return; // cached
+    const headerTable = container.querySelector('.ini-header-table .table');
+    const bodyTable = container.querySelector('.ini-body-table .table');
+    if (!headerTable || !bodyTable) { measured = null; return; } // no tables yet
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-size:13px;';
+    document.body.appendChild(probe);
+    const textW = (html) => { probe.innerHTML = html || ''; return probe.offsetWidth; };
+    const widths = [0, 0, 0, 0];
+    headerTable.querySelectorAll('thead th').forEach((th, i) => { if (i < 4) widths[i] = Math.max(widths[i], textW(th.innerHTML)); });
+    bodyTable.querySelectorAll('tbody tr').forEach(row => {
+      const cells = row.querySelectorAll('td');
+      for (let i = 0; i < 4 && i < cells.length; i++) widths[i] = Math.max(widths[i], textW(cells[i].innerHTML));
+    });
+    document.body.removeChild(probe);
+    measured = widths.map(w => Math.ceil(w + COL_PAD));
+    lastMeasureLocale = loc;
+  }
+
+  function layoutColumns(container) {
+    measureColumns(container); // ensure measured (no-op if cached)
+    if (!measured) return;                       // tables not ready yet
+    // Always compute column widths based on the MINIMUM window (BASE_W), never
+    // the current width. The table is width:100% + fixed layout, so the browser
+    // scales these base widths proportionally to fill the actual table width.
+    // This keeps proportions identical regardless of window size or refresh.
+    const [wAction, wSection] = measured;
+    let valueW = VALUE_MIN;
+    let keyW = BASE_W - wAction - wSection - valueW;
+    if (keyW < KEY_MIN) { keyW = KEY_MIN; valueW = BASE_W - wAction - wSection - keyW; }
+    container.querySelectorAll('.ini-header-table .table, .ini-body-table .table').forEach(t => {
+      const cg = t.querySelector('colgroup');
+      if (!cg) return;
+      const c = cg.children;
+      if (c[0]) c[0].style.width = wAction + 'px';
+      if (c[1]) c[1].style.width = wSection + 'px';
+      if (c[2]) c[2].style.width = keyW + 'px';
+      if (c[3]) c[3].style.width = valueW + 'px';
+    });
+    adjustFillButtons();
+  }
+
+  // Called from render(): only ensures a measurement. layoutColumns is driven
+  // by the ResizeObserver below — render never applies widths itself.
+  function autosizeColumns(container) { measureColumns(container); }
+
+
+  // Toggle fill-button labels between the full text and a compact '#' based on
+  // available width in the value cell. Called after render + on window resize.
+  function adjustFillButtons() {
+    document.querySelectorAll('.ini-list-fill-btn, .ini-fill-btn').forEach(btn => {
+      const full = btn.dataset.full || '#';
+      // The button's sibling span (the value input area) is the space budget.
+      const cell = btn.parentElement;
+      if (!cell) return;
+      // Measure: does the full label fit alongside the input at current width?
+      // Heuristic: if the cell's scrollWidth exceeds its clientWidth, it's tight.
+      btn.textContent = (cell.scrollWidth > cell.clientWidth + 2) ? '#' : full;
+    });
+  }
+
+
+  // Re-render the editor after a sort change (preserves expanded-group state,
+  // which render() already saves/restores).
+  function rerenderTable(container) {
+    render(container);
+  }
+
+  // Render the up/down sort arrows for a column header.
+  function sortIndicatorHtml(col) {
+    if (sortState.col !== col) return '';
+    const ascActive = sortState.dir === 'asc';
+    const upCls = ascActive ? 'ini-sort-arrow ini-sort-arrow--active' : 'ini-sort-arrow';
+    const downCls = !ascActive ? 'ini-sort-arrow ini-sort-arrow--active' : 'ini-sort-arrow';
+    return `<span class="ini-sort-indicator"><span class="${upCls}">▲</span><span class="${downCls}">▼</span></span>`;
+  }
+
   function renderIniTableBody(iniEdits) {
     if (iniEdits.length === 0) {
-      return `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">暂无修改项，请从上方添加</div>`;
+      return `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">${i18n.t('ini.empty')}</div>`;
     }
+
+    // Apply the active column sort — DISPLAY ONLY (sort in place, do NOT
+    // setActions — that would mark dirty and race save/reload). There is
+    // always an active sort (default = action).
+    const dirMul = sortState.dir === 'desc' ? -1 : 1;
+    iniEdits.sort((a, b) => dirMul * compareEdit(a, b, sortState.col));
 
     // Pre-scan: group consecutive same-base-key perColumn entries for collapsing
     const rowPlan = [];
@@ -784,12 +1088,12 @@
     return `
       <div class="ini-body-table">
         <div class="table-wrap">
-          <table class="table">
+          <table class="table ini-table">
             <colgroup>
-              <col style="width:68px">
-              <col style="width:110px">
-              <col style="min-width:160px">
-              <col style="min-width:200px">
+              <col style="width:72px">
+              <col style="width:120px">
+              <col style="width:240px">
+              <col>
             </colgroup>
             <tbody>
             ${rowPlan.map(plan => {
@@ -798,27 +1102,27 @@
                 const idx = plan.index;
                 const field = plan.field;
                 const type = field?.type || 'string';
-                const cnLabel = edit._cn || field?.cn || edit.key;
-                const rowTitle = field ? `title="${escapeHtml(field.cn + ' (' + field.key + ')' + (field.en ? ' — ' + field.en : ''))}"` : '';
+                const cnLabel = edit._cn || INI_FIELD_LABELS.fieldLabel(field || { key: edit.key });
+                const rowTitle = field ? `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(field) + ' (' + field.key + ')')}"` : '';
                 if (edit._delete) {
                   return `<tr class="ini-edit-row ini-delete-row" data-idx="${idx}" ${rowTitle}>
-                    <td><span class="tag tag--danger">删除</span></td>
+                    <td><span class="tag tag--danger">${i18n.t('ini.tagDelete')}</span></td>
                     <td><span class="tag">${sectionLabel(edit)}</span></td>
-                    <td>${cnLabel} <span style="color:var(--text-muted);font-size:11px">${edit.key}</span></td>
-                    <td style="color:var(--danger);font-size:12px">— 移除 —</td>
+                    <td><span class="ini-key-name">${escapeHtml(edit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(cnLabel)}</span></td>
+                    <td style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</td>
                   </tr>`;
                 }
                 const isListMania = field && field.type === 'list' && edit.section === 'Mania' && edit.maniaKeys != null && edit.maniaKeys > 1;
                 const listFillBtn = isListMania
-                  ? `<button type="button" class="btn btn--secondary btn--sm ini-list-fill-btn" data-idx="${idx}" title="填充到全部列"># 填充</button>`
+                  ? `<button type="button" class="btn btn--secondary btn--sm ini-list-fill-btn" data-idx="${idx}" title="${i18n.t('ini.fillAllTitle')}" data-full="${escapeHtml(i18n.t('ini.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('ini.fillAll')}</button>`
                   : '';
                 const valueCell = isListMania
-                  ? `<td style="display:flex;align-items:center;gap:4px"><span style="flex:1;min-width:0">${renderValueInput(type, edit, idx, field)}</span>${listFillBtn}</td>`
+                  ? `<td style="display:flex;align-items:center;gap:8px;padding-right:12px"><span style="flex:1;min-width:0">${renderValueInput(type, edit, idx, field)}</span>${listFillBtn}</td>`
                   : `<td>${renderValueInput(type, edit, idx, field)}</td>`;
                 return `<tr class="ini-edit-row" data-idx="${idx}" ${rowTitle}>
-                  <td><span class="tag tag--accent">修改</span></td>
+                  <td><span class="tag tag--accent">${i18n.t('ini.tagModify')}</span></td>
                   <td><span class="tag">${sectionLabel(edit)}</span></td>
-                  <td>${cnLabel} <span style="color:var(--text-muted);font-size:11px">${edit.key}</span></td>
+                  <td><span class="ini-key-name">${escapeHtml(edit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(cnLabel)}</span></td>
                   ${valueCell}
                 </tr>`;
               }
@@ -828,9 +1132,9 @@
               const firstField = findFieldByTemplate(firstEdit.section, firstEdit.key);
               const firstType = firstField?.type || 'string';
               const groupId = `${plan.baseKey}-${plan.maniaKeys}`;
-              const templateKey = plan.baseKey + '#';
-              const fieldCn = plan.field.cn;
-              const rowTitle = `title="${escapeHtml(plan.field.cn + ' (' + templateKey + ')' + (plan.field.en ? ' — ' + plan.field.en : ''))}"`;
+              const templateKey = plan.field.key;
+              const fieldCn = INI_FIELD_LABELS.fieldLabel(plan.field);
+              const rowTitle = `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(plan.field) + ' (' + templateKey + ')')}"`;
 
               // Determine group composition (modify, delete, or mixed)
               const hasModify = plan.indices.some(i => !iniEdits[i]._delete);
@@ -839,12 +1143,12 @@
               const groupDataIdx = `G-${groupId}`;
 
               let html = `<tr class="ini-edit-row ini-collapsed-row" data-group="${escapeHtml(groupId)}" data-group-indices="${escapeHtml(JSON.stringify(plan.indices))}" data-idx="${escapeHtml(groupDataIdx)}" ${rowTitle}>
-                <td><span class="tag" style="background:rgba(102,153,255,0.15);color:#69f">分组</span></td>
+                <td><span class="tag ini-group-toggle" style="background:rgba(102,153,255,0.15);color:#69f;cursor:pointer">${i18n.t('ini.tagGroup')}</span></td>
                 <td><span class="tag">${sectionLabel(firstEdit)}</span></td>
-                <td>${escapeHtml(fieldCn)} <span style="color:var(--text-muted);font-size:11px">${escapeHtml(templateKey)}</span></td>
-                <td style="display:flex;align-items:center;gap:4px">
-                  <span style="flex:1;min-width:0">${hasModify ? renderValueInput(firstType, firstEdit, plan.indices[0], firstField) : `<span style="color:var(--danger);font-size:12px">— 移除 —</span>`}</span>
-                  ${hasModify ? `<button type="button" class="btn btn--secondary btn--sm ini-fill-btn" data-group="${escapeHtml(groupId)}" title="填充到全部列"># 填充</button>` : ''}
+                <td><span class="ini-key-name">${escapeHtml(templateKey)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(fieldCn)}</span></td>
+                <td style="display:flex;align-items:center;gap:8px;padding-right:12px">
+                  <span style="flex:1;min-width:0">${hasModify ? renderValueInput(firstType, firstEdit, plan.indices[0], firstField) : `<span style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</span>`}</span>
+                  ${hasModify ? `<button type="button" class="btn btn--secondary btn--sm ini-fill-btn" data-group="${escapeHtml(groupId)}" title="${i18n.t('ini.fillAllTitle')}" data-full="${escapeHtml(i18n.t('ini.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('ini.fillAll')}</button>` : ''}
                 </td>
               </tr>`;
 
@@ -853,19 +1157,19 @@
                 const subEdit = iniEdits[subIdx];
                 const subField = findFieldByTemplate(subEdit.section, subEdit.key);
                 const subType = subField?.type || 'string';
-                const subTitle = subField ? `title="${escapeHtml(subField.cn + ' (' + subField.key + ')' + (subField.en ? ' — ' + subField.en : ''))}"` : '';
+                const subTitle = subField ? `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(subField) + ' (' + subField.key + ')')}"` : '';
                 if (subEdit._delete) {
                   html += `<tr class="ini-edit-row ini-sub-row ini-delete-row" data-idx="${subIdx}" data-group-parent="${escapeHtml(groupId)}" style="display:none" ${subTitle}>
-                    <td><span class="tag tag--danger">删除</span></td>
+                    <td><span class="tag tag--danger">${i18n.t('ini.tagDelete')}</span></td>
                     <td><span class="tag">${sectionLabel(subEdit)}</span></td>
-                    <td>${escapeHtml(subEdit._cn || subEdit.key)} <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subEdit.key)}</span></td>
-                    <td style="color:var(--danger);font-size:12px">— 移除 —</td>
+                    <td><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subEdit._cn || subEdit.key)}</span></td>
+                    <td style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</td>
                   </tr>`;
                 } else {
                   html += `<tr class="ini-edit-row ini-sub-row" data-idx="${subIdx}" data-group-parent="${escapeHtml(groupId)}" style="display:none" ${subTitle}>
-                    <td><span class="tag tag--accent">修改</span></td>
+                    <td><span class="tag tag--accent">${i18n.t('ini.tagModify')}</span></td>
                     <td><span class="tag">${sectionLabel(subEdit)}</span></td>
-                    <td>${escapeHtml(subEdit._cn || subEdit.key)} <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subEdit.key)}</span></td>
+                    <td><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subEdit._cn || subEdit.key)}</span></td>
                     <td>${renderValueInput(subType, subEdit, subIdx, subField)}</td>
                   </tr>`;
                 }
@@ -888,8 +1192,8 @@
         </label>`;
       case 'section': {
         const opts = field?.options || [];
-        return `<select class="form-input ini-value-section" data-idx="${i}" style="width:120px">
-          ${opts.map(o => `<option value="${o.value}" ${edit.value === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+        return `<select class="form-input ini-value-section" data-idx="${i}" style="width:100%;max-width:200px">
+          ${opts.map(o => `<option value="${o.value}" ${edit.value === o.value ? 'selected' : ''}>${INI_FIELD_LABELS.optionLabel(field, o)}</option>`).join('')}
         </select>`;
       }
       case 'rgb':
@@ -898,23 +1202,26 @@
         const val = edit.value || (isRgba ? '0,0,0,255' : '0,0,0');
         const parts = val.split(',').map(Number);
         const r = parts[0]||0, g = parts[1]||0, b = parts[2]||0, a = parts[3] !== undefined ? parts[3] : 255;
-        return `<div class="color-row">
-          <span class="color-swatch ini-color-swatch" data-idx="${i}" data-type="${type}"
-                style="background:${isRgba ? `rgba(${r},${g},${b},${a/255})` : `rgb(${r},${g},${b})`}"></span>
-          <input type="text" class="form-input ini-value-input ini-color-value" data-idx="${i}" value="${escapeHtml(val)}" style="width:120px">
+        return `<div class="color-row" style="display:flex;align-items:center;gap:6px">
+          <button type="button" class="color-swatch ini-color-swatch" data-idx="${i}" data-type="${type}" tabindex="0" style="flex:0 0 auto;background:${isRgba ? `rgba(${r},${g},${b},${a/255})` : `rgb(${r},${g},${b})`}"></button>
+          <input type="text" class="form-input ini-value-input ini-color-value" data-idx="${i}" value="${escapeHtml(val)}" style="flex:1;min-width:0">
         </div>`;
       }
       case 'path':
-        return `<div class="path-input-row" style="display:flex;gap:4px;align-items:center">
+        return `<div class="path-input-row" style="display:flex;gap:8px;align-items:center">
           <input type="text" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" style="flex:1;min-width:0">
-          <button type="button" class="btn btn--secondary btn--sm ini-path-btn" data-idx="${i}" title="选择文件">📂</button>
+          <button type="button" class="btn btn--secondary btn--sm ini-path-btn" data-idx="${i}" title="${i18n.t('ini.pickFileTitle')}" style="flex:0 0 auto">📂</button>
         </div>`;
       case 'integer':
-        return `<input type="number" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" step="1" style="width:100px">`;
-      case 'number':
-        return `<input type="number" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" step="0.1" style="width:100px">`;
+      case 'number': {
+        const step = type === 'integer' ? '1' : '0.1';
+        const minAttr = field && field.min != null ? ` min="${field.min}"` : '';
+        const maxAttr = field && field.max != null ? ` max="${field.max}"` : '';
+        const forbiddenAttr = field && Array.isArray(field.forbidden) ? ` data-forbidden="${field.forbidden.join(',')}"` : '';
+        return `<input type="number" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" step="${step}"${minAttr}${maxAttr}${forbiddenAttr} style="width:100%">`;
+      }
       default:
-        return `<input type="text" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" style="width:200px">`;
+        return `<input type="text" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" style="width:100%">`;
     }
   }
 
@@ -930,20 +1237,31 @@
     const actions = getActions ? getActions() : [];
     const sorted = [...selectedIndices].sort((a, b) => b - a);
     const confirmed = await ApplyDialog.showConfirmDialog(
-      `确定要删除选中的 ${sorted.length} 个 INI 操作吗？`,
+      i18n.t('ini.deleteRowsConfirm', { n: sorted.length }),
       [
-        { label: `删除 (${sorted.length})`, cls: 'btn--danger', value: 'delete' },
-        { label: '取消', cls: 'btn--secondary', value: 'cancel' },
+        { label: `${i18n.t('ini.deleteBtn').replace(/^- ?/, '')} (${sorted.length})`, cls: 'btn--danger', value: 'delete' },
+        { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
       ]
     );
     if (!confirmed || confirmed !== 'delete') return;
 
+    // Build a map from the (sorted) view-model index back to the underlying
+    // action, since selectedIndices reference DISPLAY positions.
     const updated = [...actions];
     for (const i of sorted) updated.splice(i, 1);
     setActions(updated);
-    selectedIndices.clear();
+    // Keep remaining selection valid: drop deleted indices, reindex the rest.
+    const kept = new Set();
+    for (const idx of selectedIndices) {
+      if (sorted.includes(idx)) continue;
+      // how many deleted indices were before this one → shift down
+      let shift = 0;
+      for (const d of sorted) if (d < idx) shift++;
+      kept.add(idx - shift);
+    }
+    selectedIndices = kept;
     lastClickedIndex = null;
-    Toast.info(`已删除 ${sorted.length} 个 INI 操作`);
+    Toast.info(i18n.t('ini.deleted', { n: sorted.length }));
     // Re-render current container
     const container = document.getElementById('tab-ini');
     if (container && container.classList.contains('tab-content--active')) {
@@ -951,5 +1269,14 @@
     }
   }
 
-  window.IniEditor = { init, render, deleteSelected };
+  // Single ResizeObserver: the ONLY driver of layoutColumns. Covers the tab
+  // becoming visible (width 0 → >0) and window resizing.
+  const iniContainer = document.getElementById('tab-ini');
+  if (iniContainer && typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => layoutColumns(iniContainer)).observe(iniContainer);
+  } else if (iniContainer) {
+    window.addEventListener('resize', () => layoutColumns(iniContainer));
+  }
+
+  window.IniEditor = { init, render, deleteSelected, layoutColumns };
 })();

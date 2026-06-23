@@ -1,13 +1,13 @@
 // Keyboard shortcut registry — manages bindings, matching, and rebinding
 (function () {
   const DEFAULTS = [
-    { id: 'refresh',     key: 'Ctrl+R',  desc: '刷新皮肤列表',           modes: ['use','edit'] },
-    { id: 'toggle-mode', key: 'Ctrl+E',  desc: '切换 使用/编辑 模式',    modes: ['use','edit'] },
-    { id: 'save',        key: 'Ctrl+S',  desc: '保存当前预设',           modes: ['edit'] },
-    { id: 'new-preset',  key: 'Ctrl+N',  desc: '新建预设',              modes: ['edit'] },
-    { id: 'new-group',   key: 'Ctrl+G',  desc: '新建分组',              modes: ['edit'] },
-    { id: 'copy-preset', key: 'Ctrl+C',  desc: '复制选中预设',           modes: ['edit'] },
-    { id: 'apply',       key: 'Space',   desc: '应用当前预设',           modes: ['use'] },
+    { id: 'refresh',     key: 'Ctrl+R',  descKey: 'shortcutsDesc.refresh',     modes: ['use','edit'] },
+    { id: 'toggle-mode', key: 'Ctrl+E',  descKey: 'shortcutsDesc.toggleMode',  modes: ['use','edit'] },
+    { id: 'save',        key: 'Ctrl+S',  descKey: 'shortcutsDesc.save',        modes: ['edit'] },
+    { id: 'new-preset',  key: 'Ctrl+N',  descKey: 'shortcutsDesc.newPreset',   modes: ['edit'] },
+    { id: 'new-group',   key: 'Ctrl+G',  descKey: 'shortcutsDesc.newGroup',    modes: ['edit'] },
+    { id: 'copy-preset', key: 'Ctrl+C',  descKey: 'shortcutsDesc.copyPreset',  modes: ['edit'] },
+    { id: 'apply',       key: 'Space',   descKey: 'shortcutsDesc.apply',       modes: ['use'] },
   ];
 
   // Current bindings (id → key string). Loaded from config on startup.
@@ -31,7 +31,7 @@
     return DEFAULTS.map(d => ({
       id: d.id,
       key: getBinding(d.id),
-      desc: d.desc,
+      desc: i18n.t(d.descKey),
       modes: d.modes,
     }));
   }

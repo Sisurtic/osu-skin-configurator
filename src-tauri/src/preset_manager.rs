@@ -69,7 +69,7 @@ fn load_config(skin_path: &str) -> Config {
         .and_then(|p| p.as_array())
         .map(|arr| arr.iter().map(|p| {
             let id = p.get("id").cloned().unwrap_or(json!(0));
-            let meta = p.get("meta").cloned().unwrap_or_else(|| json!({"name": format!("预设 {}", id), "description": "", "previewPath": ""}));
+            let meta = p.get("meta").cloned().unwrap_or_else(|| json!({"name": crate::i18n::t("preset.fallback_name", &[("id", &id.as_i64().unwrap_or(0).to_string())]), "description": "", "previewPath": ""}));
             let actions = p.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": []}));
             json!({"id": id, "meta": meta, "actions": actions})
         }).collect::<Vec<_>>())
@@ -123,7 +123,7 @@ fn remove_from_parent(cfg: &mut Config, child_id: i64, kind: &str) -> bool {
 
 fn insert_into_parent(cfg: &mut Config, child_id: i64, kind: &str, parent_group_id: Option<i64>, index: Option<i64>) -> Result<(), String> {
     if kind == "preset" && parent_group_id.is_none() {
-        return Err("预设不能放置在根层级".to_string());
+        return Err(crate::i18n::t("err.preset_at_root", &[]));
     }
     match parent_group_id {
         None => {
@@ -133,7 +133,7 @@ fn insert_into_parent(cfg: &mut Config, child_id: i64, kind: &str, parent_group_
             cfg.root_group_ids.insert(i, child_id);
         }
         Some(pid) => {
-            let gi = find_group_mut(cfg, pid).ok_or_else(|| format!("目标分组不存在: {}", pid))?;
+            let gi = find_group_mut(cfg, pid).ok_or_else(|| crate::i18n::t("err.target_group_not_found", &[("id", &pid.to_string())]))?;
             let len = cfg.groups[gi].children.len() as i64;
             let i = index.filter(|x| *x >= 0).unwrap_or(len) as usize;
             let i = i.min(cfg.groups[gi].children.len());
@@ -198,7 +198,7 @@ pub fn scan_skin(skin_path: &str) -> Value {
     }
     let preset_summaries: Vec<Value> = cfg.presets.iter().map(|p| {
         let id = p.get("id").cloned().unwrap_or(json!(0));
-        let meta = p.get("meta").cloned().unwrap_or_else(|| json!({"name": format!("预设 {}", id)}));
+        let meta = p.get("meta").cloned().unwrap_or_else(|| json!({"name": crate::i18n::t("preset.fallback_name", &[("id", &id.as_i64().unwrap_or(0).to_string())])}));
         let preview_path = meta.get("previewPath").and_then(|v| v.as_str()).unwrap_or("");
         let has_preview = !preview_path.is_empty() && Path::new(preview_path).exists();
         let actions = p.get("actions");
@@ -238,7 +238,7 @@ pub fn save_preset(skin_path: &str, preset_id: Option<i64>, data: &Value) -> Res
     };
     let entry = json!({
         "id": id,
-        "meta": data.get("meta").cloned().unwrap_or_else(|| json!({"name": format!("预设 {}", id), "description": "", "previewPath": ""})),
+        "meta": data.get("meta").cloned().unwrap_or_else(|| json!({"name": crate::i18n::t("preset.fallback_name", &[("id", &id.to_string())]), "description": "", "previewPath": ""})),
         "actions": data.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": []})),
     });
     if let Some(pos) = cfg.presets.iter().position(|p| p.get("id").and_then(|v| v.as_i64()) == Some(id)) {
@@ -300,7 +300,7 @@ pub fn add_group(skin_path: &str, name: &str, parent_group_id: Option<i64>) -> R
     cfg.next_group_id += 1;
     cfg.groups.push(Group {
         id,
-        name: if name.is_empty() { "新分组".to_string() } else { name.to_string() },
+        name: if name.is_empty() { crate::i18n::t("group.default_empty_name", &[]) } else { name.to_string() },
         collapsed: false,
         children: vec![],
     });
@@ -311,9 +311,9 @@ pub fn add_group(skin_path: &str, name: &str, parent_group_id: Option<i64>) -> R
 
 pub fn remove_group(skin_path: &str, group_id: i64) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
-    let gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| format!("分组不存在: {}", group_id))?;
+    let gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
     if !cfg.groups[gi].children.is_empty() {
-        return Err("分组非空，无法删除".to_string());
+        return Err(crate::i18n::t("err.group_not_empty", &[]));
     }
     remove_from_parent(&mut cfg, group_id, "group");
     cfg.groups.retain(|g| g.id != group_id);
@@ -324,8 +324,8 @@ pub fn remove_group(skin_path: &str, group_id: i64) -> Result<(), String> {
 
 pub fn rename_group(skin_path: &str, group_id: i64, new_name: &str) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
-    let gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| format!("分组不存在: {}", group_id))?;
-    cfg.groups[gi].name = if new_name.is_empty() { "未命名".to_string() } else { new_name.to_string() };
+    let gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
+    cfg.groups[gi].name = if new_name.is_empty() { crate::i18n::t("group.unnamed", &[]) } else { new_name.to_string() };
     save_config(skin_path, &cfg);
     Ok(())
 }
@@ -335,11 +335,11 @@ pub fn rename_group(skin_path: &str, group_id: i64, new_name: &str) -> Result<()
 pub fn move_preset(skin_path: &str, preset_id: i64, target_group_id: Option<i64>, index: Option<i64>) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
     if !cfg.presets.iter().any(|p| p.get("id").and_then(|v| v.as_i64()) == Some(preset_id)) {
-        return Err(format!("预设不存在: {}", preset_id));
+        return Err(crate::i18n::t("err.preset_not_found", &[("id", &preset_id.to_string())]));
     }
     if let Some(tg) = target_group_id {
         if find_group_mut(&mut cfg, tg).is_none() {
-            return Err(format!("目标分组不存在: {}", tg));
+            return Err(crate::i18n::t("err.target_group_not_found", &[("id", &tg.to_string())]));
         }
     }
     remove_from_parent(&mut cfg, preset_id, "preset");
@@ -353,12 +353,12 @@ pub fn move_preset(skin_path: &str, preset_id: i64, target_group_id: Option<i64>
 pub fn move_group(skin_path: &str, group_id: i64, target_group_id: Option<i64>, index: Option<i64>) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
     if find_group_mut(&mut cfg, group_id).is_none() {
-        return Err(format!("分组不存在: {}", group_id));
+        return Err(crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]));
     }
     if let Some(tg) = target_group_id {
-        if group_id == tg { return Err("不能将分组移动到自身内部".to_string()); }
+        if group_id == tg { return Err(crate::i18n::t("err.group_move_into_self", &[])); }
         if is_descendant(&cfg, group_id, tg) {
-            return Err("不能将分组移动到其子分组内部".to_string());
+            return Err(crate::i18n::t("err.group_move_into_child", &[]));
         }
     }
     remove_from_parent(&mut cfg, group_id, "group");
@@ -383,7 +383,7 @@ pub fn reorder_children(skin_path: &str, parent_group_id: Option<i64>, child_ord
     match parent_group_id {
         None => { cfg.root_group_ids = child_order; }
         Some(pid) => {
-            let gi = find_group_mut(&mut cfg, pid).ok_or_else(|| format!("分组不存在: {}", pid))?;
+            let gi = find_group_mut(&mut cfg, pid).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &pid.to_string())]))?;
             let order_map: HashMap<i64, usize> = child_order.iter().enumerate().map(|(i, id)| (*id, i)).collect();
             cfg.groups[gi].children.sort_by(|a, b| {
                 let ai = order_map.get(&a.id).copied().unwrap_or(usize::MAX);
@@ -398,7 +398,7 @@ pub fn reorder_children(skin_path: &str, parent_group_id: Option<i64>, child_ord
 
 pub fn set_group_collapsed(skin_path: &str, group_id: i64, collapsed: bool) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
-    let gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| format!("分组不存在: {}", group_id))?;
+    let gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
     cfg.groups[gi].collapsed = collapsed;
     save_config(skin_path, &cfg);
     Ok(())
@@ -406,7 +406,7 @@ pub fn set_group_collapsed(skin_path: &str, group_id: i64, collapsed: bool) -> R
 
 pub fn delete_group_recursive(skin_path: &str, group_id: i64) -> Result<Value, String> {
     let mut cfg = load_config(skin_path);
-    let root_gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| format!("分组不存在: {}", group_id))?;
+    let root_gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
     let mut preset_ids: HashSet<i64> = HashSet::new();
     let mut group_ids: HashSet<i64> = HashSet::new();
     fn collect(cfg: &Config, gid: i64, preset_ids: &mut HashSet<i64>, group_ids: &mut HashSet<i64>) {

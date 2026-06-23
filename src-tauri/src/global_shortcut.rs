@@ -143,16 +143,17 @@ fn on_trigger(app: &AppHandle, acc: &str) {
         .filter_map(|p| {
             let id = p.get("id").and_then(|v| v.as_i64())?;
             if ids.contains(&id) {
-                Some(p.get("meta").and_then(|m| m.get("name")).and_then(|n| n.as_str()).map(|s| s.to_string()).unwrap_or_else(|| format!("预设 {}", id)))
+                Some(p.get("meta").and_then(|m| m.get("name")).and_then(|n| n.as_str()).map(|s| s.to_string()).unwrap_or_else(|| crate::i18n::t("preset.fallback_name", &[("id", &id.to_string())])))
             } else { None }
         })
         .collect();
 
-    let title = "已应用预设";
+    let title = crate::i18n::t("notify.applied_title", &[]);
+    let joined = names.join("、");
     let body = if warnings > 0 {
-        format!("已应用 {} 个：{}（{} 条警告）", names.len(), names.join("、"), warnings)
+        crate::i18n::t("notify.applied_body_warn", &[("count", &names.len().to_string()), ("names", &joined), ("warn", &warnings.to_string())])
     } else {
-        format!("已应用：{}", names.join("、"))
+        crate::i18n::t("notify.applied_body", &[("names", &joined)])
     };
     let _ = app.notification().builder().title(title).body(body).show();
     let _ = app.emit("global-shortcut-applied", json!({"ids": ids}));

@@ -6,6 +6,7 @@ mod config_store;
 mod file_assoc;
 mod foreground;
 mod global_shortcut;
+mod i18n;
 mod ini_reader;
 mod osu_path;
 mod preset_applier;
@@ -28,7 +29,7 @@ fn wrap_err(msg: &str) -> Value { json!({ "success": false, "error": msg }) }
 
 fn skin_path_from_name(app: &AppHandle, skin_name: &str) -> Result<String, String> {
     let cfg = config_store::load(app);
-    let osu_path = cfg.osu_path.ok_or("未设置 osu! 路径")?;
+    let osu_path = cfg.osu_path.ok_or_else(|| i18n::t("err.osu_path_unset", &[]))?;
     Ok(osu_path::get_skin_path(&osu_path, skin_name).to_string_lossy().to_string())
 }
 
@@ -254,7 +255,7 @@ fn global_shortcuts_bind(app: AppHandle, skin_name: String, preset_ids: Vec<i64>
     if global_shortcut::bind(&app, &sp, &preset_ids, &accelerator) {
         wrap_ok(json!(true))
     } else {
-        wrap_err("快捷键已被占用或无效")
+        wrap_err(&i18n::t("err.shortcut_taken", &[]))
     }
 }
 #[tauri::command]
@@ -286,6 +287,57 @@ fn app_get_open_file(app: AppHandle, pending: State<'_, PendingOsp>) -> Value {
 fn app_get_version(app: AppHandle) -> Value {
     let v = app.package_info().version.to_string();
     wrap_ok(json!(v))
+}
+
+// ── locales auto-discovery ──
+//
+// Scans the bundled `locales` resource dir for `*.json`, reads each (filename
+// minus extension = BCP-47 tag, e.g. "en.json"), and returns them merged as
+// { "<tag>": <dict> }, sorted by filename. Dropping a new <tag>.json into the
+// locales folder is all that's needed to add a language — the UI picks it up.
+#[tauri::command]
+fn locales_list(app: AppHandle) -> Value {
+    use std::fs;
+    let base = resolve_locales_dir(&app);
+    let base = match base { Some(p) => p, None => return wrap_ok(json!({ "tags": [], "dicts": {} })) };
+    let mut entries: Vec<(String, Value)> = Vec::new();
+    let read = match fs::read_dir(&base) { Ok(r) => r, Err(_) => return wrap_ok(json!({ "tags": [], "dicts": {} })) };
+    for entry in read.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("json")).unwrap_or(false) {
+            let stem = match path.file_stem().and_then(|s| s.to_str()) { Some(s) => s.to_string(), None => continue };
+            let raw = match fs::read_to_string(&path) { Ok(s) => s, Err(_) => continue };
+            match serde_json::from_str::<Value>(&raw) { Ok(v) => entries.push((stem, v)), Err(_) => continue }
+        }
+    }
+    // Sort by filename (tag) for a stable menu order matching the folder.
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let tags: Vec<Value> = entries.iter().map(|(t, _)| json!(t)).collect();
+    // Dicts as an object (key order doesn't matter — tags[] carries the order).
+    let map = entries.into_iter().map(|(t, v)| (t, v)).collect::<serde_json::Map<_, _>>();
+    wrap_ok(json!({ "tags": tags, "dicts": Value::Object(map) }))
+}
+
+fn resolve_locales_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
+    // Bundled: <resource_dir>/locales. Dev: src/renderer/js/locales.
+    if let Ok(rd) = app.path().resource_dir() {
+        let cand = rd.join("locales");
+        if cand.is_dir() { return Some(cand); }
+    }
+    // Dev fallback: walk up from the exe / target dir to the repo, then into src/renderer/js/locales.
+    if let Ok(exe) = std::env::current_exe() {
+        let mut d = exe.parent().map(|p| p.to_path_buf());
+        for _ in 0..8 {
+            if let Some(cur) = d.as_ref() {
+                let cand = cur.join("src").join("renderer").join("js").join("locales");
+                if cand.is_dir() { return Some(cand); }
+                d = cur.parent().map(|p| p.to_path_buf());
+            } else {
+                break;
+            }
+        }
+    }
+    None
 }
 
 // ── update check (GitHub releases) ──
@@ -428,6 +480,7 @@ fn skin_name_from_osp(arg: &str) -> Option<String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    i18n::init();
     tauri::Builder::default()
         // single-instance MUST be first
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -491,7 +544,7 @@ pub fn run() {
             image_get_preview,
             shortcuts_load, shortcuts_save,
             global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_reload,
-            app_get_open_file, app_get_version, check_latest_release, download_and_run_latest_release,
+            app_get_open_file, app_get_version, check_latest_release, download_and_run_latest_release, locales_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

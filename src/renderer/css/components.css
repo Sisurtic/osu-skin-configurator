@@ -249,6 +249,81 @@ select.form-input {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-light);
 }
+/* INI operation table: FIXED layout. Header + body are TWO separate tables;
+   fixed layout makes their colgroups authoritative so the columns align
+   perfectly. Column widths are computed in JS (autosizeColumns) to fit the
+   content/language and to give the value column the remaining space. */
+.table.ini-table {
+  table-layout: fixed;
+}
+.table.ini-table td {
+  text-align: left;
+  vertical-align: middle;
+}
+/* Text/tag columns clip with ellipsis — EXCEPT section (badge must show fully). */
+.table.ini-table td:nth-child(1),
+.table.ini-table td:nth-child(3) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.table.ini-table td:nth-child(2) {
+  white-space: nowrap;
+}
+/* Value column (4th): inputs fill the cell, keep a right margin. */
+.table.ini-table td:nth-child(4) {
+  padding-right: 12px;
+}
+.table.ini-table td:nth-child(4) .form-input {
+  width: 100%;
+  min-width: 0;
+}
+/* File table value/dest columns: keep right margin, NO ellipsis (override the
+   generic ini-table ellipsis above), inputs fill width. */
+.table.files-body-table td:nth-child(2),
+.table.files-body-table td:nth-child(3) {
+  padding-right: 12px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+.table.files-body-table .copy-dest-input {
+  width: 100%;
+  min-width: 0;
+}
+/* Sortable column headers. */
+.th--sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+/* No background/float change when a header is active or pressed — keep it flat. */
+.th--sortable:active,
+.th--sortable--active {
+  background: var(--bg-tertiary);
+}
+.ini-sort-indicator {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1;
+  font-size: 7px;
+  gap: 2px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.ini-sort-arrow {
+  color: var(--text-muted);
+}
+.ini-sort-arrow--active {
+  color: var(--accent);
+}
+/* The two leftmost INI columns hold badge "tag" pills whose text is inset by
+   the pill padding; offset these headers' left padding so the header text
+   aligns with the badge TEXT, not the badge background edge. */
+.table.ini-table th.th--sortable[data-col="action"],
+.table.ini-table th.th--sortable[data-col="section"] {
+  padding-left: 18px;
+}
 .table tr:last-child td {
   border-bottom: none;
 }
@@ -385,6 +460,11 @@ select.form-input {
   border-radius: var(--radius-sm);
   border: 2px solid var(--border);
   cursor: pointer;
+  padding: 0;
+}
+.color-swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .color-row {
   display: flex;
@@ -436,8 +516,20 @@ select.form-input {
   border-color: var(--accent);
 }
 .toggle input:checked + .toggle__slider::before {
-  background: var(--accent);
+  background: var(--accent-hover);
   transform: translateX(18px);
+}
+/* Focus highlight: ring the slider when the (invisible) checkbox is focused.
+   ON state uses accent green, OFF state uses a muted gray so the two are
+   visually distinct while navigating with Tab. */
+.toggle input:focus-visible + .toggle__slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+.toggle input:not(:checked):focus-visible + .toggle__slider {
+  outline-color: var(--text-muted);
+  border-color: var(--text-muted);
 }
 
 /* ── Tag/Badge ── */
@@ -480,9 +572,9 @@ select.form-input {
 }
 .upload-zone__preview {
   max-width: 100%;
-  max-height: 300px;
+  max-height: 160px;
   border-radius: var(--radius-sm);
-  margin-top: 12px;
+  margin-top: 4px;
 }
 
 /* ── Search input ── */
@@ -532,7 +624,7 @@ select.form-input {
   right: 0;
   bottom: 0;
   height: 2px;
-  background: linear-gradient(90deg,
+  background: linear-gradient(160deg,
     hsl(calc(140deg + var(--depth, 0) * 25deg), 60%, 55%),
     hsl(calc(160deg + var(--depth, 0) * 25deg), 60%, 55%));
 }
@@ -557,8 +649,8 @@ select.form-input {
   padding-top: 4px;
 }
 .preset-selector__sep {
-  height: 1px;
-  min-height: 1px;
+  height: 2px;
+  min-height: 2px;
   margin: 8px 0;
   background: var(--border-light);
   position: relative;
@@ -735,13 +827,12 @@ select.form-input {
   align-items: stretch;
 }
 .preset-selector__list {
-  width: calc(100% - 384px);  /* default: 380px preview + 4px divider */
-  min-width: 200px;
+  flex: 1;
+  min-width: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   padding: 8px 12px 8px 0;
-  flex-shrink: 0;
   scrollbar-width: none;  /* Firefox: hide scrollbar */
 }
 .preset-selector__list::-webkit-scrollbar {
@@ -752,7 +843,7 @@ select.form-input {
   flex-shrink: 0;
   align-self: stretch;
   background: var(--border);
-  cursor: col-resize;
+  cursor: ew-resize;
   transition: background 0.15s;
   border-radius: 2px;
   margin: 8px 0;
@@ -762,10 +853,8 @@ select.form-input {
   background: var(--accent);
 }
 .preset-preview-panel {
-  width: 380px;
+  flex: 0 0 40%;
   min-width: 200px;
-  max-width: 700px;
-  flex-shrink: 0;
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -801,7 +890,6 @@ select.form-input {
   width: auto;
   height: auto;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
 }
 .preset-preview-panel__no-image {
   font-size: 12px;
@@ -839,7 +927,7 @@ select.form-input {
 /* ── File copy destination input ── */
 .copy-dest-input {
   width: 100%;
-  min-width: 240px;
+  min-width: 0;
 }
 .editor-sticky-header {
   position: sticky;
@@ -862,6 +950,7 @@ select.form-input {
   right: 0;
   max-height: 240px;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -878,6 +967,7 @@ select.form-input {
   padding: 7px 10px;
   cursor: pointer;
   font-size: 13px;
+  overflow: hidden;
 }
 .ini-combo__option:hover,
 .ini-combo__option--active {
@@ -891,6 +981,9 @@ select.form-input {
   font-size: 12px;
   color: var(--text-muted);
   text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ini-combo__empty {
   padding: 8px 10px;
@@ -983,9 +1076,6 @@ select.form-input {
 /* ── INI collapsed per-column rows ── */
 .ini-collapsed-row {
   cursor: pointer;
-}
-.ini-collapsed-row td {
-  font-weight: 500;
 }
 .ini-collapsed-row--expanded {
   background: var(--bg-active);
@@ -1172,6 +1262,28 @@ select.form-input {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  scrollbar-width: none; /* Firefox: hide scrollbar */
+}
+#tab-ini .ini-table-body-scroll::-webkit-scrollbar,
+#tab-files .files-table-body-scroll::-webkit-scrollbar {
+  display: none; /* Chromium: hide scrollbar but keep scrolling */
+}
+/* Edge fade overlays: JS creates fixed-position <div>s at the top/bottom
+   of the scroll container's visible area. CSS just styles them. */
+.scroll-edge-fade {
+  position: absolute;
+  left: 0; right: 0;
+  height: 30px;
+  pointer-events: none;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.scroll-edge-fade--top {
+  background: linear-gradient(to bottom, var(--bg-primary) 0%, var(--bg-primary) 0%, transparent 100%);
+}
+.scroll-edge-fade--bottom {
+  background: linear-gradient(to top, var(--bg-primary) 0%, var(--bg-primary) 0%, transparent 100%);
 }
 /* Header table wrapper: no bottom border-radius (seamless with body table) */
 .ini-header-table .table-wrap,
@@ -1250,6 +1362,32 @@ select.form-input {
   100% { opacity: 0; transform: translateY(-440px); }
 }
 
+/* ── Cursor particles ──
+   Green, low-opacity equilateral triangles that rise from the cursor and fade.
+   pointer-events:none so they never block interaction. */
+.cursor-particles {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 9998;
+}
+.cursor-particles span {
+  position: fixed;
+  width: 0;
+  height: 0;
+  border-left: solid transparent;
+  border-right: solid transparent;
+  border-bottom: solid;
+  opacity: 0;
+  animation: cursorParticle linear forwards;
+}
+@keyframes cursorParticle {
+  0%   { opacity: 0; transform: translate(0, 0); }
+  15%  { opacity: var(--cp-opacity, 0.08); }
+  100% { opacity: 0; transform: translate(var(--cp-drift, 0px), calc(var(--cp-rise, 30px) * 3)); }
+}
+
 .info-dialog__close {
   position: absolute;
   top: 10px;
@@ -1273,7 +1411,7 @@ select.form-input {
   position: relative;
   z-index: 1;
   display: flex;
-  gap: 20px;
+  gap: 28px;
   padding: 32px 28px 28px;
   align-items: center;
 }
@@ -1295,15 +1433,19 @@ select.form-input {
   height: 100%;
   display: block;
 }
-/* osu!-menu-style bounce while hovering (JS toggles .is-bouncing and stops at
-   the cycle boundary where scale==1). */
+/* Logo: hover scales up; click resets the scale-up animation. */
+.info-dialog__logo {
+  transition: transform 0.2s ease;
+}
+.info-dialog__logo-wrap:hover .info-dialog__logo {
+  transform: scale(1.12);
+}
 .info-dialog__logo.is-bouncing {
-  animation: logoBounce 0.85s ease-in-out infinite;
+  animation: logoBounce 0.3s ease-out 1;
 }
 @keyframes logoBounce {
-  0%, 100% { transform: scale(1); }
-  30%      { transform: scale(1.12); }
-  60%      { transform: scale(0.96); }
+  0%   { transform: scale(1); }
+  100% { transform: scale(1.12); }
 }
 /* Ripple: independent element (sibling of .logo, not a child) so it doesn't
    inherit the bounce transform. Expands uniformly from center, fades linearly,
@@ -1321,12 +1463,9 @@ select.form-input {
   pointer-events: none;
   z-index: 0;
 }
-.info-dialog__logo-wrap.is-rippling .info-dialog__ripple {
-  animation: logoRipple 0.85s linear infinite;
-}
 @keyframes logoRipple {
-  0%   { transform: scale(1); opacity: 0.3; }
-  100% { transform: scale(1.8); opacity: 0; }
+  0%   { transform: scale(1.4); opacity: 0.4; }
+  100% { transform: scale(2); opacity: 0; }
 }
 .info-dialog__logo img {
   width: 100%;

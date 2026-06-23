@@ -91,7 +91,7 @@ fn apply_one_set(
         let dest_rel = copy.get("destination").and_then(|v| v.as_str()).unwrap_or("");
 
         if dest_rel.contains("..") || is_absolute_js(dest_rel) {
-            warnings.push(format!("跳过 \"{}\": 目标路径无效", source_name));
+            warnings.push(crate::i18n::t("warn.copy_invalid_path", &[("name", &source_name)]));
             continue;
         }
         let is_dir_only = dest_rel.is_empty() || dest_rel.ends_with('/') || dest_rel.ends_with('\\');
@@ -102,7 +102,7 @@ fn apply_one_set(
         };
         let dest_str = dest_path.to_string_lossy().to_string();
         if !is_within(&dest_str, skin_path) {
-            warnings.push(format!("跳过 \"{}\": 目标路径超出皮肤目录", source_name));
+            warnings.push(crate::i18n::t("warn.copy_outside_skin", &[("name", &source_name)]));
             continue;
         }
         if let Some(parent) = dest_path.parent() {
@@ -111,7 +111,7 @@ fn apply_one_set(
         if Path::new(source).exists() {
             if std::fs::copy(source, &dest_path).is_ok() { files_copied += 1; }
         } else {
-            warnings.push(format!("跳过 \"{}\": 源文件不存在", source_name));
+            warnings.push(crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
         }
     }
 
@@ -119,19 +119,19 @@ fn apply_one_set(
     for del in file_deletes {
         let del_path = del.get("path").and_then(|v| v.as_str()).unwrap_or("");
         if del_path.contains("..") || is_absolute_js(del_path) {
-            warnings.push(format!("跳过删除 \"{}\": 路径无效", del_path));
+            warnings.push(crate::i18n::t("warn.del_invalid_path", &[("path", del_path)]));
             continue;
         }
         let full = PathBuf::from(skin_path).join(del_path);
         let full_str = full.to_string_lossy().to_string();
         if !is_within(&full_str, skin_path) {
-            warnings.push(format!("跳过删除 \"{}\": 路径超出皮肤目录", del_path));
+            warnings.push(crate::i18n::t("warn.del_outside_skin", &[("path", del_path)]));
             continue;
         }
         if full.exists() {
             if std::fs::remove_file(&full).is_ok() { files_deleted += 1; }
         } else {
-            warnings.push(format!("跳过删除 \"{}\": 文件不存在", del_path));
+            warnings.push(crate::i18n::t("warn.del_missing", &[("path", del_path)]));
         }
     }
 
@@ -145,7 +145,7 @@ fn apply_one_set(
 
 pub fn apply_preset(skin_path: &str, preset_id: i64) -> Result<Value, String> {
     let preset = crate::preset_manager::load_preset(skin_path, preset_id)
-        .ok_or_else(|| format!("预设不存在: {}", preset_id))?;
+        .ok_or_else(|| crate::i18n::t("err.preset_not_found", &[("id", &preset_id.to_string())]))?;
     let actions = preset.get("actions").cloned().unwrap_or_else(|| json!({}));
     let skin_ini = actions.get("skinIni").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let copies = actions.get("fileCopies").and_then(|v| v.as_array()).cloned().unwrap_or_default();
@@ -173,7 +173,7 @@ pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
                     all_ini.extend(arr.iter().cloned());
                 }
             }
-            None => warnings.push(format!("预设不存在: {}", id)),
+            None => warnings.push(crate::i18n::t("err.preset_not_found", &[("id", &id.to_string())])),
         }
     }
 

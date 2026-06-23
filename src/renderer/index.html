@@ -18,7 +18,7 @@
     <header class="titlebar">
       <div class="titlebar__title">
         <span class="titlebar__dot"></span>
-        osu! Skin Configurator
+        <span data-i18n="app.title">osu! Skin Configurator</span>
       </div>
       <span class="titlebar__version" id="app-version"></span>
     </header>
@@ -26,13 +26,23 @@
     <!-- Toolbar -->
     <nav class="toolbar">
       <div class="toolbar__left">
-        <button class="btn btn--ghost btn--sm" id="btn-settings" title="快捷键">🔧</button>
-        <button class="btn btn--ghost btn--sm" id="btn-rescan" title="刷新">🔄️</button>
-        <span class="toolbar__path" id="toolbar-path">未设置 osu! 路径</span>
+        <div class="lang-switch" id="lang-switch">
+          <button class="btn btn--ghost btn--sm lang-switch__btn toolbar__icon-btn" id="btn-lang" title="语言 / Language" data-i18n-title="toolbar.langTitle">
+            <svg class="toolbar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+          </button>
+          <div class="lang-switch__menu" id="lang-menu"></div>
+        </div>
+        <button class="btn btn--ghost btn--sm toolbar__icon-btn" id="btn-settings" title="快捷键" data-i18n-title="toolbar.settingsTitle">
+          <svg class="toolbar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h0M10 10h0M14 10h0M18 10h0M6 14h12"/></svg>
+        </button>
+        <button class="btn btn--ghost btn--sm toolbar__icon-btn" id="btn-rescan" title="刷新" data-i18n-title="toolbar.rescanTitle">
+          <svg class="toolbar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        </button>
+        <span class="toolbar__path" id="toolbar-path" data-i18n="app.pathUnset">未设置 osu! 路径</span>
       </div>
       <div class="toolbar__right" id="toolbar-actions">
-        <button class="btn btn--secondary btn--sm" id="btn-apply-preset" disabled title="应用此预设到皮肤">▶ 应用</button>
-        <button class="btn btn--secondary btn--sm" id="btn-toggle-mode" title="切换使用/编辑模式">✏️</button>
+        <button class="btn btn--secondary btn--sm" id="btn-apply-preset" disabled title="应用此预设到皮肤" data-i18n="toolbar.apply" data-i18n-title="toolbar.applyTitle">▶ 应用</button>
+        <button class="btn btn--secondary btn--sm" id="btn-toggle-mode" title="切换使用/编辑模式" data-i18n-title="toolbar.toggleModeTitle">✏️</button>
       </div>
     </nav>
 
@@ -43,11 +53,11 @@
       <aside class="sidebar">
         <div class="sidebar__section sidebar__section--skins">
           <div class="sidebar__header">
-            <span>📁 皮肤列表</span>
+            <span data-i18n="sidebar.skins">📁 皮肤列表</span>
             <span id="skin-count"></span>
           </div>
           <div class="search-input">
-            <input type="text" id="skin-search" placeholder="搜索皮肤...">
+            <input type="text" id="skin-search" placeholder="搜索皮肤..." data-i18n-placeholder="sidebar.searchSkin">
           </div>
           <div class="sidebar__list" id="skin-list">
             <!-- populated by skin-list.js -->
@@ -55,13 +65,13 @@
         </div>
         <div class="sidebar__section sidebar__section--skin-header" id="skin-header-section" style="display:none">
           <div class="sidebar__header">
-            <span>🎨 当前皮肤</span>
+            <span data-i18n="sidebar.currentSkin">🎨 当前皮肤</span>
           </div>
           <div style="padding:8px 14px;font-size:13px;font-weight:500;color:var(--accent)" id="skin-header-name"></div>
         </div>
         <div class="sidebar__section sidebar__section--presets" id="preset-section">
           <div class="sidebar__header">
-            <span>📄 预设</span>
+            <span data-i18n="sidebar.presets">📄 预设</span>
             <span id="preset-count"></span>
           </div>
           <div class="sidebar__list" id="preset-list">
@@ -83,8 +93,8 @@
         <div class="view centered-view" id="view-welcome">
           <div class="card">
             <div class="card__icon">🎨</div>
-            <h2 class="card__title">欢迎使用 osu! Skin Configurator</h2>
-            <p class="card__desc">从左侧选择一个皮肤以查看和管理预设</p>
+            <h2 class="card__title" data-i18n="welcome.title">欢迎使用 osu! Skin Configurator</h2>
+            <p class="card__desc" data-i18n="welcome.descSelect">从左侧选择一个皮肤以查看和管理预设</p>
           </div>
         </div>
 
@@ -108,7 +118,7 @@
   <!-- Info dialog (about) -->
   <div class="info-overlay" id="info-overlay" hidden>
     <div class="info-dialog">
-      <button class="info-dialog__close" id="info-close" title="关闭">✕</button>
+      <button class="info-dialog__close" id="info-close" title="关闭" data-i18n-title="dialog.close">✕</button>
       <div class="info-dialog__particles" id="info-particles"></div>
       <div class="info-dialog__body">
         <div class="info-dialog__logo-wrap" id="info-logo-wrap">
@@ -119,7 +129,7 @@
           <h2 class="info-dialog__name">osu! Skin Configurator</h2>
           <div class="info-dialog__version" id="info-version"></div>
           <div class="info-dialog__update">
-            <button class="btn btn--secondary btn--sm" id="info-check-update">检查更新</button>
+            <button class="btn btn--secondary btn--sm" id="info-check-update" data-i18n="info.checkUpdate">检查更新</button>
             <span class="info-dialog__update-status" id="info-update-status"></span>
           </div>
           <div class="info-dialog__section">
@@ -136,10 +146,12 @@
   <!-- Scripts -->
   <script src="js/tauri-api.js"></script>
   <script src="js/utils/ini-field-defs.js"></script>
+  <script src="js/i18n.js"></script>
   <script src="js/state.js"></script>
   <script src="js/shortcuts.js"></script>
   <script src="js/api.js"></script>
   <script src="js/components/toast.js"></script>
+  <script src="js/components/cursor-particles.js"></script>
   <script src="js/components/info-dialog.js"></script>
   <script src="js/components/update-check.js"></script>
   <script src="js/components/settings-view.js"></script>

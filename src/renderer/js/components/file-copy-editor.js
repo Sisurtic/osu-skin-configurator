@@ -7,6 +7,13 @@
   let lastClickedIndex = null;
   let fileDialogOpen = false;
 
+  // Column sort state. Default = by action type (copy/delete grouped), asc.
+  // There is always an active sort.
+  let sortState = { col: 'action', dir: 'asc' };
+  // The view-model used for the current render (sorted if a sort is active).
+  // All data-idx consumers index into THIS, not a fresh buildFileOps().
+  let currentFileOps = null;
+
   function blockUI() {
     if (document.getElementById('dialog-block-overlay')) return;
     const overlay = document.createElement('div');
@@ -51,26 +58,113 @@
     setDeletes(deletes);
   }
 
+  function cmpStr(a, b) { return a < b ? -1 : (a > b ? 1 : 0); }
+
+  function opFile(op) { return op._type === 'copy' ? (op.source || '') : (op.path || ''); }
+  function opDest(op) { return op._type === 'copy' ? (op.destination || '') : ''; }
+  function opActRank(op) { return op._type === 'copy' ? 0 : 1; } // copy(green) < delete(red)
+
+  // Per-header sort-key chains. action → action, file, dest; etc. Reverse
+  // inverts the whole compare but keeps field PRIORITY.
+  function opSortKeys(op, col) {
+    const f = opFile(op), d = opDest(op), a = opActRank(op);
+    if (col === 'action') return [a, f, d];
+    if (col === 'file')   return [f, d, a];
+    /* dest */            return [d, f, a];
+  }
+  function compareOp(a, b, col) {
+    const ka = opSortKeys(a, col), kb = opSortKeys(b, col);
+    for (let i = 0; i < ka.length; i++) {
+      const c = cmpStr(ka[i], kb[i]);
+      if (c !== 0) return c;
+    }
+    return 0;
+  }
+
+  function sortIndicatorHtml(col) {
+    if (sortState.col !== col) return '';
+    const ascActive = sortState.dir === 'asc';
+    const upCls = ascActive ? 'ini-sort-arrow ini-sort-arrow--active' : 'ini-sort-arrow';
+    const downCls = !ascActive ? 'ini-sort-arrow ini-sort-arrow--active' : 'ini-sort-arrow';
+    return `<span class="ini-sort-indicator"><span class="${upCls}">▲</span><span class="${downCls}">▼</span></span>`;
+  }
+
+  // Re-render after a sort change.
+  function rerenderTable(container) { render(container); }
+
+  // ── Column widths: ONE unified pipeline (mirrors the INI editor) ──
+  // measureColumns(): probe-based; caches all 3 columns' content widths per
+  //   locale. layoutColumns(): the ONLY function that applies widths, driven
+  //   by a single ResizeObserver. render() only measures.
+  let lastMeasureLocale = null;
+  let measured = null;            // [action, file, dest] content widths (px)
+  const COL_PAD = 24;
+
+  function measureColumns(container) {
+    const loc = (window.i18n && window.i18n.locale()) || '';
+    if (measured && loc === lastMeasureLocale) return; // cached
+    const headerTable = container.querySelector('.files-header-table .table');
+    const bodyTable = container.querySelector('.files-body-table .table');
+    if (!headerTable || !bodyTable) { measured = null; return; }
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-size:13px;';
+    document.body.appendChild(probe);
+    const textW = (html) => { probe.innerHTML = html || ''; return probe.offsetWidth; };
+    const widths = [0, 0, 0];
+    headerTable.querySelectorAll('thead th').forEach((th, i) => { if (i < 3) widths[i] = Math.max(widths[i], textW(th.innerHTML)); });
+    bodyTable.querySelectorAll('tbody tr').forEach(row => {
+      const cells = row.querySelectorAll('td');
+      for (let i = 0; i < 3 && i < cells.length; i++) widths[i] = Math.max(widths[i], textW(cells[i].innerHTML));
+    });
+    document.body.removeChild(probe);
+    measured = widths.map(w => Math.ceil(w + COL_PAD));
+    lastMeasureLocale = loc;
+  }
+
+  const BASE_W = 578; // table content width at the minimum window (900 - 280 - 40 - 2)
+
+  function layoutColumns(container) {
+    measureColumns(container);
+    if (!measured) return;                        // tables not ready yet
+    // Always use BASE_W (minimum window). Fixed layout + width:100% scales
+    // proportionally to the actual table width, keeping proportions stable.
+    const [wAction, wFile, wDest] = measured;
+    const rest = Math.max(0, BASE_W - wAction);
+    const fdSum = (wFile + wDest) || 1;
+    const fileW = Math.max(60, Math.round(rest * (wFile / fdSum)));
+    const destW = Math.max(60, rest - fileW);
+    container.querySelectorAll('.files-header-table .table, .files-body-table .table').forEach(t => {
+      const cg = t.querySelector('colgroup');
+      if (!cg) return;
+      const c = cg.children;
+      if (c[0]) c[0].style.width = wAction + 'px';
+      if (c[1]) c[1].style.width = fileW + 'px';
+      if (c[2]) c[2].style.width = destW + 'px';
+    });
+  }
+
+  // render() only measures; layoutColumns is driven by the ResizeObserver.
+  function autosizeColumns(container) { measureColumns(container); }
+
   function render(container) {
     const fileOps = buildFileOps();
 
     // Reset selection
     selectedIndices = new Set();
     lastClickedIndex = null;
-
     container.innerHTML = `
       <div class="editor-sticky-header">
         <div style="padding-bottom:10px;border-bottom:1px solid var(--border)">
           <div style="margin-bottom:8px">
-            <h3 style="margin-bottom:4px">文件操作</h3>
-            <p style="font-size:12px;color:var(--text-muted)">选择替换文件并设定目标路径（在皮肤文件夹内），或标记要删除的文件</p>
+            <h3 style="margin-bottom:4px">${i18n.t('file.heading')}</h3>
+            <p style="font-size:12px;color:var(--text-muted)">${i18n.t('file.desc')}</p>
           </div>
 
           <!-- Add buttons -->
           <div style="display:flex;gap:0;margin-bottom:8px">
-            <div style="width:110px;flex-shrink:0;display:flex;gap:4px;padding-right:8px">
-              <button class="btn btn--primary btn--sm" id="btn-add-file" style="font-size:11px;padding:4px 6px">＋ 复制</button>
-              <button class="btn btn--danger btn--sm" id="btn-add-delete" style="font-size:11px;padding:4px 6px">＋ 删除</button>
+            <div style="width:110px;flex-shrink:0;display:flex;gap:8px;padding-right:8px">
+              <button class="btn btn--primary btn--sm" id="btn-add-file" style="font-size:11px;padding:4px 6px">${i18n.t('file.copy')}</button>
+              <button class="btn btn--danger btn--sm" id="btn-add-delete" style="font-size:11px;padding:4px 6px">${i18n.t('file.delete')}</button>
             </div>
             <div style="flex:1;min-width:0"></div>
             <div style="flex:1;min-width:0"></div>
@@ -79,7 +173,7 @@
           <!-- Delete drop zone -->
           <div class="editor-delete-zone" id="file-delete-zone"
                style="padding:8px;border:2px dashed var(--danger);border-radius:var(--radius);text-align:center;color:var(--danger);font-size:12px;opacity:0.5;transition:all 0.2s">
-            拖拽操作到此处删除
+            ${i18n.t('file.deleteZone')}
           </div>
         </div>
 
@@ -87,13 +181,17 @@
         ${fileOps.length > 0 ? `
         <div class="files-header-table" style="margin-top:6px">
           <div class="table-wrap">
-            <table class="table">
+            <table class="table ini-table">
               <colgroup>
-                <col style="width:110px">
-                <col style="min-width:200px">
-                <col style="min-width:200px">
+                <col style="width:72px">
+                <col>
+                <col>
               </colgroup>
-              <thead><tr><th>操作</th><th>文件</th><th>目标路径</th></tr></thead>
+              <thead><tr>
+                <th class="th--sortable" data-col="action">${i18n.t('file.colAction')}${sortIndicatorHtml('action')}</th>
+                <th class="th--sortable" data-col="file">${i18n.t('file.colFile')}${sortIndicatorHtml('file')}</th>
+                <th class="th--sortable" data-col="dest">${i18n.t('file.colDest')}${sortIndicatorHtml('dest')}</th>
+              </tr></thead>
             </table>
           </div>
         </div>
@@ -108,14 +206,14 @@
     // Add copy file button
     const btnAddFile = container.querySelector('#btn-add-file');
     if (btnAddFile) btnAddFile.addEventListener('click', async () => {
-      if (!skinName()) { Toast.warning('请先选择皮肤'); return; }
+      if (!skinName()) { Toast.warning(i18n.t('file.selectSkinFirst')); return; }
       if (fileDialogOpen) return;
       try {
         fileDialogOpen = true;
         blockUI();
         const defaultPath = await skinPath() || '';
         const result = await api.selectFile([
-          { name: '所有文件', extensions: ['*'] }
+          { name: i18n.t('file.allFilesFilter'), extensions: ['*'] }
         ], defaultPath);
         if (!result.success || !result.data || !result.data.length) return;
 
@@ -135,14 +233,14 @@
     // Add delete file button
     const btnAddDelete = container.querySelector('#btn-add-delete');
     if (btnAddDelete) btnAddDelete.addEventListener('click', async () => {
-      if (!skinName()) { Toast.warning('请先选择皮肤'); return; }
+      if (!skinName()) { Toast.warning(i18n.t('file.selectSkinFirst')); return; }
       if (fileDialogOpen) return;
       try {
         fileDialogOpen = true;
         blockUI();
         const defaultPath = await skinPath() || '';
         const result = await api.selectFile([
-          { name: '所有文件', extensions: ['*'] }
+          { name: i18n.t('file.allFilesFilter'), extensions: ['*'] }
         ], defaultPath);
         if (!result.success || !result.data || !result.data.length) return;
 
@@ -171,11 +269,14 @@
       bindRowSelection(row, fileOps);
     });
 
-    // Destination change handlers
+    // Destination change handlers — resolve the row via the SORTED view-model
+    // (data-idx indexes currentFileOps, which is sorted when a sort is active).
+    // Use 'input' (not 'change') so the value is captured on every keystroke —
+    // otherwise saving without blurring loses the typed destination path.
     container.querySelectorAll('.copy-dest-input').forEach(input => {
-      input.addEventListener('change', () => {
+      input.addEventListener('input', () => {
         const idx = parseInt(input.dataset.idx);
-        const ops = buildFileOps();
+        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
         if (idx >= 0 && idx < ops.length && ops[idx]._type === 'copy') {
           ops[idx].destination = input.value;
           applyFileOps(ops);
@@ -183,24 +284,44 @@
       });
     });
 
-    // ── Tab cycling + container keyboard handling ──
+    // ── Column header sort (click toggles: same col flips asc/desc, new col = asc) ──
+    container.querySelectorAll('.files-header-table th.th--sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.col;
+        if (sortState.col === col) {
+          sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortState.col = col;
+          sortState.dir = 'asc';
+        }
+        rerenderTable(container);
+      });
+    });
+
+    // ── Tab cycling: scope to the region of the focused element ──
+    // Top controls (copy/delete buttons) and the operation table rows each
+    // cycle independently — Tab never crosses between them.
     if (!container._ctrlABound) {
       container._ctrlABound = true;
       container.addEventListener('keydown', (e) => {
-        // Tab: cycle focus among all focusable elements within the tab content
-        if (e.key === 'Tab' && container.contains(document.activeElement)) {
-          const focusable = container.querySelectorAll(
-            'input:not([disabled]), select:not([disabled]), button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-          );
-          const visible = Array.from(focusable).filter(el => el.offsetParent !== null);
-          if (visible.length === 0) return;
-          e.preventDefault();
-          const cur = visible.indexOf(document.activeElement);
-          const next = e.shiftKey
-            ? (cur <= 0 ? visible.length - 1 : cur - 1)
-            : (cur >= visible.length - 1 ? 0 : cur + 1);
-          visible[next].focus();
-        }
+        if (e.key !== 'Tab' || !container.contains(document.activeElement)) return;
+        const active = document.activeElement;
+        const inBody = active.closest && active.closest('.files-body-table');
+        const regionRoot = inBody
+          ? container.querySelector('.files-body-table')
+          : container.querySelector('.editor-sticky-header');
+        if (!regionRoot) return;
+        const focusable = regionRoot.querySelectorAll(
+          'input:not([disabled]), select:not([disabled]), button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        const visible = Array.from(focusable).filter(el => el.offsetParent !== null);
+        if (visible.length === 0) return;
+        e.preventDefault();
+        const cur = visible.indexOf(active);
+        const next = e.shiftKey
+          ? (cur <= 0 ? visible.length - 1 : cur - 1)
+          : (cur >= visible.length - 1 ? 0 : cur + 1);
+        visible[next].focus();
       });
     }
 
@@ -228,13 +349,50 @@
         if (!raw) return;
         try {
           const indices = JSON.parse(raw).sort((a, b) => b - a);
-          const ops = buildFileOps();
+          const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
           for (const i of indices) ops.splice(i, 1);
           applyFileOps(ops);
-          Toast.info(`已删除 ${indices.length} 个文件操作`);
+          Toast.info(i18n.t('file.deleted', { n: indices.length }));
           render(container);
         } catch (_) { /* ignore malformed data */ }
       });
+    }
+
+    // Measure + apply column widths. If the tab is active but layoutColumns
+    // skipped (container width not settled yet this frame), retry next frame.
+    autosizeColumns(container);
+    layoutColumns(container);
+    if (container.classList.contains('tab-content--active')) {
+      requestAnimationFrame(() => layoutColumns(container));
+    }
+
+    // Edge-fade overlays: added to the scroll element's PARENT (container)
+    // so they stay fixed at the scroll viewport edges regardless of scroll.
+    const scrollEl = container.querySelector('.files-table-body-scroll');
+    if (scrollEl && !scrollEl._fadeBound) {
+      scrollEl._fadeBound = true;
+      container.style.position = 'relative';
+      const topFade = document.createElement('div');
+      topFade.className = 'scroll-edge-fade scroll-edge-fade--top';
+      const botFade = document.createElement('div');
+      botFade.className = 'scroll-edge-fade scroll-edge-fade--bottom';
+      container.appendChild(topFade);
+      container.appendChild(botFade);
+      const updateFade = () => {
+        const r = scrollEl.getBoundingClientRect();
+        const cr = container.getBoundingClientRect();
+        if (r.height === 0) return;
+        topFade.style.top = (r.top - cr.top) + 'px';
+        botFade.style.bottom = (cr.bottom - r.bottom) + 'px';
+        topFade.style.opacity = scrollEl.scrollTop > 2 ? '1' : '0';
+        botFade.style.opacity = (scrollEl.scrollTop + scrollEl.clientHeight < scrollEl.scrollHeight - 2) ? '1' : '0';
+      };
+      scrollEl.addEventListener('scroll', updateFade, { passive: true });
+      if (typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(updateFade).observe(scrollEl);
+      }
+      requestAnimationFrame(updateFade);
+      setTimeout(updateFade, 300);
     }
   }
 
@@ -301,31 +459,41 @@
 
   function renderFilesTableBody(fileOps) {
     if (fileOps.length === 0) {
-      return `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">暂无文件操作，请从上方添加</div>`;
+      return `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">${i18n.t('file.empty')}</div>`;
     }
+    // Apply the active column sort — DISPLAY ONLY (no applyFileOps). There is
+    // always an active sort (default = action).
+    const dirMul = sortState.dir === 'desc' ? -1 : 1;
+    fileOps.sort((a, b) => dirMul * compareOp(a, b, sortState.col));
+    // Publish the (possibly sorted) view-model so data-idx consumers
+    // (destination input, row selection, delete) index the same order they see.
+    currentFileOps = fileOps;
     return `
       <div class="files-body-table">
         <div class="table-wrap">
-          <table class="table">
+          <table class="table ini-table">
             <colgroup>
-              <col style="width:110px">
-              <col style="min-width:200px">
-              <col style="min-width:200px">
+              <col style="width:72px">
+              <col>
+              <col>
             </colgroup>
             <tbody>
             ${fileOps.map((op, i) => {
               if (op._type === 'copy') {
+                const src = op.source || '';
+                const cached = thumbHtmlFor(src, pathBasename(src));
                 return `<tr class="file-op-row" data-idx="${i}" data-type="copy">
-                  <td><span class="tag tag--accent">复制</span></td>
-                  <td><span class="file-thumb" data-path="${escapeHtml(op.source)}" style="display:inline-flex;align-items:center;gap:6px">📄 ${escapeHtml(pathBasename(op.source))}</span></td>
-                  <td><input type="text" class="form-input copy-dest-input" data-idx="${i}" value="${escapeHtml(op.destination)}" placeholder="如: mania/ （留空为根目录）"></td>
+                  <td><span class="tag tag--accent">${i18n.t('file.tagCopy')}</span></td>
+                  <td><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
+                  <td><input type="text" class="form-input copy-dest-input" data-idx="${i}" value="${escapeHtml(op.destination)}" placeholder="${i18n.t('file.destPlaceholder')}"></td>
                 </tr>`;
               } else {
-                return `<tr class="file-op-row file-delete-row" data-idx="${i}" data-type="delete" data-delpath="${escapeHtml(op.path)}">
-                  <td><span class="tag tag--danger">删除</span></td>
-                  <td><span class="file-thumb file-del-thumb" data-path="${escapeHtml(op.path)}" style="display:inline-flex;align-items:center;gap:6px">${escapeHtml(op.path)}</span></td>
-                  <td style="color:var(--danger);font-size:12px">— 移除
-                   —</td>
+                const p = op.path || '';
+                const cached = thumbHtmlFor(p, p, true);
+                return `<tr class="file-op-row file-delete-row" data-idx="${i}" data-type="delete" data-delpath="${escapeHtml(p)}">
+                  <td><span class="tag tag--danger">${i18n.t('file.tagDelete')}</span></td>
+                  <td><span class="file-thumb file-del-thumb" data-path="${escapeHtml(p)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
+                  <td style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</td>
                 </tr>`;
               }
             }).join('')}
@@ -337,6 +505,23 @@
   }
 
   const IMG_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']);
+  // rawPath (the value stored in data-path) → data URL. Cached so re-renders
+  // (add/delete/save) render the image synchronously instead of flashing the
+  // file-icon placeholder first.
+  const thumbCache = new Map();
+
+  // Build the inner markup for a file cell: cached <img> if available, else a
+  // 📄 icon placeholder (loadThumbnails fills it in async on first load).
+  function thumbHtmlFor(rawPath, label, isDelete) {
+    if (isDelete ? !rawPath : !isImagePath(rawPath)) {
+      // Non-image (or empty): plain icon + label, no async load.
+      return isDelete ? escapeHtml(label) : `📄 ${escapeHtml(label || '')}`;
+    }
+    if (thumbCache.has(rawPath)) {
+      return `<img src="${thumbCache.get(rawPath)}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
+    }
+    return `📄 ${escapeHtml(label || '')}`;
+  }
 
   function pathBasename(p) {
     return p.split(/[/\\]/).pop() || p;
@@ -351,8 +536,11 @@
     const skPath = await skinPath() || '';
     const thumbs = document.querySelectorAll('.file-thumb[data-path]');
     for (const span of thumbs) {
-      let p = span.dataset.path;
-      // Delete items have relative paths, resolve with skin path
+      const raw = span.dataset.path;
+      // Skip spans that already show an image (rendered from cache synchronously).
+      if (span.querySelector('img')) continue;
+      // Resolve the on-disk path to fetch (delete items use relative paths).
+      let p = raw;
       if (span.classList.contains('file-del-thumb') && skPath) {
         const isAbs = /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('/');
         if (!isAbs) {
@@ -360,10 +548,17 @@
         }
       }
       if (!isImagePath(p)) continue;
+      // Cache keyed by the RAW data-path so re-renders can use it synchronously.
+      if (thumbCache.has(raw)) {
+        const label = span.classList.contains('file-del-thumb') ? raw : pathBasename(raw);
+        span.innerHTML = `<img src="${thumbCache.get(raw)}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
+        continue;
+      }
       try {
         const result = await api.getPreviewDataUrl(p);
         if (result.success && result.data) {
-          const label = span.classList.contains('file-del-thumb') ? span.dataset.path : pathBasename(span.dataset.path);
+          thumbCache.set(raw, result.data);
+          const label = span.classList.contains('file-del-thumb') ? raw : pathBasename(raw);
           span.innerHTML = `<img src="${result.data}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
         }
       } catch (_) { /* skip failed thumbnails */ }
@@ -381,21 +576,21 @@
     if (selectedIndices.size === 0) return;
 
     const confirmed = await ApplyDialog.showConfirmDialog(
-      `确定要删除选中的 ${selectedIndices.size} 个文件操作吗？`,
+      i18n.t('file.deleteRowsConfirm', { n: selectedIndices.size }),
       [
-        { label: `删除 (${selectedIndices.size})`, cls: 'btn--danger', value: 'delete' },
-        { label: '取消', cls: 'btn--secondary', value: 'cancel' },
+        { label: `${i18n.t('file.delete')} (${selectedIndices.size})`, cls: 'btn--danger', value: 'delete' },
+        { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
       ]
     );
     if (!confirmed || confirmed !== 'delete') return;
 
-    const fileOps = buildFileOps();
+    const fileOps = currentFileOps ? [...currentFileOps] : buildFileOps();
     const sorted = [...selectedIndices].sort((a, b) => b - a);
     for (const i of sorted) fileOps.splice(i, 1);
     applyFileOps(fileOps);
     selectedIndices.clear();
     lastClickedIndex = null;
-    Toast.info(`已删除 ${sorted.length} 个文件操作`);
+    Toast.info(i18n.t('file.deleted', { n: sorted.length }));
     // Re-render current container
     const container = document.getElementById('tab-files');
     if (container && container.classList.contains('tab-content--active')) {
@@ -403,5 +598,14 @@
     }
   }
 
-  window.FileCopyEditor = { init, render, deleteSelected };
+  // Single ResizeObserver: the ONLY driver of layoutColumns (tab visible +
+  // window resize). All column logic stays internal.
+  const filesContainer = document.getElementById('tab-files');
+  if (filesContainer && typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => layoutColumns(filesContainer)).observe(filesContainer);
+  } else if (filesContainer) {
+    window.addEventListener('resize', () => layoutColumns(filesContainer));
+  }
+
+  window.FileCopyEditor = { init, render, deleteSelected, layoutColumns };
 })();

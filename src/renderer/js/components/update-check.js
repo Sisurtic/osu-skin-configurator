@@ -34,7 +34,7 @@
       if (!dot) return;
       if (this.hasUpdate()) {
         dot.classList.add('titlebar__dot--update');
-        dot.title = `发现新版本 ${this.lastResult.latest_version}，点击更新`;
+        dot.title = i18n.t('info.dotTooltip', { ver: this.lastResult.latest_version });
       } else {
         dot.classList.remove('titlebar__dot--update');
         dot.title = '';
@@ -56,14 +56,14 @@
       try {
         result = await api.downloadAndRunLatestRelease();
       } catch (_) {
-        Toast.error('下载更新失败');
+        Toast.error(i18n.t('update.downloadFailed'));
         return false;
       }
       if (!result || !result.success) {
-        Toast.error('下载更新失败' + (result && result.error ? ': ' + result.error : ''));
+        Toast.error(i18n.t('update.downloadFailedDetail', { msg: (result && result.error) || '' }));
         return false;
       }
-      Toast.success(`已下载 ${result.data}，即将启动安装程序…`);
+      Toast.success(i18n.t('update.downloaded', { name: result.data }));
       return true;
     },
   };

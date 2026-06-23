@@ -11,10 +11,10 @@
       viewEl.innerHTML = `
         <div class="card">
           <div class="card__icon">✅</div>
-          <h2 class="card__title">osu! 路径已设置</h2>
+          <h2 class="card__title">${i18n.t('settings.pathSet')}</h2>
           <p class="card__desc" style="word-break:break-all">${escapeHtml(osuPath)}</p>
           <div style="text-align:center">
-            <button class="btn btn--secondary" id="btn-change-path">🔄 更换路径</button>
+            <button class="btn btn--secondary" id="btn-change-path">${i18n.t('settings.changePath')}</button>
           </div>
         </div>
       `;
@@ -23,11 +23,11 @@
       viewEl.innerHTML = `
         <div class="card">
           <div class="card__icon">🔍</div>
-          <h2 class="card__title">正在检测 osu! 安装路径…</h2>
-          <p class="card__desc">如果未自动检测到，请手动选择 osu! 安装目录</p>
+          <h2 class="card__title">${i18n.t('settings.detecting')}</h2>
+          <p class="card__desc">${i18n.t('settings.detectHint')}</p>
           <div style="text-align:center">
-            <button class="btn btn--primary" id="btn-auto-detect">🔍 自动检测</button>
-            <button class="btn btn--secondary" id="btn-browse-path" style="margin-left:8px">📂 手动浏览</button>
+            <button class="btn btn--primary" id="btn-auto-detect">${i18n.t('settings.autoDetect')}</button>
+            <button class="btn btn--secondary" id="btn-browse-path" style="margin-left:8px">${i18n.t('settings.browse')}</button>
           </div>
           <p id="detect-status" style="text-align:center;margin-top:12px;font-size:13px;color:var(--text-muted)"></p>
         </div>
@@ -44,15 +44,15 @@
 
   async function doAutoDetect() {
     const statusEl = document.getElementById('detect-status');
-    if (statusEl) statusEl.textContent = '正在搜索…';
+    if (statusEl) statusEl.textContent = i18n.t('settings.searching');
     const result = await api.autoDetectOsuPath();
     if (result.success && result.data) {
       await api.setOsuPath(result.data);
       state.set('osuPath', result.data);
-      Toast.success('已自动检测到 osu! 路径');
+      Toast.success(i18n.t('settings.detectedOk'));
     } else {
-      if (statusEl) statusEl.textContent = '未找到，请手动浏览选择';
-      Toast.warning('未找到 osu! 安装路径，请手动选择');
+      if (statusEl) statusEl.textContent = i18n.t('settings.detectedFail');
+      Toast.warning(i18n.t('settings.notFoundManual'));
     }
     autoDetectRunning = false;
   }
@@ -62,7 +62,7 @@
     if (result.success && result.data) {
       await api.setOsuPath(result.data);
       state.set('osuPath', result.data);
-      Toast.success('osu! 路径已设置');
+      Toast.success(i18n.t('settings.pathSetShort'));
     }
   }
 

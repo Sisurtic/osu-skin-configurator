@@ -6,7 +6,7 @@
   window.Toast = {
     show(message, type = 'info', duration = 3500) {
       const id = ++toastId;
-      const icon = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' }[type] || 'ℹ';
+      const icon = { success: '✓', error: '✕', warning: '⚠' }[type] || '';
 
       const el = document.createElement('div');
       el.className = `toast toast--${type}`;

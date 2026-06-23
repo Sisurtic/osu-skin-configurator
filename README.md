@@ -3,8 +3,9 @@
 一个用于给 osu! 皮肤创建**预设**并一键切换的桌面工具。把一组「skin.ini 改动 + 文件复制 + 文件删除」打包成一个预设，手动点击或绑定全局快捷键即可瞬间应用——无需反复手改 ini、无需备份还原。
 
 - 平台：**Windows**(osu! stable 为 Windows 专属)
-- 技术栈：Tauri v2(Rust 后端 + 原生 JS 渲染层),安装包仅约 **1.4 MB**(NSIS)
-- 界面语言：简体中文
+- 技术栈：Tauri v2(Rust 后端 + 原生 JS 渲染层),单文件 exe 仅约 **4.8 MB**,免安装直接运行
+- 界面语言：简体中文 / English / 繁體中文 / 日本語 / 한국어 / Русский(按系统语言自动选择)
+- **前置要求**：[WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)(Windows 10/11 通常已预装；如未安装可从该链接下载)
 
 ---
 
@@ -125,6 +126,28 @@ npm run build      # 等价于 cargo tauri build
 ```
 
 > 渲染层是无框架、无打包步骤的纯 JS,因此无需 `npm install` 应用依赖,只需 Tauri CLI。发布构建已开启 `opt-level="z"` + LTO + strip,以压到最小体积。
+
+---
+
+## 本地化贡献
+
+应用支持多语言，所有翻译文件位于 [`src/renderer/js/locales/`](src/renderer/js/locales/)。
+
+### 添加新语言
+
+1. 复制 [`en.json`](src/renderer/js/locales/en.json)（或任意已有语言），重命名为 `xx-XX.json`（BCP-47 语言代码，如 `es-ES.json`、`fr-FR.json`）。
+2. 翻译 JSON 中的所有 `value` 值（**不要改 key 名**）。
+3. 在文件顶部设置 `"_name"` 为该语言的母语名称（如 `"Español"`）。
+4. `easterEggs` 数组可自由定制该语言的彩蛋文本和触发概率。
+5. 提交 Pull Request 即可。程序会自动识别新语言文件并出现在语言菜单中。
+
+### 要点
+
+- **占位符**（如 `{count}`、`{name}`、`{id}`、`{msg}` 等）必须原样保留，不要翻译或删除。
+- **emoji**（📁📄🎨✏️👁️ 等）可保留或替换为该语言习惯的符号。
+- **osu! 专有术语**（HitCircle、Mania、SliderBall、Combo 等）建议保留英文或使用社区惯用译法。
+- 界面文本翻译完成后，如需翻译 **skin.ini 字段标签**，在 [`src/renderer/js/utils/ini-field-defs.js`](src/renderer/js/utils/ini-field-defs.js) 中为每个字段添加 `xx` 属性（如 `ko`、`ru`），并在 `fieldLabel()` / `optionLabel()` 函数中添加对应语言的回退分支。
+- 后端错误消息位于 [`src-tauri/src/i18n.rs`](src-tauri/src/i18n.rs) 的 `lookup()` 函数中，添加对应语言的翻译即可。
 
 ---
 

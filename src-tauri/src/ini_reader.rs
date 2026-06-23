@@ -19,7 +19,7 @@ pub fn parse_ini(content: &str) -> Vec<Section> {
     let mut current: Option<usize> = None;
     for raw in content.split('\n') {
         let line = raw.trim_matches(|c| c == '\r').trim();
-        if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+        if line.is_empty() {
             continue;
         }
         // section header [Name]
@@ -30,10 +30,15 @@ pub fn parse_ini(content: &str) -> Vec<Section> {
             continue;
         }
         // key: value  OR  key = value
+        // Only keep lines whose key starts with a letter — this naturally
+        // discards comments (// ; # /* -- etc.) and any unrecognised lines
+        // without needing to enumerate comment prefixes.
         if let Some(idx) = current {
             let kv = split_kv(line);
             if let Some((k, v)) = kv {
-                result[idx].keys.insert(k, v);
+                if k.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false) {
+                    result[idx].keys.insert(k, v);
+                }
             }
         }
     }

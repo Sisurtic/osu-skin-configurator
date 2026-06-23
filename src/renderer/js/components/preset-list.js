@@ -42,7 +42,7 @@
       }
       listEl.innerHTML = `
         <div class="empty-state" style="padding:16px">
-          <div class="empty-state__desc" style="font-size:12px">暂无预设</div>
+          <div class="empty-state__desc" style="font-size:12px">${i18n.t('preset.none')}</div>
         </div>
       `;
       buildBottomActions();
@@ -315,14 +315,14 @@
         // Block dropping parent group onto its own descendant
         const groups = state.get('groups') || [];
         if (isDescendantOfGroup(groups, dragGroupId, targetGroupId)) {
-          Toast.error('不能将父分组移动到其子分组内部');
+          Toast.error(i18n.t('group.cannotMoveIntoChild'));
           return;
         }
         const skin = state.get('selectedSkin');
         if (!skin) return;
         const moveResult = await api.moveGroup(skin, dragGroupId, targetGroupId);
         if (!moveResult || !moveResult.success) {
-          Toast.error('移动分组失败: ' + ((moveResult && moveResult.error) || '未知错误'));
+          Toast.error(i18n.t('group.moveFailed', { msg: ((moveResult && moveResult.error) || i18n.t('app.unknownError')) }));
           return;
         }
         await refreshSkinData(skin);
@@ -363,7 +363,7 @@
           multiSelected.clear();
           lastClickedId = null;
           updateMultiSelectHighlights();
-          Toast.info(`已删除 ${ids.length} 个预设`);
+          Toast.info(i18n.t('preset.deleted', { count: ids.length }));
         } else if (dragGroupId) {
           const result = await api.deleteGroupRecursive(skin, dragGroupId);
           if (result.success) {
@@ -375,9 +375,9 @@
             multiSelected.clear();
             lastClickedId = null;
             await refreshSkinData(skin);
-            Toast.success(`已删除分组（${d.deletedPresets} 个预设、${d.deletedGroups} 个子分组）`);
+            Toast.success(i18n.t('group.deletedRecursive', { presets: d.deletedPresets, groups: d.deletedGroups }));
           } else {
-            Toast.error('删除分组失败: ' + (result.error || '未知错误'));
+            Toast.error(i18n.t('group.deleteFailed', { msg: (result.error || i18n.t('app.unknownError')) }));
           }
         }
       });
@@ -423,11 +423,11 @@
           await refreshSkinData(skin);
           multiSelected.clear();
           updateMultiSelectHighlights();
-          Toast.info(`已将 ${dragPresetIds.length} 个预设移出分组`);
+          Toast.info(i18n.t('group.movedOut', { count: dragPresetIds.length }));
         } else if (dragGroupId) {
           await api.moveGroup(skin, dragGroupId, null);
           await refreshSkinData(skin);
-          Toast.info('已将分组移至根层级');
+          Toast.info(i18n.t('group.movedToRoot'));
         }
       });
     }
@@ -497,7 +497,7 @@
   function renderPresetNode(preset, selectedPreset, depth) {
     const isEditing = preset.id === selectedPreset;
     const indent = depth * 20; // 20px per nesting level (base 0)
-    const name = preset.meta?.name || ('预设 ' + preset.id);
+    const name = preset.meta?.name || i18n.t('preset.fallbackName', { id: preset.id });
     const desc = preset.meta?.description || '';
     return `
       <div class="preset-tree__item ${isEditing ? 'preset-tree__item--editing' : ''}"
@@ -523,6 +523,14 @@
       const id = parseInt(item.dataset.id, 10);
       item.classList.toggle('preset-tree__item--multi-selected', multiSelected.has(id));
     });
+  }
+
+  // Clear all selection state (multi-select + last-clicked) and refresh the
+  // tree highlights. Shared by the sidebar button and the new-preset shortcut.
+  function clearSelection() {
+    multiSelected.clear();
+    lastClickedId = null;
+    updateMultiSelectHighlights();
   }
 
   function updateCountBadgeVisibility(_container) {
@@ -612,13 +620,13 @@
         const skin = state.get('selectedSkin');
         const result = await api.renameGroup(skin, group.id, newName);
         if (result.success) {
-          Toast.success(`分组已重命名为 "${newName}"`);
+          Toast.success(i18n.t('group.renamed', { name: newName }));
           await refreshSkinData(skin);
         } else {
-          Toast.error('重命名失败: ' + (result.error || '未知错误'));
+          Toast.error(i18n.t('group.renameFailed', { msg: (result.error || i18n.t('app.unknownError')) }));
         }
       } catch (err) {
-        Toast.error('重命名失败: ' + (err.message || '未知错误'));
+        Toast.error(i18n.t('group.renameFailed', { msg: (err.message || i18n.t('app.unknownError')) }));
       }
     };
 
@@ -638,34 +646,34 @@
       bottomActions.innerHTML = `
         <div style="padding:8px 16px">
           <button class="btn btn--secondary btn--sm" id="btn-new-preset-sidebar" style="width:100%">
-            + 新建预设
+            ${i18n.t('group.newPreset')}
           </button>
         </div>
         <div style="padding:4px 16px 8px">
           <button class="btn btn--secondary btn--sm" id="btn-new-empty-group" style="width:100%">
-            + 新建分组
+            ${i18n.t('group.newGroup')}
           </button>
         </div>
         <div style="padding:4px 16px 8px">
           <button class="btn btn--primary btn--sm" id="btn-save-preset-sidebar" style="width:100%" disabled>
-            💾 保存预设
+            ${i18n.t('group.savePreset')}
           </button>
         </div>
         <div class="preset-delete-zone" id="preset-delete-zone"
              style="margin:4px 16px 12px;padding:12px;border:2px dashed var(--danger);border-radius:var(--radius);text-align:center;color:var(--danger);font-size:12px;opacity:0.5;transition:all 0.2s">
-          拖拽分组或预设到此处删除
+          ${i18n.t('group.deleteZone')}
         </div>
       `;
     } else {
       listEl.insertAdjacentHTML('beforeend', `
         <div style="padding:8px 16px">
           <button class="btn btn--secondary btn--sm" id="btn-new-preset-sidebar" style="width:100%">
-            + 新建预设
+            ${i18n.t('group.newPreset')}
           </button>
         </div>
         <div style="padding:4px 16px 8px">
           <button class="btn btn--secondary btn--sm" id="btn-new-empty-group" style="width:100%">
-            + 新建分组
+            ${i18n.t('group.newGroup')}
           </button>
         </div>
       `);
@@ -677,8 +685,9 @@
     if (btnNew) {
       btnNew.addEventListener('click', async () => {
         if (!await confirmSwitchIfDirty()) return;
+        clearSelection();
         state.set('selectedPreset', '__new__');
-        // Force a fresh form even when already in __new__ (re-clicking 新建预设)
+        // Force a fresh form even when already in __new__ (re-clicking "New Preset")
         if (window.PresetEditor && typeof window.PresetEditor.resetNew === 'function') {
           window.PresetEditor.resetNew();
         }
@@ -694,10 +703,10 @@
         if (!skin) return;
         const result = await api.addGroup(skin, newName, null); // null = root level
         if (result.success) {
-          Toast.success(`已创建分组 "${newName}"`);
+          Toast.success(i18n.t('group.created', { name: newName }));
           await refreshSkinData(skin);
         } else {
-          Toast.error('创建分组失败: ' + (result.error || '未知错误'));
+          Toast.error(i18n.t('group.createFailed', { msg: (result.error || i18n.t('app.unknownError')) }));
         }
       });
     }
@@ -722,14 +731,14 @@
       overlay.className = 'modal-overlay';
       overlay.innerHTML = `
         <div class="modal" style="min-width:320px">
-          <div class="modal__title">新建分组</div>
+          <div class="modal__title">${i18n.t('group.createTitle')}</div>
           <div class="modal__body">
             <input type="text" class="form-input" id="new-group-name-input"
-                   placeholder="输入新分组名称…" style="width:100%">
+                   placeholder="${i18n.t('group.namePlaceholder')}" style="width:100%">
           </div>
           <div class="modal__actions">
-            <button class="btn btn--primary" id="new-group-confirm">确认</button>
-            <button class="btn btn--secondary" id="new-group-cancel">取消</button>
+            <button class="btn btn--primary" id="new-group-confirm">${i18n.t('dialog.confirm')}</button>
+            <button class="btn btn--secondary" id="new-group-cancel">${i18n.t('dialog.cancel')}</button>
           </div>
         </div>
       `;
@@ -766,18 +775,25 @@
   async function confirmSwitchIfDirty() {
     if (!state.get('presetDirty')) return true;
     const choice = await ApplyDialog.showConfirmDialog(
-      '当前预设尚未保存，是否保存后切换？',
+      i18n.t('dialog.unsavedSwitch'),
       [
-        { label: '保存并切换', cls: 'btn--primary', value: 'save' },
-        { label: '不保存', cls: 'btn--danger', value: 'discard' },
-        { label: '取消', cls: 'btn--secondary', value: 'cancel' },
+        { label: i18n.t('dialog.saveAndSwitch'), cls: 'btn--primary', value: 'save' },
+        { label: i18n.t('dialog.discard'), cls: 'btn--danger', value: 'discard' },
+        { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
       ]
     );
     if (!choice || choice === 'cancel') return false;
     if (choice === 'save') {
       if (window.PresetEditor && typeof window.PresetEditor.doSave === 'function') {
-        await window.PresetEditor.doSave();
+        const ok = await window.PresetEditor.doSave();
+        if (!ok) return false; // save failed — abort switch
       }
+    } else if (choice === 'discard') {
+      // Just clear the dirty flag — the upcoming selectedPreset change will
+      // load the new preset's data from disk, overwriting the unsaved edits.
+      // Don't call resetNew() here: it would rebuild the editor DOM and
+      // interfere with the subsequent preset switch.
+      state.set('presetDirty', false);
     }
     return true;
   }
@@ -802,7 +818,7 @@
 
       const data = { ...r.data };
       if (!data.meta) data.meta = {};
-      data.meta.name = (data.meta.name || '预设') + ' - 副本';
+      data.meta.name = (data.meta.name || i18n.t('preset.fallbackName', { id: r.data.id })) + i18n.t('preset.copySuffix');
       // Save with id: null — server assigns new id
       const saveResult = await api.savePreset(skin, null, data);
       if (saveResult.success) copied++;
@@ -811,7 +827,7 @@
     multiSelected.clear();
     lastClickedId = null;
     await refreshSkinData(skin);
-    if (copied > 0) Toast.success(`已复制 ${copied} 个预设`);
+    if (copied > 0) Toast.success(i18n.t('preset.copied', { count: copied }));
   }
 
   // ── Delete selected presets ──
@@ -821,10 +837,10 @@
     if (!skin || multiSelected.size === 0) return;
     const ids = [...multiSelected];
     const confirmed = await ApplyDialog.showConfirmDialog(
-      `确定要删除 ${ids.length} 个预设吗？此操作不可恢复。`,
+      i18n.t('preset.deleteConfirm', { count: ids.length }),
       [
-        { label: `删除 (${ids.length})`, cls: 'btn--danger', value: 'delete' },
-        { label: '取消', cls: 'btn--secondary', value: 'cancel' },
+        { label: i18n.t('preset.deleteCountBtn', { count: ids.length }), cls: 'btn--danger', value: 'delete' },
+        { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
       ]
     );
     if (!confirmed || confirmed !== 'delete') return;
@@ -839,7 +855,7 @@
       }
       multiSelected.clear();
       lastClickedId = null;
-      if (result.data > 0) Toast.success(`已删除 ${result.data} 个预设`);
+      if (result.data > 0) Toast.success(i18n.t('preset.deleted', { count: result.data }));
     }
     await refreshSkinData(skin);
   }
@@ -949,7 +965,7 @@
 
     const result = await api.addGroup(skin, newName, parentGroupId);
     if (!result.success) {
-      Toast.error('创建分组失败: ' + (result.error || '未知错误'));
+      Toast.error(i18n.t('group.createFailed', { msg: (result.error || i18n.t('app.unknownError')) }));
       return;
     }
     const newGroupId = result.data;
@@ -958,11 +974,11 @@
       for (const pid of multiSelected) {
         await api.movePresetGroup(skin, pid, newGroupId);
       }
-      Toast.success(`已创建分组 "${newName}" 并移入 ${multiSelected.size} 个预设`);
+      Toast.success(i18n.t('group.createdWithPresets', { name: newName, count: multiSelected.size }));
       multiSelected.clear();
       lastClickedId = null;
     } else {
-      Toast.success(`已创建空分组 "${newName}"`);
+      Toast.success(i18n.t('group.createdEmpty', { name: newName }));
     }
     await refreshSkinData(skin);
   }
@@ -970,7 +986,9 @@
   function updateSidebarSaveButton(btn) {
     const mode = state.get('appMode');
     const dirty = state.get('presetDirty');
-    btn.disabled = (mode !== 'edit' || !dirty);
+    const isNew = state.get('selectedPreset') === '__new__';
+    // New presets can always be saved (continuous save), even when not dirty.
+    btn.disabled = (mode !== 'edit' || (!dirty && !isNew));
   }
 
   // ── State listeners ──
@@ -987,5 +1005,5 @@
     if (btn) updateSidebarSaveButton(btn);
   });
 
-  window.PresetList = { render, createGroupWithSelected, deleteSelected, copySelected };
+  window.PresetList = { render, createGroupWithSelected, deleteSelected, copySelected, clearSelection, confirmSwitchIfDirty };
 })();

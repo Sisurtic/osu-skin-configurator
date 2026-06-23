@@ -26,7 +26,7 @@
       listEl.innerHTML = `
         <div class="empty-state" style="padding:20px">
           <div class="empty-state__icon">📁</div>
-          <div class="empty-state__desc" style="font-size:12px">${query ? '无匹配皮肤' : '未找到皮肤'}</div>
+          <div class="empty-state__desc" style="font-size:12px">${query ? i18n.t('skinlist.noMatch') : i18n.t('skinlist.notFound')}</div>
         </div>
       `;
       return;
@@ -36,7 +36,7 @@
       <div class="skin-item ${s.name === selectedSkin ? 'skin-item--active' : ''}" data-skin="${escapeHtml(s.name)}" title="${escapeHtml(s.name)}">
         <span class="skin-item__icon">📁</span>
         <span class="skin-item__name">${escapeHtml(s.name)}</span>
-        ${s.presetCount > 0 ? `<span class="skin-item__badge">${s.presetCount} 预设</span>` : ''}
+        ${s.presetCount > 0 ? `<span class="skin-item__badge">${i18n.t('skinlist.presetCount', { count: s.presetCount })}</span>` : ''}
       </div>
     `).join('');
 

@@ -57,45 +57,67 @@
   }
   if (closeBtn) closeBtn.addEventListener('click', close);
 
-  // Logo hover: bounce the logo (stops at the cycle boundary where scale==1)
-  // and emit an independent ripple from the wrap center.
+  // Logo click: bounce the logo + emit a ripple from the wrap center.
+  // Each click triggers both animations once; they auto-remove when finished.
   const logoWrap = document.getElementById('info-logo-wrap');
   const logoEl = document.querySelector('.info-dialog__logo');
-  const rippleEl = document.querySelector('.info-dialog__ripple');
   if (logoWrap && logoEl) {
-    let bounceStopping = false;
-    let rippleStopping = false;
-    const onIter = () => {
-      // Each iteration boundary is at scale(1) — safe to stop here.
-      if (bounceStopping) {
-        logoEl.classList.remove('is-bouncing');
-        logoEl.removeEventListener('animationiteration', onIter);
-        bounceStopping = false;
+    // Prevent dragging the logo image.
+    const logoImg = logoEl.querySelector('img');
+    if (logoImg) {
+      logoImg.draggable = false;
+      logoImg.addEventListener('dragstart', (e) => e.preventDefault());
+    }
+    // When the bounce animation ends: if mouse still over, keep scale(1.12)
+    // via inline; if mouse has left, play shrink transition.
+    logoEl.addEventListener('animationend', () => {
+      logoEl.classList.remove('is-bouncing');
+      // Set inline to the animation's final scale so transition has a start.
+      logoEl.style.transform = 'scale(1.12)';
+      // If mouse has left, clear inline on next frame → transition shrinks.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!logoWrap.matches(':hover')) {
+            logoEl.style.transform = '';
+          }
+        });
+      });
+    });
+    logoWrap.addEventListener('animationend', (e) => {
+      if (e.target.classList && e.target.classList.contains('info-dialog__ripple')) {
+        e.target.remove();
       }
-    };
-    const start = () => {
-      bounceStopping = false;
-      rippleStopping = false;
+    });
+    logoWrap.addEventListener('click', () => {
+      logoEl.style.transform = '';
+      logoEl.classList.remove('is-bouncing');
+      void logoEl.offsetWidth;
       logoEl.classList.add('is-bouncing');
-      logoWrap.classList.add('is-rippling');
-      logoEl.addEventListener('animationiteration', onIter);
-      rippleEl.addEventListener('animationiteration', onRippleIter);
-    };
-    const stop = () => {
-      // Both animations finish their current cycle before stopping.
-      bounceStopping = true;
-      rippleStopping = true;
-    };
-    const onRippleIter = () => {
-      // Each iteration boundary is a full fade-out — safe to stop here.
-      if (rippleStopping) {
-        logoWrap.classList.remove('is-rippling');
-        rippleEl.removeEventListener('animationiteration', onRippleIter);
-        rippleStopping = false;
+      // Ripple: new element each click (parallel ripples).
+      const ripple = document.createElement('div');
+      ripple.className = 'info-dialog__ripple';
+      logoWrap.appendChild(ripple);
+      void ripple.offsetWidth;
+      ripple.style.animation = 'logoRipple 0.4s linear 1';
+      ripple.addEventListener('animationend', () => ripple.remove());
+      // Easter eggs: each egg independently checked against its own chance;
+      // only the FIRST hit is shown (at most one per click).
+      const locale = (window.i18n && window.i18n.locale()) || 'zh-CN';
+      const eggs = (window.__LOCALES__ && window.__LOCALES__[locale] && window.__LOCALES__[locale].easterEggs) || [];
+      for (const egg of eggs) {
+        if (typeof egg.chance === 'number' && Math.random() < egg.chance) {
+          if (window.Toast) window.Toast.show(egg.text, 'info');
+          break;
+        }
       }
-    };
-    logoWrap.addEventListener('mouseenter', start);
-    logoWrap.addEventListener('mouseleave', stop);
+    });
+    // On mouseleave: if animation is NOT running, shrink immediately.
+    // If animation IS running, let it finish — animationend handles shrink.
+    logoWrap.addEventListener('mouseleave', () => {
+      if (!logoEl.classList.contains('is-bouncing')) {
+        logoEl.style.transform = '';
+      }
+    });
   }
   if (overlay) {
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
@@ -141,11 +163,11 @@
     const uc = window.UpdateCheck;
     if (uc && uc.hasUpdate()) {
       const latest = uc.lastResult ? uc.lastResult.latestVersion : '';
-      setUpdateStatus(`发现新版本 ${latest}，点击更新将下载并运行安装程序`, 'available');
-      updateBtn.textContent = '立即更新';
+      setUpdateStatus(i18n.t('info.updateAvailable', { ver: latest }), 'available');
+      updateBtn.textContent = i18n.t('info.updateNow');
     } else {
       setUpdateStatus('');
-      updateBtn.textContent = '检查更新';
+      updateBtn.textContent = i18n.t('info.checkUpdate');
     }
   }
 
@@ -162,18 +184,18 @@
       }
       // Otherwise: manual refresh.
       updateBtn.disabled = true;
-      setUpdateStatus('检查中…');
+      setUpdateStatus(i18n.t('info.checking'));
       try {
         const data = await uc.check();
         if (data && data.isUpdate) {
           reflectUpdateStatus();
         } else if (data) {
-          setUpdateStatus('已是最新版本');
+          setUpdateStatus(i18n.t('info.upToDate'));
         } else {
-          setUpdateStatus('检查失败，请稍后再试', 'error');
+          setUpdateStatus(i18n.t('info.checkFailedRetry'), 'error');
         }
       } catch (_) {
-        setUpdateStatus('检查失败', 'error');
+        setUpdateStatus(i18n.t('info.checkFailed'), 'error');
       }
       updateBtn.disabled = false;
     });

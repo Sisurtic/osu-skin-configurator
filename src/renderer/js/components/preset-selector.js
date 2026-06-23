@@ -8,8 +8,13 @@
   let shortcutSelected = new Set();   // preset ids collected via right-click / Ctrl+right-click
   let recorderActive = false;          // true while waiting for the next keypress to bind
 
-  // Shared empty-state markup for the preview panel (used on initial render and on reset).
-  const EMPTY_PREVIEW_HTML = `<div class="preset-preview-panel__empty">👆 将鼠标悬停在预设上<br>查看详情和预览图<br><br>🖱️左键单击选择预设<br>右键单击创建全局快捷键<br>ctrl单击以多选</div>`;
+  // Shared empty-state markup for the preview panel. MUST be a function (not a
+  // module-level const) so i18n.t() runs after the locale dictionaries are
+  // loaded — a const would evaluate at IIFE load time, before i18n.load(),
+  // and cache raw key names.
+  function emptyPreviewHtml() {
+    return `<div class="preset-preview-panel__empty">${i18n.t('selector.hoverHint')}<br>${i18n.t('selector.hoverHint2')}<br><br>${i18n.t('selector.clickSelect')}<br>${i18n.t('selector.rightClickShortcut')}<br>${i18n.t('selector.ctrlMulti')}</div>`;
+  }
 
   function render() {
     const skin = state.get('selectedSkin');
@@ -22,8 +27,8 @@
       viewEl.innerHTML = `
         <div class="empty-state">
           <div class="empty-state__icon">📁</div>
-          <div class="empty-state__title">未选择皮肤</div>
-          <div class="empty-state__desc">请从左侧选择一个皮肤</div>
+          <div class="empty-state__title">${i18n.t('selector.noSkin')}</div>
+          <div class="empty-state__desc">${i18n.t('selector.noSkinHint')}</div>
         </div>
       `;
       return;
@@ -33,8 +38,8 @@
       viewEl.innerHTML = `
         <div class="empty-state">
           <div class="empty-state__icon">📄</div>
-          <div class="empty-state__title">暂无预设</div>
-          <div class="empty-state__desc">点击顶部「✏️ 编辑模式」按钮来创建预设</div>
+          <div class="empty-state__title">${i18n.t('selector.none')}</div>
+          <div class="empty-state__desc">${i18n.t('selector.noneHint')}</div>
         </div>
       `;
       return;
@@ -61,7 +66,7 @@
     const hasSelection = selectedIds.length > 0;
 
     let html = '<div class="preset-selector"><div class="preset-selector__header">';
-    html += '<h3>📄 预设选择</h3><span style="font-size:12px;color:var(--text-muted)">选择要应用的预设组合</span>';
+    html += `<h3>${i18n.t('selector.heading')}</h3><span style="font-size:12px;color:var(--text-muted)">${i18n.t('selector.headingHint')}</span>`;
     html += '</div>';
     html += '<div class="preset-selector__body"><div class="preset-selector__list">';
 
@@ -120,7 +125,7 @@
     html += '<div class="preset-selector__divider" id="preset-divider"></div>';
     html += `
       <div class="preset-preview-panel" id="preset-preview-panel">
-        ${EMPTY_PREVIEW_HTML}
+        ${emptyPreviewHtml()}
       </div>
     `;
 
@@ -205,7 +210,7 @@
         const presetId = parseInt(item.dataset.id, 10);
         const preset = presets.find(p => p.id === presetId);
         const desc = (preset?.meta?.description || '').trim();
-        const presetName = preset?.meta?.name || ('预设 ' + presetId);
+        const presetName = preset?.meta?.name || i18n.t('preset.fallbackName', { id: presetId });
         const previewPath = preset?.meta?.previewPath || null;
         showPreview(presetName, desc, previewPath, presetId);
       });
@@ -314,7 +319,7 @@
   function renderPresetRow(preset, activePresets, groupId) {
     const activeArr = Array.isArray(activePresets[groupId]) ? activePresets[groupId] : [];
     const isActive = activeArr.includes(preset.id);
-    const name = preset.meta?.name || ('预设 ' + preset.id);
+    const name = preset.meta?.name || i18n.t('preset.fallbackName', { id: preset.id });
     const shortcut = preset.meta?.shortcut || '';
     const inSelect = shortcutSelected.has(preset.id);
     return `
@@ -368,12 +373,12 @@
     const presets = state.get('presets') || [];
     const existing = single ? (presets.find(p => p.id === single)?.meta?.shortcut || '') : '';
     rec.innerHTML = `
-      <div class="shortcut-recorder__title">已选 ${count} 个预设</div>
-      <div class="shortcut-recorder__hint">${recorderActive ? '按下快捷键组合（Ctrl/Alt+键）· Esc 或点击外部取消 · Tab 聚焦按钮 · Ctrl+右键继续多选' : '右键选择预设'}</div>
-      ${existing ? `<div class="shortcut-recorder__current">当前：${escapeHtml(existing)}</div>` : ''}
+      <div class="shortcut-recorder__title">${i18n.t('selector.selectedCount', { count })}</div>
+      <div class="shortcut-recorder__hint">${recorderActive ? i18n.t('selector.recordHint') : i18n.t('selector.recordTitle')}</div>
+      ${existing ? `<div class="shortcut-recorder__current">${i18n.t('selector.current', { acc: escapeHtml(existing) })}</div>` : ''}
       <div class="shortcut-recorder__actions">
-        ${count >= 1 ? `<button class="btn btn--danger btn--sm" id="shortcut-clear">清除快捷键</button>` : ''}
-        <button class="btn btn--secondary btn--sm" id="shortcut-cancel">取消</button>
+        ${count >= 1 ? `<button class="btn btn--danger btn--sm" id="shortcut-clear">${i18n.t('selector.clearShortcut')}</button>` : ''}
+        <button class="btn btn--secondary btn--sm" id="shortcut-cancel">${i18n.t('dialog.cancel')}</button>
       </div>
     `;
     rec.style.display = 'flex';
@@ -407,16 +412,16 @@
     try {
       const r = await api.bindGlobalShortcut(skin, ids, accelerator);
       if (r.success) {
-        Toast.success(`已绑定快捷键 ${accelerator} 到 ${ids.length} 个预设`);
+        Toast.success(i18n.t('selector.bound', { acc: accelerator, count: ids.length }));
         // Refresh presets so badges update
         const scan = await api.scanPresets(skin);
         if (scan.success) state.set('presets', scan.data.presets);
         await api.reloadGlobalShortcuts(skin);
       } else {
-        Toast.error(r.error || '绑定失败');
+        Toast.error(r.error || i18n.t('selector.bindFailed'));
       }
     } catch (e) {
-      Toast.error(e.message || '绑定失败');
+      Toast.error(e.message || i18n.t('selector.bindFailed'));
     }
     cancelRecording();
   }
@@ -427,12 +432,12 @@
     const ids = [...shortcutSelected];
     try {
       await api.unbindGlobalShortcut(skin, ids);
-      Toast.success('已清除快捷键');
+      Toast.success(i18n.t('selector.cleared'));
       const scan = await api.scanPresets(skin);
       if (scan.success) state.set('presets', scan.data.presets);
       await api.reloadGlobalShortcuts(skin);
     } catch (e) {
-      Toast.error(e.message || '清除失败');
+      Toast.error(e.message || i18n.t('selector.clearFailed'));
     }
     cancelRecording();
   }
@@ -472,7 +477,7 @@
     });
   }
 
-  // Click outside the recorder while recording → cancel (same as 取消)
+  // Click outside the recorder while recording → cancel (same as clicking Cancel)
   if (!window._shortcutOutsideBound) {
     window._shortcutOutsideBound = true;
     document.addEventListener('mousedown', (e) => {
@@ -510,8 +515,8 @@
       <div class="preset-preview-panel__name">${escapeHtml(presetName)}</div>
       ${description ? `<div class="preset-preview-panel__desc">${escapeHtml(description)}</div>` : ''}
       <div class="preset-preview-panel__image-wrap">
-        ${imgSrc ? `<img src="${imgSrc}" class="preset-preview-panel__image" alt="预览图">`
-                 : `<div class="preset-preview-panel__no-image">暂无预览图</div>`}
+        ${imgSrc ? `<img src="${imgSrc}" class="preset-preview-panel__image" alt="${i18n.t('selector.noPreview')}">`
+                 : `<div class="preset-preview-panel__no-image">${i18n.t('selector.noPreview')}</div>`}
       </div>
     `;
     // Restart the fade-up animation
@@ -553,7 +558,7 @@
   function resetPreview() {
     const panel = document.getElementById('preset-preview-panel');
     if (panel) {
-      panel.innerHTML = EMPTY_PREVIEW_HTML;
+      panel.innerHTML = emptyPreviewHtml();
       panel.classList.remove('preset-preview-panel--fade');
       void panel.offsetWidth;
       panel.classList.add('preset-preview-panel--fade');
@@ -581,17 +586,19 @@
       e.preventDefault();
       dragging = true;
       divider.classList.add('preset-selector__divider--active');
-      document.body.style.cursor = 'col-resize';
+      document.body.style.cursor = 'ew-resize';
       document.body.style.userSelect = 'none';
     });
 
     document.addEventListener('mousemove', (e) => {
       if (!dragging) return;
       const bodyRect = body.getBoundingClientRect();
-      const panelWidth = bodyRect.right - e.clientX;
-      const clamped = Math.max(200, Math.min(700, panelWidth));
-      panel.style.width = clamped + 'px';
-      list.style.width = `calc(100% - ${clamped + 4}px)`;
+      const bodyW = bodyRect.width || 1;
+      // Preview panel = fraction of body width (clamped 20%–70%).
+      const frac = (bodyRect.right - e.clientX) / bodyW;
+      const clamped = Math.max(0.2, Math.min(0.7, frac));
+      panel.style.flex = `0 0 ${(clamped * 100).toFixed(1)}%`;
+      list.style.flex = '1';
     });
 
     document.addEventListener('mouseup', () => {

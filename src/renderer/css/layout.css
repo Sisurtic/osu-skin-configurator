@@ -13,7 +13,8 @@
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   padding: 0 12px;
-  -webkit-app-region: drag;
+  /* No -webkit-app-region: drag — dragging is handled in JS via
+     startDragging() so double-click can be suppressed (no maximize). */
 }
 .titlebar__title {
   display: flex;
@@ -67,6 +68,19 @@
   align-items: center;
   gap: 8px;
 }
+/* 工具栏图标按钮:统一紧凑 padding,三个图标间距一致 */
+.toolbar__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  line-height: 0;
+}
+.toolbar__icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
 .toolbar__path {
   font-size: 12px;
   color: var(--text-muted);
@@ -74,6 +88,44 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-left: 8px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+/* ── Language switcher ── */
+.lang-switch {
+  position: relative;
+}
+.lang-switch__menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 130px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  z-index: 50;
+  padding: 4px 0;
+}
+.lang-switch__menu--open {
+  display: block;
+}
+.lang-switch__item {
+  padding: 7px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lang-switch__item:hover {
+  background: var(--bg-tertiary);
+}
+.lang-switch__item--current {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* ── Body (sidebar + main) ── */
