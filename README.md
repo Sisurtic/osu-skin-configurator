@@ -89,7 +89,7 @@ For skin.ini field label translations, add entries to the `iniFields` and `iniOp
 - **Rust** (stable, edition 2021) + `cargo`
 - **Tauri CLI v2:** `cargo install tauri-cli --version "^2"`
 - **Windows 10/11** + MSVC build tools
-- **WebView2 Runtime** (bootstrapped by the installer)
+- **WebView2 Runtime**
 
 ### Commands
 
