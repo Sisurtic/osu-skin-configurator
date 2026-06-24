@@ -1105,7 +1105,7 @@
         const has = val && val.trim() !== '';
         const ph = k === 'ColumnSpacing' ? '0,0,...' : '30,30,...';
         return `<label style="display:block;margin-top:8px">${escapeHtml(fieldLabel(k))}
-          <input type="text" class="form-input center-prompt-input" data-key="${k}" ${has ? `value="${escapeHtml(val)}" readonly style="width:100%;margin-top:2px;opacity:.7;cursor:not-allowed"` : `style="width:100%;margin-top:2px" placeholder="${ph}"`}>
+          <input type="text" class="form-input center-prompt-input" data-key="${k}" autocomplete="off" spellcheck="false" ${has ? `value="${escapeHtml(val)}" readonly style="width:100%;margin-top:2px;opacity:.7;cursor:not-allowed"` : `style="width:100%;margin-top:2px" placeholder="${ph}"`}>
         </label>`;
       };
       const overlay = document.createElement('div');
@@ -1116,7 +1116,7 @@
           <div class="modal__body">
             <p style="white-space:pre-line">${i18n.t('ini.centerPrompt')}</p>
             <label style="display:block;margin-top:8px">${i18n.t('ini.centerRatio')}
-              <input type="text" class="form-input center-prompt-input" data-key="ratio" value="${escapeHtml(values.ratio || '16/9')}" style="width:100%;margin-top:2px">
+              <input type="text" class="form-input center-prompt-input" data-key="ratio" value="${escapeHtml(values.ratio || '16/9')}" autocomplete="off" spellcheck="false" style="width:100%;margin-top:2px">
             </label>
             ${row('ColumnWidth', values.ColumnWidth)}
             ${row('ColumnSpacing', values.ColumnSpacing)}
@@ -1349,12 +1349,12 @@
         const r = parts[0]||0, g = parts[1]||0, b = parts[2]||0, a = parts[3] !== undefined ? parts[3] : 255;
         return `<div class="color-row" style="display:flex;align-items:center;gap:6px">
           <button type="button" class="color-swatch ini-color-swatch" data-idx="${i}" data-type="${type}" tabindex="0" style="flex:0 0 auto;background:${isRgba ? `rgba(${r},${g},${b},${a/255})` : `rgb(${r},${g},${b})`}"></button>
-          <input type="text" class="form-input ini-value-input ini-color-value" data-idx="${i}" data-type="${type}" value="${escapeHtml(val)}" style="flex:1;min-width:0">
+          <input type="text" class="form-input ini-value-input ini-color-value" data-idx="${i}" data-type="${type}" value="${escapeHtml(val)}" autocomplete="off" spellcheck="false" style="flex:1;min-width:0">
         </div>`;
       }
       case 'path':
         return `<div class="path-input-row" style="display:flex;gap:8px;align-items:center">
-          <input type="text" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" style="flex:1;min-width:0">
+          <input type="text" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" autocomplete="off" spellcheck="false" style="flex:1;min-width:0">
           <button type="button" class="btn btn--secondary btn--sm ini-path-btn" data-idx="${i}" title="${i18n.t('ini.pickFileTitle')}" style="flex:0 0 auto">📂</button>
         </div>`;
       case 'integer':
@@ -1363,10 +1363,10 @@
         const minAttr = field && field.min != null ? ` min="${field.min}"` : '';
         const maxAttr = field && field.max != null ? ` max="${field.max}"` : '';
         const forbiddenAttr = field && Array.isArray(field.forbidden) ? ` data-forbidden="${field.forbidden.join(',')}"` : '';
-        return `<input type="number" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" step="${step}"${minAttr}${maxAttr}${forbiddenAttr} style="width:100%">`;
+        return `<input type="number" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" step="${step}"${minAttr}${maxAttr}${forbiddenAttr} autocomplete="off" style="width:100%">`;
       }
       default:
-        return `<input type="text" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" style="width:100%">`;
+        return `<input type="text" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" autocomplete="off" spellcheck="false" style="width:100%">`;
     }
   }
 

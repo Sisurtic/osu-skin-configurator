@@ -188,7 +188,7 @@
         ${PRESETS.map(hex => `<span class="cp-preset-swatch" style="background:${hex}" data-hex="${hex}"></span>`).join('')}
       </div>
       <div class="cp-input-row">
-        <input type="text" class="form-input cp-text-input" value="${formatOutput(current, type)}" style="flex:1;min-width:0;font-size:12px">
+        <input type="text" class="form-input cp-text-input" value="${formatOutput(current, type)}" autocomplete="off" spellcheck="false" style="flex:1;min-width:0;font-size:12px">
       </div>
     `;
 

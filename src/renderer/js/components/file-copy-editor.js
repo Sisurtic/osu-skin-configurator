@@ -535,7 +535,7 @@
                 return `<tr class="file-op-row" data-idx="${i}" data-type="copy">
                   <td><span class="tag tag--accent">${i18n.t('file.tagCopy')}</span></td>
                   <td><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
-                  <td><input type="text" class="form-input copy-dest-input" data-idx="${i}" value="${escapeHtml(op.destination)}" placeholder="${i18n.t('file.destPlaceholder')}"></td>
+                  <td><input type="text" class="form-input copy-dest-input" data-idx="${i}" value="${escapeHtml(op.destination)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>
                 </tr>`;
               } else {
                 const p = op.path || '';

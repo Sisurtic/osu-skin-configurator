@@ -602,6 +602,8 @@
     input.type = 'text';
     input.className = 'form-input';
     input.value = group.name;
+    input.autocomplete = 'off';
+    input.spellcheck = false;
     input.style.cssText = 'font-size:11px;padding:1px 4px;width:120px';
 
     nameEl.replaceWith(input);
@@ -734,7 +736,7 @@
           <div class="modal__title">${i18n.t('group.createTitle')}</div>
           <div class="modal__body">
             <input type="text" class="form-input" id="new-group-name-input"
-                   placeholder="${i18n.t('group.namePlaceholder')}" style="width:100%">
+                   placeholder="${i18n.t('group.namePlaceholder')}" autocomplete="off" spellcheck="false" style="width:100%">
           </div>
           <div class="modal__actions">
             <button class="btn btn--primary" id="new-group-confirm">${i18n.t('dialog.confirm')}</button>
