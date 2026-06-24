@@ -647,6 +647,9 @@ select.form-input {
 }
 .preset-group__children {
   padding-top: 4px;
+  /* Darken progressively with nesting depth; veils stack across nested levels.
+     (depth+1) so the root level also gets a starting shade. */
+  background: color-mix(in srgb, transparent, #000 calc((var(--depth, 0) + 1) * 20%));
 }
 .preset-selector__sep {
   height: 2px;

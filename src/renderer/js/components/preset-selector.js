@@ -282,8 +282,8 @@
   function renderGroupTree(group, allGroups, presetMap, activePresets, depth) {
     const isCollapsed = group.collapsed === true;
     const count = countAllPresets(group, allGroups);
-    let html = `<div class="preset-group">`;
-    html += `<div class="preset-group__header ${isCollapsed ? 'preset-group__header--collapsed' : ''} ${depth > 0 ? 'preset-group__header--nested' : ''}" data-group-id="${group.id}" style="--depth:${depth}">
+    let html = `<div class="preset-group" style="--depth:${depth}">`;
+    html += `<div class="preset-group__header ${isCollapsed ? 'preset-group__header--collapsed' : ''} ${depth > 0 ? 'preset-group__header--nested' : ''}" data-group-id="${group.id}">
       <span class="preset-tree__collapse-icon">${isCollapsed ? '▶' : '▼'}</span>
       <span class="preset-group__label">${escapeHtml(group.name)}</span>
       ${count > 0 ? `<span class="preset-group__count">[${count}]</span>` : ''}
