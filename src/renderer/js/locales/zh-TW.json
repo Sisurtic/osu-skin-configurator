@@ -175,6 +175,10 @@
     "removeLabel": "— 移除 —",
     "fillAll": "# 填充",
     "fillAllTitle": "填充到全部列",
+    "center": "# 置中",
+    "centerTitle": "置中計算 ColumnStart",
+    "centerPrompt": "請確認置中所需數值。已有數值不可編輯。軌道欄位可輸入逗號列表，也可只輸入一個值（套用到全部軌道）；可修改寬高比：",
+    "centerRatio": "寬高比",
     "pickFileTitle": "選擇檔案",
     "columnSuffix": "(列{n})",
     "deleteRowsConfirm": "確定要刪除選中的 {n} 個 INI 操作嗎?"

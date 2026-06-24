@@ -765,6 +765,48 @@
       });
     });
 
+    // Center button for ColumnStart: ColumnStart = (480*ratio - (sum(ColumnWidth)+sum(ColumnSpacing)))/2
+    container.querySelectorAll('.ini-center-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const idx = parseInt(btn.dataset.idx);
+        const edit = iniEdits[idx];
+        if (!edit || edit.key !== 'ColumnStart' || edit.maniaKeys == null) return;
+        const keys = edit.maniaKeys;
+        const findVal = (key) => {
+          const e = iniEdits.find(x => x.section === 'Mania' && x.maniaKeys === keys && x.key === key);
+          return e ? (e.value || '') : '';
+        };
+        // Sum a comma list; if a single value is given, expand it to the field's item count
+        // (ColumnWidth → keys items, ColumnSpacing → keys-1 items).
+        const sumField = (s, count) => {
+          const nums = (s || '').split(',').map(t => parseFloat(t.trim())).filter(n => !isNaN(n));
+          if (nums.length === 0) return 0;
+          if (nums.length === 1 && count > 1) return nums[0] * count;
+          return nums.reduce((a, b) => a + b, 0);
+        };
+        const curWidth = findVal('ColumnWidth');
+        const curSpacing = findVal('ColumnSpacing');
+        // Always confirm via modal: existing values are shown read-only, missing are editable.
+        const inputs = await promptCenterValues({ ratio: '16/9', ColumnWidth: curWidth, ColumnSpacing: curSpacing }, keys);
+        if (!inputs) return;
+        // Parse ratio: accept "W/H" or a decimal.
+        let ratio = 16 / 9;
+        if (inputs.ratio && inputs.ratio.trim() !== '') {
+          const [a, b] = inputs.ratio.split('/').map(t => parseFloat(t.trim()));
+          ratio = (!isNaN(b) && b) ? a / b : a;
+          if (isNaN(ratio) || ratio <= 0) ratio = 16 / 9;
+        }
+        const widthSum = sumField(inputs.ColumnWidth != null ? inputs.ColumnWidth : curWidth, keys);
+        const spacingSum = sumField(inputs.ColumnSpacing != null ? inputs.ColumnSpacing : curSpacing, keys - 1);
+        const start = (480 * ratio - (widthSum + spacingSum)) / 2;
+        // Keep at most 2 decimals (integer when exact).
+        edit.value = String(Math.round(start * 100) / 100);
+        setActions([...iniEdits]);
+        const input = container.querySelector(`.ini-value-input[data-idx="${idx}"]`);
+        if (input) input.value = edit.value;
+      });
+    });
+
     // Path picker buttons
     container.querySelectorAll('.ini-path-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -1051,10 +1093,62 @@
   function autosizeColumns(container) { measureColumns(container); }
 
 
+  // Confirm dialog for centering ColumnStart. Shown on every center-button click.
+  // `values` = { ratio, ColumnWidth, ColumnSpacing } current strings; `keys` = maniaKeys.
+  // Existing (non-empty) values render read-only; empty ones are editable.
+  // Labels are "description(keyname)" via INI_FIELD_LABELS.fieldLabel.
+  function promptCenterValues(values, keys) {
+    return new Promise((resolve) => {
+      if (document.querySelector('.modal-overlay')) return resolve(null);
+      const fieldLabel = (k) => INI_FIELD_LABELS.fieldLabel({ key: k }) + ' (' + k + ')';
+      const row = (k, val) => {
+        const has = val && val.trim() !== '';
+        const ph = k === 'ColumnSpacing' ? '0,0,...' : '30,30,...';
+        return `<label style="display:block;margin-top:8px">${escapeHtml(fieldLabel(k))}
+          <input type="text" class="form-input center-prompt-input" data-key="${k}" ${has ? `value="${escapeHtml(val)}" readonly style="width:100%;margin-top:2px;opacity:.7;cursor:not-allowed"` : `style="width:100%;margin-top:2px" placeholder="${ph}"`}>
+        </label>`;
+      };
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal">
+          <div class="modal__title">${i18n.t('ini.centerTitle')}</div>
+          <div class="modal__body">
+            <p style="white-space:pre-line">${i18n.t('ini.centerPrompt')}</p>
+            <label style="display:block;margin-top:8px">${i18n.t('ini.centerRatio')}
+              <input type="text" class="form-input center-prompt-input" data-key="ratio" value="${escapeHtml(values.ratio || '16/9')}" style="width:100%;margin-top:2px">
+            </label>
+            ${row('ColumnWidth', values.ColumnWidth)}
+            ${row('ColumnSpacing', values.ColumnSpacing)}
+          </div>
+          <div class="modal__actions">
+            <button class="btn btn--primary btn--sm" data-value="ok">${i18n.t('dialog.confirm')}</button>
+            <button class="btn btn--secondary btn--sm" data-value="cancel">${i18n.t('dialog.cancel')}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const collect = () => {
+        const out = {};
+        overlay.querySelectorAll('.center-prompt-input').forEach(inp => { out[inp.dataset.key] = inp.value; });
+        return out;
+      };
+      overlay.querySelectorAll('.modal__actions button').forEach(b => {
+        b.addEventListener('click', () => { const v = b.dataset.value; overlay.remove(); resolve(v === 'ok' ? collect() : null); });
+      });
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) { overlay.remove(); resolve(null); } });
+      const onKey = (e) => {
+        if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(null); }
+        if (e.key === 'Enter') { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(collect()); }
+      };
+      document.addEventListener('keydown', onKey);
+      setTimeout(() => { const first = overlay.querySelector('.center-prompt-input:not([readonly])'); if (first) first.focus(); }, 0);
+    });
+  }
+
   // Toggle fill-button labels between the full text and a compact '#' based on
   // available width in the value cell. Called after render + on window resize.
   function adjustFillButtons() {
-    document.querySelectorAll('.ini-list-fill-btn, .ini-fill-btn').forEach(btn => {
+    document.querySelectorAll('.ini-list-fill-btn, .ini-fill-btn, .ini-center-btn').forEach(btn => {
       const full = btn.dataset.full || '#';
       // The button's sibling span (the value input area) is the space budget.
       const cell = btn.parentElement;
@@ -1161,9 +1255,15 @@
                 const listFillBtn = isListMania
                   ? `<button type="button" class="btn btn--secondary btn--sm ini-list-fill-btn" data-idx="${idx}" title="${i18n.t('ini.fillAllTitle')}" data-full="${escapeHtml(i18n.t('ini.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('ini.fillAll')}</button>`
                   : '';
+                const isCenterable = edit.key === 'ColumnStart' && edit.section === 'Mania' && edit.maniaKeys != null;
+                const centerBtn = isCenterable
+                  ? `<button type="button" class="btn btn--secondary btn--sm ini-center-btn" data-idx="${idx}" title="${i18n.t('ini.centerTitle')}" data-full="${escapeHtml(i18n.t('ini.center'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('ini.center')}</button>`
+                  : '';
                 const valueCell = isListMania
                   ? `<td style="display:flex;align-items:center;gap:8px;padding-right:12px"><span style="flex:1;min-width:0">${renderValueInput(type, edit, idx, field)}</span>${listFillBtn}</td>`
-                  : `<td>${renderValueInput(type, edit, idx, field)}</td>`;
+                  : isCenterable
+                    ? `<td style="display:flex;align-items:center;gap:8px;padding-right:12px"><span style="flex:1;min-width:0">${renderValueInput(type, edit, idx, field)}</span>${centerBtn}</td>`
+                    : `<td>${renderValueInput(type, edit, idx, field)}</td>`;
                 return `<tr class="ini-edit-row" data-idx="${idx}" ${rowTitle}>
                   <td><span class="tag tag--accent">${i18n.t('ini.tagModify')}</span></td>
                   <td><span class="tag">${sectionLabel(edit)}</span></td>

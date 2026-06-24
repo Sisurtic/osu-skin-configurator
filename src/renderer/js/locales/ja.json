@@ -175,6 +175,10 @@
     "removeLabel": "— 削除 —",
     "fillAll": "# 全列に適用",
     "fillAllTitle": "全列に適用",
+    "center": "# 中央",
+    "centerTitle": "ColumnStart を中央寄せ",
+    "centerPrompt": "中央寄せの数値を確認してください。既存の値は編集不可です。レーン欄はカンマリスト、または単一の値（全レーンに適用）を入力できます。アスペクト比も変更可能：",
+    "centerRatio": "アスペクト比",
     "pickFileTitle": "ファイルを選択",
     "columnSuffix": "(列{n})",
     "deleteRowsConfirm": "選択した {n} 個の INI 操作を削除しますか?"

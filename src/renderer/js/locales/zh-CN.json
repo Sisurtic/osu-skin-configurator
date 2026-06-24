@@ -175,6 +175,10 @@
     "removeLabel": "— 移除 —",
     "fillAll": "# 填充",
     "fillAllTitle": "填充到全部列",
+    "center": "# 居中",
+    "centerTitle": "居中计算 ColumnStart",
+    "centerPrompt": "请确认居中所需数值。已有数值不可编辑。轨道字段可输入逗号列表，也可只输入一个值（应用到全部轨道）；可修改宽高比：",
+    "centerRatio": "宽高比",
     "pickFileTitle": "选择文件",
     "columnSuffix": "(列{n})",
     "deleteRowsConfirm": "确定要删除选中的 {n} 个 INI 操作吗？"

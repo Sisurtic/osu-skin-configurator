@@ -175,6 +175,10 @@
     "removeLabel": "— 제거 —",
     "fillAll": "# 전체 채우기",
     "fillAllTitle": "모든 열에 적용",
+    "center": "# 가운데",
+    "centerTitle": "ColumnStart 가운데 정렬",
+    "centerPrompt": "가운데 정렬에 필요한 값을 확인하세요. 기존 값은 편집할 수 없습니다. 트랙 항목은 쉼표 목록 또는 단일 값(모든 트랙에 적용)을 입력할 수 있으며, 화면비도 변경 가능:",
+    "centerRatio": "화면비",
     "pickFileTitle": "파일 선택",
     "columnSuffix": "(열 {n})",
     "deleteRowsConfirm": "선택한 INI 작업 {n}개를 삭제하시겠습니까?"
