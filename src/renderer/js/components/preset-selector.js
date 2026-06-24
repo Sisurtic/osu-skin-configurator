@@ -4,7 +4,7 @@
 
   let hoverTimer = null;
   let resetTimer = null;
-  let previewCache = {};   // presetId → dataURL (loaded on skin select)
+  let previewCache = {};   // previewPath → dataURL (loaded on skin select)
   let shortcutSelected = new Set();   // preset ids collected via right-click / Ctrl+right-click
   let recorderActive = false;          // true while waiting for the next keypress to bind
 
@@ -502,11 +502,13 @@
       const skPath = spResult.success ? spResult.data.replace(/\\/g, '/') : '';
       for (const p of presets) {
         const relPath = p.meta?.previewPath;
-        if (relPath && previewCache[p.id] === undefined) {
-          previewCache[p.id] = null; // mark as loading
+        // Key by relPath (not p.id): ids get compacted on delete, but the
+        // preview path travels with the preset, so the cache stays correct.
+        if (relPath && previewCache[relPath] === undefined) {
+          previewCache[relPath] = null; // mark as loading
           const absPath = skPath ? skPath + '/' + relPath : relPath;
           api.getPreviewDataUrl(absPath).then(result => {
-            previewCache[p.id] = result?.success ? result.data : false;
+            previewCache[relPath] = result?.success ? result.data : false;
           });
         }
       }
@@ -531,7 +533,8 @@
   }
 
   function showPreview(presetName, description, previewPath, presetId) {
-    const cached = presetId != null ? previewCache[presetId] : undefined;
+    // Key cache by previewPath (stable across id compaction on delete).
+    const cached = previewPath ? previewCache[previewPath] : undefined;
     // Cached & ready → render immediately
     if (cached) {
       renderPreviewContent(presetName, description, cached);
@@ -556,7 +559,7 @@
       const absPath = skPath ? skPath + '/' + previewPath : previewPath;
       const result = await api.getPreviewDataUrl(absPath);
       if (result?.success && result.data) {
-        previewCache[presetId] = result.data;
+        previewCache[previewPath] = result.data;
         const curPanel = document.getElementById('preset-preview-panel');
         if (!curPanel) return;
         // Only swap if the user is still on the same preset (name unchanged)
