@@ -197,7 +197,8 @@
     "destPlaceholder": "如: mania/ （留空为根目录）",
     "removeLabel": "— 移除 —",
     "deleteRowsConfirm": "确定要删除选中的 {n} 个文件操作吗？",
-    "outsideSkin": "只能选择皮肤文件夹内的文件"
+    "outsideSkin": "只能选择皮肤文件夹内的文件",
+    "destOutsideSkin": "该路径不在皮肤内！"
   },
   "preview": {
     "heading": "预览图片",

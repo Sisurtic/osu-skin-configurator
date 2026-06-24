@@ -197,7 +197,8 @@
     "destPlaceholder": "e.g. mania/ (blank = skin root)",
     "removeLabel": "— Remove —",
     "deleteRowsConfirm": "Delete the {n} selected file action(s)?",
-    "outsideSkin": "Only files inside the skin folder can be selected"
+    "outsideSkin": "Only files inside the skin folder can be selected",
+    "destOutsideSkin": "This path is outside the skin folder!"
   },
   "preview": {
     "heading": "Preview image",

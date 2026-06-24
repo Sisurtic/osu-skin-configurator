@@ -197,7 +197,8 @@
     "destPlaceholder": "如: mania/ (留空為根目錄)",
     "removeLabel": "— 移除 —",
     "deleteRowsConfirm": "確定要刪除選中的 {n} 個檔案操作嗎?",
-    "outsideSkin": "只能選擇皮膚資料夾內的檔案"
+    "outsideSkin": "只能選擇皮膚資料夾內的檔案",
+    "destOutsideSkin": "該路徑不在皮膚內！"
   },
   "preview": {
     "heading": "預覽圖片",

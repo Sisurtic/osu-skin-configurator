@@ -289,55 +289,44 @@ fn app_get_version(app: AppHandle) -> Value {
     wrap_ok(json!(v))
 }
 
-// ── locales auto-discovery ──
+// ── locales (embedded at compile time) ──
 //
-// Scans the bundled `locales` resource dir for `*.json`, reads each (filename
-// minus extension = BCP-47 tag, e.g. "en.json"), and returns them merged as
-// { "<tag>": <dict> }, sorted by filename. Dropping a new <tag>.json into the
-// locales folder is all that's needed to add a language — the UI picks it up.
-#[tauri::command]
-fn locales_list(app: AppHandle) -> Value {
-    use std::fs;
-    let base = resolve_locales_dir(&app);
-    let base = match base { Some(p) => p, None => return wrap_ok(json!({ "tags": [], "dicts": {} })) };
-    let mut entries: Vec<(String, Value)> = Vec::new();
-    let read = match fs::read_dir(&base) { Ok(r) => r, Err(_) => return wrap_ok(json!({ "tags": [], "dicts": {} })) };
-    for entry in read.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("json")).unwrap_or(false) {
-            let stem = match path.file_stem().and_then(|s| s.to_str()) { Some(s) => s.to_string(), None => continue };
-            let raw = match fs::read_to_string(&path) { Ok(s) => s, Err(_) => continue };
-            match serde_json::from_str::<Value>(&raw) { Ok(v) => entries.push((stem, v)), Err(_) => continue }
-        }
-    }
-    // Sort by filename (tag) for a stable menu order matching the folder.
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-    let tags: Vec<Value> = entries.iter().map(|(t, _)| json!(t)).collect();
-    // Dicts as an object (key order doesn't matter — tags[] carries the order).
-    let map = entries.into_iter().map(|(t, v)| (t, v)).collect::<serde_json::Map<_, _>>();
-    wrap_ok(json!({ "tags": tags, "dicts": Value::Object(map) }))
+// Locale JSON files are embedded into the binary via include_str!, so the exe
+// is fully self-contained — no external files needed. To add a language, add
+// its const below + its entry in EMBEDDED_LOCALES.
+
+const LOC_ZH_CN: &str = include_str!("../../src/renderer/js/locales/zh-CN.json");
+const LOC_EN: &str = include_str!("../../src/renderer/js/locales/en.json");
+const LOC_ZH_TW: &str = include_str!("../../src/renderer/js/locales/zh-TW.json");
+const LOC_JA: &str = include_str!("../../src/renderer/js/locales/ja.json");
+const LOC_KO_KR: &str = include_str!("../../src/renderer/js/locales/ko-KR.json");
+const LOC_RU_RU: &str = include_str!("../../src/renderer/js/locales/ru-RU.json");
+
+fn embedded_locales() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("en", LOC_EN),
+        ("ja", LOC_JA),
+        ("ko-KR", LOC_KO_KR),
+        ("ru-RU", LOC_RU_RU),
+        ("zh-CN", LOC_ZH_CN),
+        ("zh-TW", LOC_ZH_TW),
+    ]
 }
 
-fn resolve_locales_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
-    // Bundled: <resource_dir>/locales. Dev: src/renderer/js/locales.
-    if let Ok(rd) = app.path().resource_dir() {
-        let cand = rd.join("locales");
-        if cand.is_dir() { return Some(cand); }
-    }
-    // Dev fallback: walk up from the exe / target dir to the repo, then into src/renderer/js/locales.
-    if let Ok(exe) = std::env::current_exe() {
-        let mut d = exe.parent().map(|p| p.to_path_buf());
-        for _ in 0..8 {
-            if let Some(cur) = d.as_ref() {
-                let cand = cur.join("src").join("renderer").join("js").join("locales");
-                if cand.is_dir() { return Some(cand); }
-                d = cur.parent().map(|p| p.to_path_buf());
-            } else {
-                break;
-            }
+#[tauri::command]
+fn locales_list() -> Value {
+    let raw = embedded_locales();
+    let mut entries: Vec<(String, Value)> = Vec::new();
+    for (tag, json_str) in &raw {
+        match serde_json::from_str::<Value>(json_str) {
+            Ok(v) => entries.push((tag.to_string(), v)),
+            Err(_) => continue,
         }
     }
-    None
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let tags: Vec<Value> = entries.iter().map(|(t, _)| json!(t)).collect();
+    let map = entries.into_iter().map(|(t, v)| (t, v)).collect::<serde_json::Map<_, _>>();
+    wrap_ok(json!({ "tags": tags, "dicts": Value::Object(map) }))
 }
 
 // ── update check (GitHub releases) ──

@@ -197,7 +197,8 @@
     "destPlaceholder": "例: mania/ (空欄でルート)",
     "removeLabel": "— 削除 —",
     "deleteRowsConfirm": "選択した {n} 個のファイル操作を削除しますか?",
-    "outsideSkin": "スキンフォルダ内のファイルのみ選択できます"
+    "outsideSkin": "スキンフォルダ内のファイルのみ選択できます",
+    "destOutsideSkin": "このパスはスキンフォルダの外です！"
   },
   "preview": {
     "heading": "プレビュー画像",

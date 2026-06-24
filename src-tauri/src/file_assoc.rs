@@ -14,13 +14,15 @@ pub fn register(app: &AppHandle) {
     if !app.package_info().version.to_string().is_empty() {
         // packaged; proceed
     }
-    // Only meaningful when packaged; gate via the existence of the resource dir.
-    let osp_ico: Option<PathBuf> = app.path().resolve("icons/osp.ico", tauri::path::BaseDirectory::Resource).ok();
-    let exe_path = std::env::current_exe().ok();
+    // osp.ico is embedded at compile time; write it to a temp file for the
+    // registry (registry DefaultIcon must point to a file path).
+    const OSP_ICO: &[u8] = include_bytes!("../icons/osp.ico");
+    let ico_temp = std::env::temp_dir().join("osu-skin-configurator-osp.ico");
+    if std::fs::write(&ico_temp, OSP_ICO).is_err() { return; }
+    let exe_path = match std::env::current_exe() { Ok(e) => e, Err(_) => return };
 
-    let (Some(ico), Some(exe)) = (osp_ico, exe_path) else { return };
-    let exe_str = exe.to_string_lossy().to_string();
-    let ico_str = ico.to_string_lossy().to_string();
+    let exe_str = exe_path.to_string_lossy().to_string();
+    let ico_str = ico_temp.to_string_lossy().to_string();
     let app_exe = "osu-skin-configurator.exe";
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);

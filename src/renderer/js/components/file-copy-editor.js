@@ -281,12 +281,34 @@
     // (data-idx indexes currentFileOps, which is sorted when a sort is active).
     // Use 'input' (not 'change') so the value is captured on every keystroke —
     // otherwise saving without blurring loses the typed destination path.
+    // Strip quotes; if absolute inside skin → convert to relative; if outside → toast warning.
     container.querySelectorAll('.copy-dest-input').forEach(input => {
       input.addEventListener('input', () => {
         const idx = parseInt(input.dataset.idx);
         const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
         if (idx >= 0 && idx < ops.length && ops[idx]._type === 'copy') {
-          ops[idx].destination = input.value;
+          let val = input.value.trim().replace(/^["']|["']$/g, '');
+          // If absolute path (any drive letter + :\ or /), try to convert.
+          if (val && /^[a-zA-Z]:[\\/]?/.test(val)) {
+            skinPath().then(sp => {
+              if (sp) {
+                const skNorm = sp.replace(/\\/g, '/').toLowerCase();
+                const valNorm = val.replace(/\\/g, '/').toLowerCase();
+                if (valNorm.startsWith(skNorm)) {
+                  val = val.replace(/\\/g, '/').slice(sp.length).replace(/^\//, '');
+                  input.value = val;
+                } else {
+                  Toast.warning(i18n.t('file.destOutsideSkin'));
+                  val = '';
+                  input.value = '';
+                }
+              }
+              ops[idx].destination = val;
+              applyFileOps(ops);
+            });
+            return;
+          }
+          ops[idx].destination = val;
           applyFileOps(ops);
         }
       });
