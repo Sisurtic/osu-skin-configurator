@@ -212,8 +212,6 @@
     "pick": "点击选择图片",
     "selectSkinFirst": "请先选择皮肤",
     "imageFilter": "图片",
-    "setToast": "预览图已设置",
-    "removedToast": "预览图已移除",
     "outsideSkin": "只能选择皮肤文件夹内的文件"
   },
   "settings": {

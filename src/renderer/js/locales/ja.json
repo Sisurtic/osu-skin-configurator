@@ -212,8 +212,6 @@
     "pick": "クリックして画像を選択",
     "selectSkinFirst": "スキンを先に選択してください",
     "imageFilter": "画像",
-    "setToast": "プレビュー画像を設定しました",
-    "removedToast": "プレビュー画像を削除しました",
     "outsideSkin": "スキンフォルダ内のファイルのみ選択できます"
   },
   "settings": {

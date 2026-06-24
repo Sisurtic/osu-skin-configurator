@@ -146,7 +146,6 @@
       return;
     }
     setPreviewDataUrl(relPath);
-    Toast.info(i18n.t('preview.setToast'));
     const container = document.getElementById('preview-content');
     if (container) {
       const parent = container.parentElement;
@@ -161,7 +160,6 @@
     const oldPath = meta._previewPath || meta.meta?.previewPath;
     if (oldPath && previewCache.has(oldPath)) previewCache.delete(oldPath);
     setPreviewDataUrl(null);
-    Toast.info(i18n.t('preview.removedToast'));
     const container = document.getElementById('preview-content');
     if (container) {
       const parent = container.parentElement;

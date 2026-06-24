@@ -212,8 +212,6 @@
     "pick": "點擊選擇圖片",
     "selectSkinFirst": "請先選擇皮膚",
     "imageFilter": "圖片",
-    "setToast": "預覽圖已設定",
-    "removedToast": "預覽圖已移除",
     "outsideSkin": "只能選擇皮膚資料夾內的檔案"
   },
   "settings": {

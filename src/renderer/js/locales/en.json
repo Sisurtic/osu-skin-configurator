@@ -212,8 +212,6 @@
     "pick": "Click to pick an image",
     "selectSkinFirst": "Select a skin first",
     "imageFilter": "Image",
-    "setToast": "Preview image set",
-    "removedToast": "Preview image removed",
     "outsideSkin": "Only files inside the skin folder can be selected"
   },
   "settings": {
