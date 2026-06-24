@@ -611,12 +611,57 @@
       });
     }
 
-    // Value change handlers
+    // Value change handlers (color inputs are handled separately below)
     container.querySelectorAll('.ini-value-input').forEach(input => {
+      if (input.classList.contains('ini-color-value')) return;
       input.addEventListener('change', () => {
         const idx = parseInt(input.dataset.idx);
         iniEdits[idx].value = input.value;
         setActions([...iniEdits]);
+      });
+    });
+    // Live color value box: commit per keystroke, update swatch, forward to open popover.
+    // Accepts any format ColorPicker.parseColor understands (hex, rgb(), hsl(), named, R,G,B[,A])
+    // and normalizes the stored INI value back to "r,g,b[,a]".
+    const isBlackLiteral = v => /^(0,0,0(,0)?|#0{3,8}|black|rgba?\(\s*0\s*,\s*0\s*,\s*0\b|hsla?\(\s*[\d.]+\s*,\s*[\d.]+%\s*,\s*0%\b)/i.test(v || '');
+    container.querySelectorAll('.ini-color-value').forEach(input => {
+      input.addEventListener('input', () => {
+        const idx = parseInt(input.dataset.idx);
+        const type = input.dataset.type;
+        const raw = input.value;
+        const parsed = window.ColorPicker && window.ColorPicker.parseColor
+          ? window.ColorPicker.parseColor(raw)
+          : (() => { const p = raw.split(',').map(Number); return { r: p[0]||0, g: p[1]||0, b: p[2]||0, a: p[3] !== undefined ? p[3] : 255 }; })();
+        // parseColor falls back to {0,0,0} for incomplete tokens (e.g. "128," or "#ff").
+        // Treat that as "still typing": leave iniEdits/swatch/popover alone until it's valid.
+        if (raw.trim() && parsed.r === 0 && parsed.g === 0 && parsed.b === 0 && !isBlackLiteral(raw)) return;
+        // Normalize to the canonical r,g,b[,a] the INI stores (osu! format).
+        const normalized = type === 'rgba'
+          ? `${parsed.r},${parsed.g},${parsed.b},${parsed.a}`
+          : `${parsed.r},${parsed.g},${parsed.b}`;
+        iniEdits[idx].value = normalized;
+        setActions([...iniEdits]);
+        const swatch = input.parentElement.querySelector('.ini-color-swatch');
+        if (swatch) swatch.style.background = type === 'rgba'
+          ? `rgba(${parsed.r},${parsed.g},${parsed.b},${parsed.a/255})`
+          : `rgb(${parsed.r},${parsed.g},${parsed.b})`;
+        // Forward the parsed value into the popover bound to this swatch, if it's open.
+        if (swatch && window.ColorPicker && typeof window.ColorPicker.forwardInput === 'function') {
+          window.ColorPicker.forwardInput(swatch, normalized);
+        }
+      });
+      // On blur/Enter: normalize the box's displayed text to canonical "r,g,b[,a]".
+      // (Done on commit, not per keystroke, so typing isn't interrupted by cursor resets.)
+      input.addEventListener('change', () => {
+        const type = input.dataset.type;
+        const raw = input.value;
+        const parsed = window.ColorPicker && window.ColorPicker.parseColor
+          ? window.ColorPicker.parseColor(raw)
+          : { r: 0, g: 0, b: 0, a: 255 };
+        const normalized = type === 'rgba'
+          ? `${parsed.r},${parsed.g},${parsed.b},${parsed.a}`
+          : `${parsed.r},${parsed.g},${parsed.b}`;
+        if (normalized !== raw) input.value = normalized;
       });
     });
     container.querySelectorAll('.ini-value-toggle').forEach(cb => {
@@ -1204,7 +1249,7 @@
         const r = parts[0]||0, g = parts[1]||0, b = parts[2]||0, a = parts[3] !== undefined ? parts[3] : 255;
         return `<div class="color-row" style="display:flex;align-items:center;gap:6px">
           <button type="button" class="color-swatch ini-color-swatch" data-idx="${i}" data-type="${type}" tabindex="0" style="flex:0 0 auto;background:${isRgba ? `rgba(${r},${g},${b},${a/255})` : `rgb(${r},${g},${b})`}"></button>
-          <input type="text" class="form-input ini-value-input ini-color-value" data-idx="${i}" value="${escapeHtml(val)}" style="flex:1;min-width:0">
+          <input type="text" class="form-input ini-value-input ini-color-value" data-idx="${i}" data-type="${type}" value="${escapeHtml(val)}" style="flex:1;min-width:0">
         </div>`;
       }
       case 'path':

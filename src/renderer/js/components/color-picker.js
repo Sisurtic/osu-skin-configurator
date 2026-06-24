@@ -60,6 +60,45 @@
     return { r: 0, g: 0, b: 0, a: 255 };
   }
 
+  // h ∈ [0,1), s,v ∈ [0,1] → {r,g,b} 0-255
+  function hsvToRgb(h, s, v) {
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
+    let r, g, b;
+    switch (i % 6) {
+      case 0: r = v; g = t; b = p; break;
+      case 1: r = q; g = v; b = p; break;
+      case 2: r = p; g = v; b = t; break;
+      case 3: r = p; g = q; b = v; break;
+      case 4: r = t; g = p; b = v; break;
+      default: r = v; g = p; b = q; break;
+    }
+    return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+  }
+
+  // {r,g,b} 0-255 → {h deg, s %, v %} (rounded to int)
+  function rgbToHsv(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const d = max - min;
+    let h = 0;
+    const s = max === 0 ? 0 : d / max;
+    const v = max;
+    if (d !== 0) {
+      switch (max) {
+        case r: h = ((g - b) / d + (g < b ? 6 : 0)); break;
+        case g: h = ((b - r) / d + 2); break;
+        default: h = ((r - g) / d + 4); break;
+      }
+      h *= 60;
+    }
+    return { h: Math.round(h), s: Math.round(s * 100), v: Math.round(v * 100) };
+  }
+
+  // Used only by parseColor() to interpret the hsl(...) literal
   function hslToRgb(h, s, l) {
     let r, g, b;
     if (s === 0) {
@@ -80,23 +119,6 @@
       b = hue2rgb(p, q, h - 1/3);
     }
     return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
-  }
-
-  function rgbToHsl(r, g, b) {
-    r /= 255; g /= 255; b /= 255;
-    const max = Math.max(r, g, b), min = Math.min(r, g, b);
-    let h = 0, s = 0;
-    const l = (max + min) / 2;
-    if (max !== min) {
-      const d = max - min;
-      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-      switch (max) {
-        case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
-        case g: h = ((b - r) / d + 2) / 6; break;
-        case b: h = ((r - g) / d + 4) / 6; break;
-      }
-    }
-    return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
   }
 
   function formatOutput(c, type) {
@@ -130,6 +152,14 @@
     // Create popover if not already open
     if (document.querySelector('.cp-popover')) {
       document.querySelector('.cp-popover').remove();
+      activeTrigger = null;
+      activeForward = null;
+    }
+
+    function closePopover() {
+      popover.remove();
+      activeTrigger = null;
+      activeForward = null;
     }
 
     const popover = document.createElement('div');
@@ -192,7 +222,15 @@
     let draggingHue = false;
     let draggingAlpha = false;
 
-    const hsl = rgbToHsl(current.r, current.g, current.b);
+    const hsv = rgbToHsv(current.r, current.g, current.b);
+
+    // Hue is a stable drag-time invariant: SV drags must NOT move the H thumb.
+    // Only chromatic colors define a hue; for achromatic ones (black/white/grey) keep the last hue.
+    let hue = hsv.h;
+    function refreshHueFromCurrent() {
+      const c = rgbToHsv(current.r, current.g, current.b);
+      if (c.s > 0 && c.v > 0) hue = c.h;
+    }
 
     function drawPalette(hue) {
       const w = paletteCanvas.width;
@@ -214,9 +252,11 @@
       paletteCtx.fillRect(0, 0, w, h);
     }
 
-    function updatePaletteCursor(sat, lit) {
-      const x = (sat / 100) * paletteCanvas.width;
-      const y = ((100 - lit) / 100) * paletteCanvas.height;
+    function updatePaletteCursor(sat, val) {
+      const w = paletteCanvas.clientWidth;
+      const h = paletteCanvas.clientHeight;
+      const x = (sat / 100) * w;
+      const y = ((100 - val) / 100) * h;
       paletteCursor.style.left = x + 'px';
       paletteCursor.style.top = y + 'px';
     }
@@ -233,11 +273,11 @@
       alphaThumb.style.left = (pct * alphaTrack.clientWidth) + 'px';
     }
 
-    function updateAllUI() {
-      const hsl2 = rgbToHsl(current.r, current.g, current.b);
-      drawPalette(hsl2.h);
-      updatePaletteCursor(hsl2.s, hsl2.l);
-      updateHueThumb(hsl2.h);
+    function updateAllUI(silent) {
+      const hsv = rgbToHsv(current.r, current.g, current.b);
+      drawPalette(hsv.h);
+      updatePaletteCursor(hsv.s, hsv.v);
+      updateHueThumb(hsv.h);
       if (type === 'rgba') {
         updateAlphaThumb(current.a);
         updateAlphaTrackBg();
@@ -247,7 +287,8 @@
       triggerEl.style.background = type === 'rgba'
         ? `rgba(${current.r},${current.g},${current.b},${current.a/255})`
         : `rgb(${current.r},${current.g},${current.b})`;
-      if (opts.onChange) opts.onChange(formatOutput(current, type));
+      // silent = forwarded from an external input that already owns iniEdits → skip onChange echo
+      if (!silent && opts.onChange) opts.onChange(formatOutput(current, type));
     }
 
     function updateAlphaTrackBg() {
@@ -255,24 +296,36 @@
       alphaTrack.style.background = `linear-gradient(to right, rgba(${current.r},${current.g},${current.b},0), rgba(${current.r},${current.g},${current.b},1))`;
     }
 
-    function setFromPalette(x, y) {
-      const w = paletteCanvas.width;
-      const h = paletteCanvas.height;
+    function setFromPalette(x, y, rect) {
+      const w = rect.width;
+      const h = rect.height;
       const sat = Math.max(0, Math.min(100, (x / w) * 100));
-      const lit = 100 - Math.max(0, Math.min(100, (y / h) * 100));
-      const curHsl = rgbToHsl(current.r, current.g, current.b);
-      const rgb = hslToRgb(curHsl.h / 360, sat / 100, lit / 100);
+      const val = 100 - Math.max(0, Math.min(100, (y / h) * 100));
+      // Use the cached hue: an SV drag must NOT change hue / move the H thumb.
+      const rgb = hsvToRgb(hue / 360, sat / 100, val / 100);
       current.r = rgb.r;
       current.g = rgb.g;
       current.b = rgb.b;
-      updateAllUI();
+      // Position cursor directly from sat/val (decoupled from the lossy RGB→HSV round-trip),
+      // so dragging to the bottom edge always yields exactly (0,0,0).
+      drawPalette(hue);
+      updatePaletteCursor(sat, val);
+      if (type === 'rgba') {
+        updateAlphaThumb(current.a);
+        updateAlphaTrackBg();
+      }
+      textInput.value = formatOutput(current, type);
+      triggerEl.style.background = type === 'rgba'
+        ? `rgba(${current.r},${current.g},${current.b},${current.a/255})`
+        : `rgb(${current.r},${current.g},${current.b})`;
+      if (opts.onChange) opts.onChange(formatOutput(current, type));
     }
 
     function setHueFromPos(x) {
       const pct = Math.max(0, Math.min(1, x / hueTrack.clientWidth));
-      const h = Math.round(pct * 360);
-      const curHsl = rgbToHsl(current.r, current.g, current.b);
-      const rgb = hslToRgb(h / 360, curHsl.s / 100, curHsl.l / 100);
+      hue = Math.round(pct * 360); // update the cache so later SV drags keep this hue
+      const cur = rgbToHsv(current.r, current.g, current.b);
+      const rgb = hsvToRgb(hue / 360, cur.s / 100, cur.v / 100);
       current.r = rgb.r;
       current.g = rgb.g;
       current.b = rgb.b;
@@ -287,9 +340,9 @@
     }
 
     // Initial draw
-    drawPalette(hsl.h);
-    updatePaletteCursor(hsl.s, hsl.l);
-    updateHueThumb(hsl.h);
+    drawPalette(hsv.h);
+    updatePaletteCursor(hsv.s, hsv.v);
+    updateHueThumb(hsv.h);
     if (type === 'rgba') {
       updateAlphaThumb(current.a);
       updateAlphaTrackBg();
@@ -299,7 +352,7 @@
     paletteCanvas.addEventListener('mousedown', (e) => {
       draggingPalette = true;
       const rect = paletteCanvas.getBoundingClientRect();
-      setFromPalette(e.clientX - rect.left, e.clientY - rect.top);
+      setFromPalette(e.clientX - rect.left, e.clientY - rect.top, rect);
     });
 
     // Hue slider events
@@ -334,7 +387,8 @@
         const rect = paletteCanvas.getBoundingClientRect();
         setFromPalette(
           Math.max(0, Math.min(rect.width, e.clientX - rect.left)),
-          Math.max(0, Math.min(rect.height, e.clientY - rect.top))
+          Math.max(0, Math.min(rect.height, e.clientY - rect.top)),
+          rect
         );
       }
       if (draggingHue) {
@@ -359,32 +413,68 @@
         const c = parseColor(sw.dataset.hex);
         current.r = c.r; current.g = c.g; current.b = c.b;
         if (type === 'rgb') current.a = 255;
+        refreshHueFromCurrent();
         updateAllUI();
       });
     });
 
     // Text input
-    textInput.addEventListener('input', () => {
-      const parsed = parseColor(textInput.value);
+    let lastValid = formatOutput(current, type);
+    // Shared helper: is `value` an incomplete token that parseColor would misread as black?
+    function isIncompleteBlack(value) {
+      const raw = (value || '').trim();
+      if (!raw) return false;
+      const parsed = parseColor(raw);
+      if (!(parsed.r === 0 && parsed.g === 0 && parsed.b === 0)) return false;
+      const isBlackLiteral = /^(0,0,0(,0)?|#0{3,8}|black|rgba?\(\s*0\s*,\s*0\s*,\s*0\b|hsla?\(\s*[\d.]+\s*,\s*[\d.]+%\s*,\s*0%\b)/i.test(raw);
+      return !isBlackLiteral;
+    }
+    function applyValue(value, silent) {
+      const parsed = parseColor(value);
       current.r = parsed.r; current.g = parsed.g; current.b = parsed.b;
       if (type === 'rgb') current.a = 255; else current.a = parsed.a;
-      updateAllUI();
+      refreshHueFromCurrent();
+      lastValid = formatOutput(current, type);
+      updateAllUI(silent);
+    }
+    // Register this popover as active so an external input (INI row's color box) can
+    // forward typed values into it. silent=true skips onChange (the caller owns iniEdits).
+    activeTrigger = triggerEl;
+    activeForward = function (value) {
+      if (isIncompleteBlack(value)) return; // incomplete typing — leave picker alone
+      applyValue(value, true);
+    };
+    textInput.addEventListener('input', () => {
+      if (isIncompleteBlack(textInput.value)) return;
+      applyValue(textInput.value, false);
     });
     textInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { popover.remove(); }
-      if (e.key === 'Enter') { popover.remove(); }
+      if (e.key === 'Escape') { closePopover(); }
+      if (e.key === 'Enter') { closePopover(); }
     });
 
     // Close on outside click
     setTimeout(() => {
-      document.addEventListener('mousedown', function closePopover(e) {
+      document.addEventListener('mousedown', function onOutside(e) {
         if (!popover.contains(e.target) && e.target !== triggerEl) {
-          popover.remove();
-          document.removeEventListener('mousedown', closePopover);
+          closePopover();
+          document.removeEventListener('mousedown', onOutside);
         }
       });
     }, 0);
   }
 
-  window.ColorPicker = { attach };
+  // Currently-open popover, keyed by its trigger element. forwardInput lets an
+  // external input box (e.g. the INI row's color value box) push a value into the
+  // open picker without re-firing onChange (avoids an echo loop back into that box).
+  let activeTrigger = null;
+  let activeForward = null;
+
+  function forwardInput(trigger, value) {
+    if (trigger && trigger === activeTrigger && typeof activeForward === 'function') {
+      activeForward(value);
+    }
+  }
+
+  window.ColorPicker = { attach, forwardInput, parseColor, formatOutput };
 })();

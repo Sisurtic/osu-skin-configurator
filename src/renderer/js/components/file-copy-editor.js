@@ -277,40 +277,60 @@
       bindRowSelection(row, fileOps);
     });
 
-    // Destination change handlers — resolve the row via the SORTED view-model
+    // Destination handlers — resolve the row via the SORTED view-model
     // (data-idx indexes currentFileOps, which is sorted when a sort is active).
-    // Use 'input' (not 'change') so the value is captured on every keystroke —
-    // otherwise saving without blurring loses the typed destination path.
-    // Strip quotes; if absolute inside skin → convert to relative; if outside → toast warning.
-    container.querySelectorAll('.copy-dest-input').forEach(input => {
-      input.addEventListener('input', () => {
-        const idx = parseInt(input.dataset.idx);
-        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-        if (idx >= 0 && idx < ops.length && ops[idx]._type === 'copy') {
-          let val = input.value.trim().replace(/^["']|["']$/g, '');
-          // If absolute path (any drive letter + :\ or /), try to convert.
-          if (val && /^[a-zA-Z]:[\\/]?/.test(val)) {
-            skinPath().then(sp => {
-              if (sp) {
-                const skNorm = sp.replace(/\\/g, '/').toLowerCase();
-                const valNorm = val.replace(/\\/g, '/').toLowerCase();
-                if (valNorm.startsWith(skNorm)) {
-                  val = val.replace(/\\/g, '/').slice(sp.length).replace(/^\//, '');
-                  input.value = val;
-                } else {
-                  Toast.warning(i18n.t('file.destOutsideSkin'));
-                  val = '';
-                  input.value = '';
-                }
-              }
-              ops[idx].destination = val;
-              applyFileOps(ops);
-            });
-            return;
+    //
+    // Split into two phases (mirrors the color-value box):
+    //  • 'input' (per keystroke): strip quotes and commit the RAW value to the op, so
+    //    saving without blurring still captures what the user typed. NO path conversion
+    //    and NO input.value rewrite here — that would reset the caret mid-typing.
+    //  • 'change' / Enter (blur or commit): run the conversion — absolute path inside the
+    //    skin → relative; outside the skin → toast + clear — and rewrite the displayed text.
+    function commitDestRaw(input) {
+      const idx = parseInt(input.dataset.idx);
+      const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+      if (idx >= 0 && idx < ops.length && ops[idx]._type === 'copy') {
+        const val = input.value.trim().replace(/^["']|["']$/g, '');
+        ops[idx].destination = val;
+        applyFileOps(ops);
+      }
+    }
+    function convertDestDisplay(input) {
+      const idx = parseInt(input.dataset.idx);
+      const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+      if (idx < 0 || idx >= ops.length || ops[idx]._type !== 'copy') return;
+      let val = input.value.trim().replace(/^["']|["']$/g, '');
+      if (!val) { ops[idx].destination = ''; applyFileOps(ops); return; }
+      // If absolute path (any drive letter + :\ or /), try to convert to skin-relative.
+      if (/^[a-zA-Z]:[\\/]?/.test(val)) {
+        skinPath().then(sp => {
+          if (sp) {
+            const skNorm = sp.replace(/\\/g, '/').toLowerCase();
+            const valNorm = val.replace(/\\/g, '/').toLowerCase();
+            if (valNorm.startsWith(skNorm)) {
+              val = val.replace(/\\/g, '/').slice(sp.length).replace(/^\//, '');
+            } else {
+              Toast.warning(i18n.t('file.destOutsideSkin'));
+              val = '';
+            }
           }
+          input.value = val;
           ops[idx].destination = val;
           applyFileOps(ops);
-        }
+        });
+        return;
+      }
+      // Already relative: normalize separators for display.
+      val = val.replace(/\\/g, '/');
+      if (val !== input.value) input.value = val;
+      ops[idx].destination = val;
+      applyFileOps(ops);
+    }
+    container.querySelectorAll('.copy-dest-input').forEach(input => {
+      input.addEventListener('input', () => commitDestRaw(input));
+      input.addEventListener('change', () => convertDestDisplay(input));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); convertDestDisplay(input); }
       });
     });
 
