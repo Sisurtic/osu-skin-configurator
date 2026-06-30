@@ -13,11 +13,12 @@ A desktop tool for creating **presets** of osu! skin changes and switching betwe
 
 | Feature | Description |
 |---|---|
-| 🎨 **Preset system** | Bundle skin.ini edits, file moves, and file deletions into named presets, stored per-skin in `config.osp` |
+| 🎨 **Preset system** | Bundle skin.ini edits, file moves, file deletions, and image processing into named presets, stored per-skin in `config.osp` |
 | 📂 **Group tree** | Organize presets into nested groups with drag-and-drop reordering |
 | ⚡ **One-click apply** | Select presets, confirm, apply — or bind global hotkeys for instant switching |
 | 🌐 **Global hotkeys** | Bind per-preset global shortcuts that fire **only when osu! is focused** |
 | 🖱️ **Drag-and-drop editing** | Drag presets into groups, drag to delete, Ctrl+C duplicate, Ctrl+G smart grouping |
+| 🖼️ **Image editor** | Tint → crop → darken pipeline with real-time WebGL tint preview; build long-note (Percy LN) slider bodies from a short source |
 | 🔧 **Rebindable shortcuts** | All in-app actions (refresh, mode toggle, save, new, etc.) have customizable hotkeys |
 | 🔄 **Auto-update** | Checks GitHub for new releases on startup, one-click download and upgrade |
 | 📎 **`.osp` file association** | Double-click a skin's `config.osp` to open it directly |
@@ -27,10 +28,11 @@ A desktop tool for creating **presets** of osu! skin changes and switching betwe
 Toggle with the ✏️ button or `Ctrl+E`:
 
 - **👁️ Use mode** (default): Skin list + preset selector grid. Select presets and apply.
-- **✏️ Edit mode**: Preset/group tree editor with 3 tabs:
-  - **Basic info:** Name, description, preview image picker
+- **✏️ Edit mode**: Preset/group tree editor with 4 tabs:
+  - **Basic info:** Name, description, preview picker (single image / animated GIF·APNG·WebP / image sequence with FPS)
   - **INI edits:** Type-aware skin.ini field editor (bool/number/color/path/enum) with sorting and Mania perColumn support
   - **File moves:** Copy files within the skin folder, mark files for deletion
+  - **Image editor:** Per-source tint (color + blend mode), crop/tile into long bodies, and darken — with a live preview
 
 ---
 
@@ -119,6 +121,42 @@ To release, just bump the version in `package.json` — the hook updates the oth
 npm run sync-version     # write Cargo.toml / tauri.conf.json
 npm run version:check    # check only (no writes)
 ```
+
+---
+
+## Changelog
+
+### v1.0.1
+
+**New features**
+- **Image editor tab** — a tint → crop → darken pipeline with a real-time WebGL tint preview. Generate long-note (Percy LN) slider bodies from a short source via crop + tile, with on-canvas guide lines for the tail / blank / extended body. Per-source tint color and blend mode, plus an optional darken stage.
+- **Preview image sequences & animated images** — pick multiple frames as an image sequence (with an FPS input; `-1` plays all frames within 1 second, like osu!'s `AnimationFramerate`), or use animated GIF / APNG / WebP. Works in both edit mode and the use-mode hover panel.
+- **Compact `config.osp` storage** — disabled stages are dropped; enabled stages keep their full parameter set. A migration script (`scripts/migrate-osp.{js,bat}`) converts older pretty-printed files.
+
+**Performance**
+- Image processing parallelized with rayon: crop went from ~5.6s to ~2.5ms; tint and darken now run in parallel. Release builds use `opt-level = 3`.
+
+**Apply dialog & toasts**
+- Unified single/multi apply into one dialog with a three-group summary (INI edits / file moves / image edits). The success toast shows a compact `[INI×N, files×N, image×N]` summary.
+- Toasts are click-to-dismiss with a parabolic toss animation.
+
+**UI polish**
+- HSV color picker repositioned to the left of its trigger.
+- Disabled stages dim their controls; preset list gains edge-fade overlays; Tab cycling now reaches the edit-FPS button.
+- Distinct destination-path placeholders for file moves vs. image edits.
+
+**Bug fixes**
+- `FPS = -1` now persists (previously clamped to 12).
+- Switching from a sequence preset to an image preset no longer leaks the sequence preview; the first click on a sequence preset now shows its preview. Replaced the per-`<img>` timer with a single shared timer guarded by a view-generation token.
+- Fixed the top edge-fade gap; marked a non-passive wheel listener as passive.
+- Stale sequence fields no longer persist when switching back to a single image.
+
+**Project**
+- `package.json` is now the single source of truth for the version; a pre-commit hook keeps `Cargo.toml` and `tauri.conf.json` in sync (see [Versioning](#versioning)).
+
+### v1.0.0
+
+- Initial release.
 
 ---
 
