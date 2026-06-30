@@ -291,6 +291,33 @@ select.form-input {
   width: 100%;
   min-width: 0;
 }
+/* Tint table: same wrapping rules as the file table; swatch is a click target. */
+.table.tint-body-table td {
+  padding-right: 12px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+.table.tint-body-table .tint-dest,
+.table.tint-body-table .tint-mode {
+  width: 100%;
+  min-width: 0;
+}
+.tint-color-swatch {
+  transition: transform 0.15s;
+}
+.tint-color-swatch:hover {
+  transform: scale(1.15);
+}
+/* Exact column (4th): tighter padding so the toggle + fill button fit. */
+.table.files-body-table td:nth-child(4) {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.table.files-header-table th:nth-child(4) {
+  padding-left: 6px;
+  padding-right: 6px;
+}
 /* Sortable column headers. */
 .th--sortable {
   cursor: pointer;
@@ -320,8 +347,8 @@ select.form-input {
 /* The two leftmost INI columns hold badge "tag" pills whose text is inset by
    the pill padding; offset these headers' left padding so the header text
    aligns with the badge TEXT, not the badge background edge. */
-.table.ini-table th.th--sortable[data-col="action"],
-.table.ini-table th.th--sortable[data-col="section"] {
+.table.ini-table th[data-col="action"],
+.table.ini-table th[data-col="section"] {
   padding-left: 18px;
 }
 .table tr:last-child td {
@@ -400,14 +427,15 @@ select.form-input {
   font-size: 13px;
   min-width: 240px;
   max-width: 400px;
+  cursor: pointer;
   animation: toast-in 0.3s ease;
 }
 .toast--success { border-left: 3px solid var(--success); }
 .toast--error { border-left: 3px solid var(--danger); }
 .toast--warning { border-left: 3px solid var(--warning); }
 .toast--info { border-left: 3px solid var(--info); }
+.toast:hover { background: var(--bg-hover); }
 .toast__msg { flex: 1; }
-.toast__close { cursor: pointer; color: var(--text-muted); font-size: 16px; }
 
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(40px); }
@@ -486,6 +514,7 @@ select.form-input {
   height: 22px;
   display: inline-block;
 }
+.toggle.is-disabled { opacity: 0.4; pointer-events: none; }
 .toggle input {
   opacity: 0;
   width: 0;
@@ -649,7 +678,7 @@ select.form-input {
   padding-top: 4px;
   /* Darken progressively with nesting depth; veils stack across nested levels.
      (depth+1) so the root level also gets a starting shade. */
-  background: color-mix(in srgb, transparent, #000 calc((var(--depth, 0) + 1) * 20%));
+  background: color-mix(in srgb, transparent, #000 calc((var(--depth, 0) + 1) * 17%));
 }
 .preset-selector__sep {
   height: 2px;
@@ -1093,7 +1122,35 @@ select.form-input {
   border-bottom: 1px solid var(--border-light);
 }
 
+/* ── File-ops sequence-group header (mirrors INI collapsed-group) ── */
+.file-seq-group {
+  cursor: pointer;
+}
+.file-seq-group--expanded {
+  background: var(--bg-active);
+}
+.file-seq-group--expanded td {
+  border-bottom-color: var(--accent-dim);
+}
+
 /* ── Preset Tree (nested groups + presets) ── */
+/* Edge-fade overlays for the preset list (edit mode). Positioned absolutely
+   over the list viewport by JS; host is #preset-section (position:relative). */
+.preset-list-fade {
+  position: absolute;
+  left: 0; right: 0;
+  height: 30px;
+  pointer-events: none;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.preset-list-fade--top {
+  background: linear-gradient(to bottom, var(--bg-secondary) 0%, var(--bg-secondary) 0%, transparent 100%);
+}
+.preset-list-fade--bottom {
+  background: linear-gradient(to top, var(--bg-secondary) 0%, var(--bg-secondary) 0%, transparent 100%);
+}
 .preset-tree__group {
   margin-bottom: 2px;
 }
@@ -1251,25 +1308,280 @@ select.form-input {
 
 /* ── Editor tabs: flex layout so only tbody scrolls, header + thead stay fixed ── */
 .tab-content--active#tab-ini,
-.tab-content--active#tab-files {
+.tab-content--active#tab-files,
+.tab-content--active#tab-tint {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 #tab-ini .editor-sticky-header,
-#tab-files .editor-sticky-header {
+#tab-files .editor-sticky-header,
+#tab-tint .editor-sticky-header {
   flex-shrink: 0;
 }
 #tab-ini .ini-table-body-scroll,
-#tab-files .files-table-body-scroll {
+#tab-files .files-table-body-scroll,
+#tab-tint .files-table-body-scroll {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
   scrollbar-width: none; /* Firefox: hide scrollbar */
 }
 #tab-ini .ini-table-body-scroll::-webkit-scrollbar,
-#tab-files .files-table-body-scroll::-webkit-scrollbar {
+#tab-files .files-table-body-scroll::-webkit-scrollbar,
+#tab-tint .files-table-body-scroll::-webkit-scrollbar {
   display: none; /* Chromium: hide scrollbar but keep scrolling */
+}
+
+/* ── Image edit (tint) split layout ── */
+#tab-tint .tint-split {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+}
+#tab-tint .tint-ops {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  position: relative;
+}
+#tab-tint .tint-divider {
+  flex: 0 0 4px;
+  margin: 0 20px;
+  cursor: ew-resize;
+  background: var(--border);
+  border-radius: 2px;
+  transition: background 0.15s;
+}
+#tab-tint .tint-divider:hover {
+  background: var(--accent);
+}
+#tab-tint .tint-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+#tab-tint .tint-preview {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  text-align: center;
+  padding: 0;
+  position: relative;
+  background: hsl(0, 0%, 7%);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+}
+#tab-tint .tint-preview::-webkit-scrollbar {
+  display: none;
+}
+#tab-tint .tint-preview__wrap {
+  width: 100%;
+  margin-block: auto;   /* center vertically when shorter than the container */
+}
+#tab-tint .tint-preview__stage {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+#tab-tint .tint-preview__canvas {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+#tab-tint .tint-guide {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#tab-tint .tint-guide__line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--accent);
+  z-index: 1;
+}
+/* Label wrapper sits at the same position as its line but above it (z-index 2),
+   so the dashed line never paints over the label. */
+#tab-tint .tint-guide__labelwrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+}
+#tab-tint .tint-guide__label {
+  position: absolute;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--accent);
+  color: #1a1a1a;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+#tab-tint .tint-guide__label--left { left: 8px; }
+#tab-tint .tint-guide__label--right { right: 8px; }
+#tab-tint .tint-guide__label--above {
+  top: auto;
+  bottom: 0;
+}
+#tab-tint .tint-guide__arrow {
+  font-size: 8px;
+  line-height: 1;
+}
+#tab-tint .tint-preview__empty {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+}
+#tab-tint .tint-preview--fade {
+  animation: preset-preview-fade-up 0.25s ease;
+}
+#tab-tint .tint-empty-hint {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+}
+#tab-tint .tint-stages {
+  flex-shrink: 0;
+}
+#tab-tint .stage {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+#tab-tint .stage__toggle {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--bg-secondary);
+  border-bottom: 2px solid transparent;
+  user-select: none;
+}
+#tab-tint .stage__toggle:hover {
+  background: var(--bg-hover);
+}
+#tab-tint .stage__body {
+  padding: 8px 10px;
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+#tab-tint .stage__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+#tab-tint .stage__sep {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 0;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+#tab-tint .stage__field-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+#tab-tint .stage__field-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+#tab-tint .stage__field-input .form-input {
+  width: 100%;
+  min-width: 0;
+}
+#tab-tint .crop-tile-dir {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color var(--transition-fast);
+}
+#tab-tint .crop-tile-dir:hover {
+  color: var(--text-secondary);
+}
+/* Arrow turns green once tiling is enabled (regardless of direction). */
+#tab-tint .crop-tile-dir--on {
+  color: var(--accent);
+}
+#tab-tint .stage--active .stage__toggle {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+/* Disabled (inactive) stage: dim everything inside and show a "not allowed"
+   cursor over the body, like a disabled app button. */
+#tab-tint .stage:not(.stage--active) .stage__body {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: color-mix(in srgb, var(--bg-secondary) 50%, transparent);
+}
+#tab-tint .stage:not(.stage--active) .stage__field-label,
+#tab-tint .stage:not(.stage--active) .stage__field-input,
+#tab-tint .stage:not(.stage--active) .form-input,
+#tab-tint .stage:not(.stage--active) .crop-tile-dir {
+  color: var(--text-muted);
+}
+#tab-tint .tint-row--selected td {
+  background: var(--accent-bg);
+}
+#tab-tint .tint-color-swatch {
+  transition: transform 0.15s;
+}
+#tab-tint .stage--active .tint-color-swatch {
+  cursor: pointer;
+}
+#tab-tint .stage--active .tint-color-swatch:hover {
+  transform: scale(1.15);
+}
+/* Disabled stage: every interactive control shows a "not allowed" cursor and
+   ignores hover effects (no scale, no pointer). */
+#tab-tint .stage:not(.stage--active) .tint-color-swatch,
+#tab-tint .stage:not(.stage--active) .form-input,
+#tab-tint .stage:not(.stage--active) .crop-tile-dir,
+#tab-tint .stage:not(.stage--active) .tint-mode {
+  cursor: not-allowed;
+}
+#tab-tint .stage:not(.stage--active) .tint-color-swatch:hover {
+  transform: none;
 }
 /* Edge fade overlays: JS creates fixed-position <div>s at the top/bottom
    of the scroll container's visible area. CSS just styles them. */

@@ -7,10 +7,7 @@
   let lastClickedIndex = null;
   let fileDialogOpen = false;
 
-  // Column sort state. Default = by action type (copy/delete grouped), asc.
-  // There is always an active sort.
-  let sortState = { col: 'action', dir: 'asc' };
-  // The view-model used for the current render (sorted if a sort is active).
+  // The view-model used for the current render (source order, left to right).
   // All data-idx consumers index into THIS, not a fresh buildFileOps().
   let currentFileOps = null;
 
@@ -42,54 +39,26 @@
     const copies = getCopies ? getCopies() : [];
     const deletes = getDeletes ? getDeletes() : [];
     return [
-      ...copies.map(c => ({ _type: 'copy', source: c.source, destination: c.destination })),
-      ...deletes.map(d => ({ _type: 'delete', path: d.path })),
+      ...copies.map(c => ({ _type: 'copy', source: c.source, destination: c.destination, exact: !!c.exact })),
+      ...deletes.map(d => ({ _type: 'delete', path: d.path, exact: !!d.exact })),
     ];
   }
 
   function applyFileOps(fileOps) {
     const copies = fileOps
       .filter(op => op._type === 'copy')
-      .map(op => ({ source: op.source, destination: op.destination }));
+      .map(op => ({ source: op.source, destination: op.destination, exact: !!op.exact }));
     const deletes = fileOps
       .filter(op => op._type === 'delete')
-      .map(op => ({ path: op.path }));
+      .map(op => ({ path: op.path, exact: !!op.exact }));
     setCopies(copies);
     setDeletes(deletes);
   }
 
-  function cmpStr(a, b) { return a < b ? -1 : (a > b ? 1 : 0); }
-
   function opFile(op) { return op._type === 'copy' ? (op.source || '') : (op.path || ''); }
   function opDest(op) { return op._type === 'copy' ? (op.destination || '') : ''; }
-  function opActRank(op) { return op._type === 'copy' ? 0 : 1; } // copy(green) < delete(red)
 
-  // Per-header sort-key chains. action → action, file, dest; etc. Reverse
-  // inverts the whole compare but keeps field PRIORITY.
-  function opSortKeys(op, col) {
-    const f = opFile(op), d = opDest(op), a = opActRank(op);
-    if (col === 'action') return [a, f, d];
-    if (col === 'file')   return [f, d, a];
-    /* dest */            return [d, f, a];
-  }
-  function compareOp(a, b, col) {
-    const ka = opSortKeys(a, col), kb = opSortKeys(b, col);
-    for (let i = 0; i < ka.length; i++) {
-      const c = cmpStr(ka[i], kb[i]);
-      if (c !== 0) return c;
-    }
-    return 0;
-  }
-
-  function sortIndicatorHtml(col) {
-    if (sortState.col !== col) return '';
-    const ascActive = sortState.dir === 'asc';
-    const upCls = ascActive ? 'ini-sort-arrow ini-sort-arrow--active' : 'ini-sort-arrow';
-    const downCls = !ascActive ? 'ini-sort-arrow ini-sort-arrow--active' : 'ini-sort-arrow';
-    return `<span class="ini-sort-indicator"><span class="${upCls}">▲</span><span class="${downCls}">▼</span></span>`;
-  }
-
-  // Re-render after a sort change.
+  // Re-render the body (used by exact-toggle / sequence-group handlers).
   function rerenderTable(container) { render(container); }
 
   // ── Column widths: ONE unified pipeline (mirrors the INI editor) ──
@@ -113,6 +82,8 @@
     const widths = [0, 0, 0];
     headerTable.querySelectorAll('thead th').forEach((th, i) => { if (i < 3) widths[i] = Math.max(widths[i], textW(th.innerHTML)); });
     bodyTable.querySelectorAll('tbody tr').forEach(row => {
+      // Skip sequence-group header rows (their cells don't represent real op content).
+      if (row.classList.contains('file-seq-group')) return;
       const cells = row.querySelectorAll('td');
       for (let i = 0; i < 3 && i < cells.length; i++) widths[i] = Math.max(widths[i], textW(cells[i].innerHTML));
     });
@@ -129,7 +100,8 @@
     // Always use BASE_W (minimum window). Fixed layout + width:100% scales
     // proportionally to the actual table width, keeping proportions stable.
     const [wAction, wFile, wDest] = measured;
-    const rest = Math.max(0, BASE_W - wAction);
+    const exactW = 120;
+    const rest = Math.max(0, BASE_W - wAction - exactW);
     const fdSum = (wFile + wDest) || 1;
     const fileW = Math.max(60, Math.round(rest * (wFile / fdSum)));
     const destW = Math.max(60, rest - fileW);
@@ -140,6 +112,18 @@
       if (c[0]) c[0].style.width = wAction + 'px';
       if (c[1]) c[1].style.width = fileW + 'px';
       if (c[2]) c[2].style.width = destW + 'px';
+      if (c[3]) c[3].style.width = exactW + 'px';
+    });
+    adjustFillButtons();
+  }
+
+  // Collapse fill-button labels to '#' when their cell is too narrow.
+  function adjustFillButtons() {
+    document.querySelectorAll('.file-seq-fill-btn').forEach(btn => {
+      const full = btn.dataset.full || '#';
+      const cell = btn.parentElement;
+      if (!cell) return;
+      btn.textContent = (cell.scrollWidth > cell.clientWidth + 2) ? '#' : full;
     });
   }
 
@@ -186,11 +170,13 @@
                 <col style="width:72px">
                 <col>
                 <col>
+                <col style="width:120px">
               </colgroup>
               <thead><tr>
-                <th class="th--sortable" data-col="action">${i18n.t('file.colAction')}${sortIndicatorHtml('action')}</th>
-                <th class="th--sortable" data-col="file">${i18n.t('file.colFile')}${sortIndicatorHtml('file')}</th>
-                <th class="th--sortable" data-col="dest">${i18n.t('file.colDest')}${sortIndicatorHtml('dest')}</th>
+                <th data-col="action">${i18n.t('file.colAction')}</th>
+                <th>${i18n.t('file.colFile')}</th>
+                <th title="${escapeHtml(i18n.t('file.colDestTitle'))}">${i18n.t('file.colDest')}</th>
+                <th title="${escapeHtml(i18n.t('file.colExactTitle'))}">${i18n.t('file.colExact')}</th>
               </tr></thead>
             </table>
           </div>
@@ -228,7 +214,7 @@
             Toast.warning(i18n.t('file.outsideSkin'));
             continue;
           }
-          copies.push({ source: relPath, destination: '' });
+          copies.push({ source: relPath, destination: '', exact: false });
         }
         setCopies(copies);
         render(container);
@@ -262,7 +248,7 @@
           } else {
             relPath = filePath.split(/[/\\]/).pop();
           }
-          deletes.push({ path: relPath });
+          deletes.push({ path: relPath, exact: false });
         }
         setDeletes(deletes);
         render(container);
@@ -295,10 +281,27 @@
         applyFileOps(ops);
       }
     }
+    // Normalize a file dest's extension to the SOURCE's extension: strip any
+    // extension the user typed, then append the source's. Copies are byte-for-
+    // byte, so a mismatched extension would corrupt the file — we always honor
+    // the source. Directory dests (ending in /) are left untouched.
+    function appendSrcExt(val, source) {
+      if (!val || val.endsWith('/')) return val;
+      const slash = val.lastIndexOf('/');
+      const base = val.slice(slash + 1);
+      const dotPos = base.indexOf('.');
+      const stem = dotPos >= 0 ? base.slice(0, dotPos) : base;
+      const srcBase = (source || '').split(/[/\\]/).pop() || '';
+      const sDot = srcBase.lastIndexOf('.');
+      if (sDot < 0) return dotPos >= 0 ? val.slice(0, slash + 1) + stem : val; // source has no ext
+      return val.slice(0, slash + 1) + stem + srcBase.slice(sDot);
+    }
+
     function convertDestDisplay(input) {
       const idx = parseInt(input.dataset.idx);
       const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
       if (idx < 0 || idx >= ops.length || ops[idx]._type !== 'copy') return;
+      const source = ops[idx].source || '';
       let val = input.value.trim().replace(/^["']|["']$/g, '');
       if (!val) { ops[idx].destination = ''; applyFileOps(ops); return; }
       // If absolute path (any drive letter + :\ or /), try to convert to skin-relative.
@@ -314,6 +317,7 @@
               val = '';
             }
           }
+          val = appendSrcExt(val, source);
           input.value = val;
           ops[idx].destination = val;
           applyFileOps(ops);
@@ -322,6 +326,7 @@
       }
       // Already relative: normalize separators for display.
       val = val.replace(/\\/g, '/');
+      val = appendSrcExt(val, source);
       if (val !== input.value) input.value = val;
       ops[idx].destination = val;
       applyFileOps(ops);
@@ -334,19 +339,111 @@
       });
     });
 
-    // ── Column header sort (click toggles: same col flips asc/desc, new col = asc) ──
-    container.querySelectorAll('.files-header-table th.th--sortable').forEach(th => {
-      th.addEventListener('click', () => {
-        const col = th.dataset.col;
-        if (sortState.col === col) {
-          sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
-        } else {
-          sortState.col = col;
-          sortState.dir = 'asc';
+    // Exact-match toggles (@2x fallback on/off). State is per-op, so toggles
+    // inside a collapsed sequence group still persist on save.
+    container.querySelectorAll('.file-exact-toggle').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const idx = parseInt(cb.dataset.idx);
+        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+        if (idx >= 0 && idx < ops.length) { ops[idx].exact = cb.checked; applyFileOps(ops); }
+      });
+    });
+
+    // Sequence-group expand/collapse: double-click anywhere on the header row
+    // (except interactive controls) toggles expansion. Fast 250ms double-click.
+    container.querySelectorAll('.file-seq-group').forEach(tr => {
+      let last = 0;
+      tr.addEventListener('click', (e) => {
+        if (e.target.closest('.copy-dest-input, .file-seq-fill-btn, .file-seq-exact-toggle, .toggle, .toggle__slider')) return;
+        const now = Date.now();
+        if (now - last < 250) {
+          const key = tr.dataset.seqKey;
+          if (key) {
+            if (expandedSeqGroups.has(key)) expandedSeqGroups.delete(key);
+            else expandedSeqGroups.add(key);
+            rerenderTable(container);
+          }
+          last = 0;
+        } else { last = now; }
+      });
+    });
+
+    // Group-level exact toggle: apply to all members of the group.
+    container.querySelectorAll('.file-seq-exact-toggle').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const key = cb.dataset.seqKey;
+        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+        for (let k = 0; k < ops.length; k++) {
+          if (isFrame(ops[k]) && seqKey(ops[k]) === key) ops[k].exact = cb.checked;
         }
+        applyFileOps(ops);
+      });
+    });
+
+    // Group-level destination input: commit raw on each keystroke, normalize on blur/Enter.
+    const groupMemberIdx = (key, ops) => {
+      const out = [];
+      for (let k = 0; k < ops.length; k++) if (isFrame(ops[k]) && seqKey(ops[k]) === key) out.push(k);
+      return out;
+    };
+    container.querySelectorAll('.file-seq-dest').forEach(input => {
+      input.addEventListener('input', () => {
+        const key = input.dataset.seqKey;
+        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+        for (const k of groupMemberIdx(key, ops)) ops[k].destination = input.value;
+        applyFileOps(ops);
+      });
+      input.addEventListener('change', () => {
+        const key = input.dataset.seqKey;
+        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+        const idxs = groupMemberIdx(key, ops);
+        if (idxs.length === 0) return;
+        const source = ops[idxs[0]].source || ''; // frame members share an extension
+        let val = input.value.trim().replace(/^["']|["']$/g, '');
+        if (val && /^[a-zA-Z]:[\\/]?/.test(val)) {
+          skinPath().then(sp => {
+            if (sp) {
+              const skNorm = sp.replace(/\\/g, '/').toLowerCase();
+              const valNorm = val.replace(/\\/g, '/').toLowerCase();
+              val = valNorm.startsWith(skNorm) ? val.replace(/\\/g, '/').slice(sp.length).replace(/^\//, '') : val;
+            }
+            val = appendSrcExt(val, source);
+            input.value = val;
+            for (const k of idxs) ops[k].destination = val;
+            applyFileOps(ops);
+          });
+          return;
+        }
+        val = val.replace(/\\/g, '/');
+        val = appendSrcExt(val, source);
+        if (val !== input.value) input.value = val;
+        for (const k of idxs) ops[k].destination = val;
+        applyFileOps(ops);
+      });
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+    });
+
+    // Fill button on copy sequence groups: copy the first member's destination
+    // and exact-match state to every member of the group.
+    container.querySelectorAll('.file-seq-fill-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation(); // don't toggle group expansion
+        const key = btn.dataset.seqKey;
+        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+        const memberIdx = [];
+        for (let k = 0; k < ops.length; k++) {
+          if (isFrame(ops[k]) && seqKey(ops[k]) === key) memberIdx.push(k);
+        }
+        if (memberIdx.length < 2) return;
+        const first = ops[memberIdx[0]];
+        const dest = first.destination || '';
+        const exact = !!first.exact;
+        for (const k of memberIdx) { ops[k].destination = dest; ops[k].exact = exact; }
+        applyFileOps(ops);
         rerenderTable(container);
       });
     });
+
 
     // ── Tab cycling: scope to the region of the focused element ──
     // Top controls (copy/delete buttons) and the operation table rows each
@@ -507,17 +604,139 @@
     });
   }
 
+  // Sequence-group key: strips extension, @2x, frame number (-N), and format
+  // suffix from the filename so animation frames (foo-0.png … foo-9.png) share
+  // a key. Prefixed with op type so copies and deletes never merge.
+  function seqKey(op) {
+    let b = (opFile(op) || '').replace(/\\/g, '/').split('/').pop() || '';
+    b = b.replace(/\.[^.]+$/, '');             // extension
+    b = b.replace(/@2x$/i, '');                 // HD suffix
+    b = b.replace(/-\d+$/, '');                 // animation frame
+    b = b.replace(/-(x|dot|comma|percent)$/i, ''); // format suffix
+    return op._type + '|' + b;
+  }
+  // Whether a path looks like an animation frame: "id-N.ext" or "id-N@2x.ext".
+  function isFrame(op) {
+    const b = (opFile(op) || '').replace(/\\/g, '/').split('/').pop() || '';
+    return /-\d+(@2x)?\.[^.]+$/i.test(b);
+  }
+  // Whether the file path has an @2x HD suffix (the exact/@2x toggle only applies to these).
+  function has2x(op) {
+    return /@2x\.[^.]+$/i.test(opFile(op) || '');
+  }
+  // Group label: strip the frame number (-N) but keep @2x and extension.
+  function groupLabel(op) {
+    let b = (opFile(op) || '').replace(/\\/g, '/').split('/').pop() || '';
+    return b.replace(/-\d+(?=@2x\.|\.[^.]+$)/i, '');
+  }
+  // Expanded sequence groups (by key). Default: collapsed (set holds expanded keys).
+  const expandedSeqGroups = new Set();
+
   function renderFilesTableBody(fileOps) {
     if (fileOps.length === 0) {
       return `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">${i18n.t('file.empty')}</div>`;
     }
-    // Apply the active column sort — DISPLAY ONLY (no applyFileOps). There is
-    // always an active sort (default = action).
-    const dirMul = sortState.dir === 'desc' ? -1 : 1;
-    fileOps.sort((a, b) => dirMul * compareOp(a, b, sortState.col));
-    // Publish the (possibly sorted) view-model so data-idx consumers
-    // (destination input, row selection, delete) index the same order they see.
+    // Sort by file extension, then by file name (stable).
+    fileOps.sort((a, b) => {
+      const fa = (opFile(a) || '').replace(/\\/g, '/').split('/').pop() || '';
+      const fb = (opFile(b) || '').replace(/\\/g, '/').split('/').pop() || '';
+      const ea = (fa.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+      const eb = (fb.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+      if (ea !== eb) return ea < eb ? -1 : 1;
+      return fa < fb ? -1 : (fa > fb ? 1 : 0);
+    });
+    // Publish the view-model so data-idx consumers (destination input, row
+    // selection, delete) index the same order they see.
     currentFileOps = fileOps;
+
+    // Build a render plan: coalesce CONSECUTIVE frame ops with the same seqKey
+    // (length ≥ 2) into a collapsible group. Singletons render as plain rows.
+    const plan = []; // { type:'row', i } | { type:'group', key, indices:[], expanded }
+    let i = 0;
+    while (i < fileOps.length) {
+      const op = fileOps[i];
+      if (isFrame(op)) {
+        const key = seqKey(op);
+        let j = i + 1;
+        while (j < fileOps.length && isFrame(fileOps[j]) && seqKey(fileOps[j]) === key) j++;
+        if (j - i >= 2) {
+          plan.push({ type: 'group', key, indices: [], range: [i, j] });
+          i = j;
+          continue;
+        }
+      }
+      plan.push({ type: 'row', i });
+      i++;
+    }
+
+    const renderRow = (op, idx, groupKey) => {
+      const hidden = groupKey && !expandedSeqGroups.has(groupKey) ? ' style="display:none"' : '';
+      const parentAttr = groupKey ? ` data-group-parent="${escapeHtml(groupKey)}"` : '';
+      // Exact toggle only makes sense for @2x files (fallback target).
+      const exactCell = has2x(op)
+        ? `<td><label class="toggle">
+            <input type="checkbox" class="file-exact-toggle" data-idx="${idx}" ${op.exact ? 'checked' : ''}>
+            <span class="toggle__slider"></span>
+          </label></td>`
+        : '<td></td>';
+      if (op._type === 'copy') {
+        const src = op.source || '';
+        const cached = thumbHtmlFor(src, pathBasename(src));
+        return `<tr class="file-op-row" data-idx="${idx}" data-type="copy"${parentAttr}${hidden}>
+          <td><span class="tag tag--accent">${i18n.t('file.tagCopy')}</span></td>
+          <td><span class="file-thumb" data-path="${escapeHtml(src)}" title="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
+          <td><input type="text" class="form-input copy-dest-input" data-idx="${idx}" value="${escapeHtml(op.destination)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>
+          ${exactCell}
+        </tr>`;
+      } else {
+        const p = op.path || '';
+        const cached = thumbHtmlFor(p, pathBasename(p), true);
+        return `<tr class="file-op-row file-delete-row" data-idx="${idx}" data-type="delete" data-delpath="${escapeHtml(p)}"${parentAttr}${hidden}>
+          <td><span class="tag tag--danger">${i18n.t('file.tagDelete')}</span></td>
+          <td><span class="file-thumb file-del-thumb" data-path="${escapeHtml(p)}" title="${escapeHtml(p)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
+          <td style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</td>
+          ${exactCell}
+        </tr>`;
+      }
+    };
+
+    const renderGroup = (g) => {
+      const members = fileOps.slice(g.range[0], g.range[1]);
+      const expanded = expandedSeqGroups.has(g.key);
+      const first = members[0];
+      const isCopy = first._type === 'copy';
+      const label = groupLabel(first);
+      const groupHas2x = members.every(m => has2x(m));
+      const tagCls = isCopy ? 'tag--accent' : 'tag--danger';
+      const tagKey = isCopy ? 'file.tagCopy' : 'file.tagDelete';
+      // Group-level destination (copy only): show first member's value.
+      const destCell = isCopy
+        ? `<td style="padding-right:12px"><input type="text" class="form-input copy-dest-input file-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" value="${escapeHtml(first.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>`
+        : `<td style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</td>`;
+      // Group-level exact toggle (only if the group has @2x files) + fill button.
+      const fillBtn = `<button type="button" class="btn btn--secondary btn--sm file-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" data-full="${escapeHtml(i18n.t('file.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap;margin-left:auto">${i18n.t('file.fillAll')}</button>`;
+      const exactToggle = groupHas2x
+        ? `<label class="toggle">
+            <input type="checkbox" class="file-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${first.exact ? 'checked' : ''}>
+            <span class="toggle__slider"></span>
+          </label>`
+        : '';
+      const exactCell = `<td><div style="display:flex;align-items:center;gap:8px">
+          ${exactToggle}
+          ${fillBtn}
+        </div></td>`;
+      const rows = [
+        `<tr class="file-op-row file-seq-group${expanded ? ' file-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}">
+          <td><span class="tag ${tagCls}" style="cursor:pointer">${i18n.t(tagKey)}</span></td>
+          <td style="cursor:pointer"><span style="display:inline-flex;align-items:center;gap:6px;min-width:0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(label)} <span style="color:var(--text-muted)">(${members.length})</span></span></span></td>
+          ${destCell}
+          ${exactCell}
+        </tr>`,
+        ...members.map((op, k) => renderRow(op, g.range[0] + k, g.key))
+      ];
+      return rows.join('');
+    };
+
     return `
       <div class="files-body-table">
         <div class="table-wrap">
@@ -526,27 +745,10 @@
               <col style="width:72px">
               <col>
               <col>
+              <col style="width:120px">
             </colgroup>
             <tbody>
-            ${fileOps.map((op, i) => {
-              if (op._type === 'copy') {
-                const src = op.source || '';
-                const cached = thumbHtmlFor(src, pathBasename(src));
-                return `<tr class="file-op-row" data-idx="${i}" data-type="copy">
-                  <td><span class="tag tag--accent">${i18n.t('file.tagCopy')}</span></td>
-                  <td><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
-                  <td><input type="text" class="form-input copy-dest-input" data-idx="${i}" value="${escapeHtml(op.destination)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>
-                </tr>`;
-              } else {
-                const p = op.path || '';
-                const cached = thumbHtmlFor(p, p, true);
-                return `<tr class="file-op-row file-delete-row" data-idx="${i}" data-type="delete" data-delpath="${escapeHtml(p)}">
-                  <td><span class="tag tag--danger">${i18n.t('file.tagDelete')}</span></td>
-                  <td><span class="file-thumb file-del-thumb" data-path="${escapeHtml(p)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
-                  <td style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</td>
-                </tr>`;
-              }
-            }).join('')}
+            ${plan.map(p => p.type === 'group' ? renderGroup(p) : renderRow(fileOps[p.i], p.i, null)).join('')}
           </tbody>
         </table>
       </div>
@@ -568,7 +770,7 @@
       return isDelete ? escapeHtml(label) : `📄 ${escapeHtml(label || '')}`;
     }
     if (thumbCache.has(rawPath)) {
-      return `<img src="${thumbCache.get(rawPath)}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
+      return `<img src="${thumbCache.get(rawPath)}" title="${escapeHtml(rawPath)}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
     }
     return `📄 ${escapeHtml(label || '')}`;
   }
@@ -598,16 +800,16 @@
       if (!isImagePath(p)) continue;
       // Cache keyed by the RAW data-path so re-renders can use it synchronously.
       if (thumbCache.has(raw)) {
-        const label = span.classList.contains('file-del-thumb') ? raw : pathBasename(raw);
-        span.innerHTML = `<img src="${thumbCache.get(raw)}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
+        const label = pathBasename(raw);
+        span.innerHTML = `<img src="${thumbCache.get(raw)}" title="${escapeHtml(raw)}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
         continue;
       }
       try {
         const result = await api.getPreviewDataUrl(p);
         if (result.success && result.data) {
           thumbCache.set(raw, result.data);
-          const label = span.classList.contains('file-del-thumb') ? raw : pathBasename(raw);
-          span.innerHTML = `<img src="${result.data}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
+          const label = pathBasename(raw);
+          span.innerHTML = `<img src="${result.data}" title="${escapeHtml(raw)}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
         }
       } catch (_) { /* skip failed thumbnails */ }
     }
@@ -655,5 +857,5 @@
     window.addEventListener('resize', () => layoutColumns(filesContainer));
   }
 
-  window.FileCopyEditor = { init, render, deleteSelected, layoutColumns };
+  window.FileCopyEditor = { init, render, deleteSelected, layoutColumns, invalidateCache: () => thumbCache.clear() };
 })();

@@ -185,6 +185,10 @@
   overflow-y: auto;
   overflow-x: auto;
   padding: 4px 0;
+  scrollbar-width: none; /* Firefox: hide scrollbar */
+}
+.sidebar__list::-webkit-scrollbar {
+  display: none; /* Chromium: hide scrollbar */
 }
 /* The corner where the two scrollbars meet renders as a white box by default;
    paint it with the page background so it blends in. */

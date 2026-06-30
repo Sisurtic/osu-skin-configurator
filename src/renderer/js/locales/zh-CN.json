@@ -81,24 +81,44 @@
     "confirmTitle": "确认应用预设",
     "willApplySingle": "将应用预设 \"{name}\":",
     "unnamed": "未命名",
-    "iniCount": "修改 skin.ini 中 {n} 个设置项",
-    "copyCount": "复制 {n} 个文件到皮肤目录",
-    "deleteCount": "删除皮肤中 {n} 个文件",
+    "groupIni": "INI 编辑",
+    "groupFile": "文件移动",
+    "groupTint": "图像编辑",
+    "itemIniMod": "修改项",
+    "itemIniDel": "删除项",
+    "itemCopy": "复制项",
+    "itemDelete": "删除项",
+    "itemColor": "调色项",
+    "itemCrop": "裁切项",
+    "iniCount": "修改 {n} 个设置项",
+    "iniDeleteCount": "删除 {n} 个设置项",
+    "copyCount": "复制 {n} 个文件",
+    "deleteCount": "删除 {n} 个文件",
+    "tintColorCount": "调色 {n} 个图片",
+    "tintCropCount": "裁切 {n} 个图片",
     "noActions": "⚠ 此预设没有任何操作",
     "confirmApply": "确认应用",
     "applying": "正在应用…",
     "noSkinOrPreset": "未选择皮肤或预设",
-    "appliedSingle": "预设已应用! 修改 {ini} 个设置，复制 {copy} 个文件",
-    "appliedMulti": "预设已应用! 修改 {ini} 个设置，复制 {copy} 个文件，删除 {del} 个文件",
+    "appliedSummary": "预设已应用! INI 编辑 {ini}，文件移动 {file}，图像编辑 {tint}",
+    "appliedPrefix": "预设已应用! ",
+    "appliedSingle": "预设已应用! 修改 {ini} 个设置，复制 {copy} 个文件，图像编辑 {tint} 个文件",
+    "appliedMulti": "预设已应用! 修改 {ini} 个设置，复制 {copy} 个文件，删除 {del} 个文件，图像编辑 {tint} 个文件",
     "applyFailed": "应用失败: {msg}",
     "loadPresetFailed": "无法加载预设数据",
     "willApplyMulti": "将应用 {count} 个预设到皮肤 \"{name}\":",
     "fragmentCopy": "复制×{n}",
     "fragmentDelete": "删除×{n}",
+    "fragmentIniDel": "删设置×{n}",
+    "fragmentColor": "调色×{n}",
+    "fragmentCrop": "裁切×{n}",
     "fragmentNone": "无操作",
     "totalIni": "合计修改 {n} 个设置项",
+    "totalIniDel": "合计删除 {n} 个设置项",
     "totalCopy": "合计复制 {n} 个文件",
     "totalDelete": "合计删除 {n} 个文件",
+    "totalColor": "合计调色 {n} 个图片",
+    "totalCrop": "合计裁切 {n} 个图片",
     "noActionsMulti": "⚠ 所选预设没有任何操作",
     "dedupHint": "⚠ 相同 INI 字段的修改以后应用的预设为准"
   },
@@ -121,7 +141,8 @@
     "descPlaceholder": "说明文本...",
     "tabBasic": "基本信息",
     "tabIni": "INI 编辑",
-    "tabFiles": "文件移动"
+    "tabFiles": "文件移动",
+    "tabTint": "图像编辑"
   },
   "group": {
     "movedOut": "已将 {count} 个预设移出分组",
@@ -185,24 +206,29 @@
   },
   "file": {
     "heading": "文件移动",
-    "desc": "选择替换文件并设定目标路径（在皮肤文件夹内），或标记要删除的文件",
+    "desc": "选择替换文件并设定目标路径（在皮肤文件夹内），或标记要删除的文件。",
     "copy": "＋ 复制",
     "delete": "＋ 删除",
     "deleteZone": "拖拽操作到此处删除",
     "colAction": "操作",
     "colFile": "文件",
     "colDest": "目标路径",
+    "colExact": "精确查找",
+    "colExactTitle": "关闭 - 找不到 @2x 则向下查找\n开启 - 找不到 @2x 则跳过",
+    "fillAll": "# 填充",
+    "fillAllTitle": "将首个成员的目标路径与精确查找状态填充到组内全部成员",
     "selectSkinFirst": "请先选择皮肤",
     "allFilesFilter": "所有文件",
     "deleted": "已删除 {n} 个文件操作",
     "empty": "暂无文件操作，请从上方添加",
     "tagCopy": "复制",
     "tagDelete": "删除",
-    "destPlaceholder": "如: mania/ （留空为根目录）",
+    "destPlaceholder": "如 mania/ (留空为皮肤根目录)",
     "removeLabel": "— 移除 —",
     "deleteRowsConfirm": "确定要删除选中的 {n} 个文件操作吗？",
     "outsideSkin": "只能选择皮肤文件夹内的文件",
-    "destOutsideSkin": "该路径不在皮肤内！"
+    "destOutsideSkin": "该路径不在皮肤内！",
+    "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名"
   },
   "preview": {
     "heading": "预览图片",
@@ -212,7 +238,31 @@
     "pick": "点击选择图片",
     "selectSkinFirst": "请先选择皮肤",
     "imageFilter": "图片",
-    "outsideSkin": "只能选择皮肤文件夹内的文件"
+    "fpsLabel": "帧率",
+    "fpsTitle": "设置图片序列帧率",
+    "editFps": "修改帧率",
+    "outsideSkin": "只能选择皮肤文件夹内的文件",
+    "previewMissing": "预览文件缺失"
+  },
+  "tint": {
+    "heading": "图像编辑",
+    "desc": "为 PNG 图片调色，包含 o!m Percy LN 生成器。",
+    "addImage": "添加图片",
+    "empty": "暂无图片操作，请从上方添加",
+    "tagTint": "调色",
+    "colAction": "操作",
+    "colSource": "文件",
+    "colColor": "颜色",
+    "colMode": "模式",
+    "colDest": "目标路径",
+    "destPlaceholder": "如 mania/ (留空替换原文件)",
+    "mode_multiply": "正片叠底",
+    "mode_lightness": "色相",
+    "mode_screen": "滤色",
+    "mode_overlay": "叠加",
+    "mode_replace": "纯色填充",
+    "deleteZone": "拖拽操作到此处删除",
+    "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名"
   },
   "settings": {
     "pathSet": "osu! 路径已设置",
@@ -253,7 +303,8 @@
     "bindFailed": "绑定失败",
     "cleared": "已清除快捷键",
     "clearFailed": "清除失败",
-    "noPreview": "暂无预览图"
+    "noPreview": "暂无预览图",
+    "previewMissing": "预览文件缺失"
   },
   "shortcutsDesc": {
     "refresh": "刷新皮肤列表",
@@ -276,6 +327,18 @@
     {
       "text": "暂不支持 osu!lazer (永远地)",
       "chance": 0.06
+    },
+    {
+      "text": "一觉醒来全球 osu! 水平下降一千倍，而我保持不变！",
+      "chance": 0.04
+    },
+    {
+      "text": "关注枸桎喵！关注枸桎谢谢喵！",
+      "chance": 0.04
+    },
+    {
+      "text": "Tip.38: 玩HD mod可能会导致第二性征偏向女性。",
+      "chance": 0.04
     }
   ],
   "iniFields": {
@@ -402,5 +465,27 @@
   },
   "warn": {
     "iniCommentLoss": "注意：应用预设到皮肤时，skin.ini 中的注释、空行和无法识别的内容会被删除，仅保留有效的键值对。建议在应用前备份 skin.ini。"
+  },
+  "edit": {
+    "stageTint": "调色",
+    "stageCrop": "裁剪",
+    "stageDarken": "暗化",
+    "cropA": "面尾高度",
+    "cropB": "留白高度",
+    "cropC": "输出高度",
+    "cropTile": "是否平铺",
+    "darkenD": "暗化偏移",
+    "darkenOpacity": "暗化明度",
+    "previewEmpty": "添加并选中一张图片以预览",
+    "previewMissing": "当前文件不存在",
+    "stagePercy": "Percy LN",
+    "cropAHint": "从图片顶部开始计算高度",
+    "tileDownHint": "向下平铺",
+    "tileUpHint": "向上平铺",
+    "hintAddSelect": "添加并选中图片以编辑",
+    "hintApply": "单击编辑标题栏以应用",
+    "guideBlank": "留白",
+    "guideTop": "面尾",
+    "guideExt": "面身"
   }
 }

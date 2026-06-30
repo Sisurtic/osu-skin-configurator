@@ -1,0 +1,35 @@
+#!/bin/sh
+# Pre-commit hook: keep Cargo.toml and tauri.conf.json in sync with package.json's version.
+# package.json is the single source of truth. If a commit changes package.json's
+# version (or the targets drifted), mirror it and stage the updated files so the
+# commit is self-consistent. No-op when everything already matches.
+#
+# Activate once per clone:  git config core.hooksPath .githooks
+
+# Only run when package.json is part of the commit (or the targets are dirty),
+# to avoid touching unrelated commits.
+if ! git diff --cached --quiet -- package.json; then
+  PKG_CHANGED=1
+else
+  PKG_CHANGED=0
+fi
+
+# Always run the sync (cheap, idempotent) so a drifted target gets fixed even
+# if package.json itself isn't in this commit.
+node "$(git rev-parse --show-toplevel)/scripts/sync-version.js"
+SYNC_RC=$?
+
+if [ $SYNC_RC -ne 0 ]; then
+  echo "[pre-commit] sync-version failed (rc=$SYNC_RC); aborting commit"
+  exit 1
+fi
+
+# Stage any files the sync rewrote. Only report when there were unstaged
+# changes to add (the sync is idempotent; on a clean run nothing changes).
+UNSTAGED=$(git diff --name-only -- src-tauri/Cargo.toml src-tauri/tauri.conf.json | wc -l)
+if [ "$UNSTAGED" -gt 0 ]; then
+  git add src-tauri/Cargo.toml src-tauri/tauri.conf.json
+  echo "[pre-commit] staged version-synced files (Cargo.toml, tauri.conf.json)"
+fi
+
+exit 0

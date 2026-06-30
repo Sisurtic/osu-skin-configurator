@@ -214,6 +214,14 @@ fn groups_set_collapsed(app: AppHandle, skin_name: String, group_id: i64, collap
     }
 }
 #[tauri::command]
+fn groups_set_collapsed_batch(app: AppHandle, skin_name: String, group_ids: Vec<i64>, collapsed: bool) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    match preset_manager::set_groups_collapsed_batch(&sp, &group_ids, collapsed) {
+        Ok(_) => wrap_ok(json!(true)),
+        Err(e) => wrap_err(&e),
+    }
+}
+#[tauri::command]
 fn groups_delete_recursive(app: AppHandle, skin_name: String, group_id: i64) -> Value {
     let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
     match preset_manager::delete_group_recursive(&sp, group_id) {
@@ -531,7 +539,7 @@ pub fn run() {
             osu_auto_detect, osu_get_path, osu_get_last_skin, osu_set_last_skin, osu_set_path,
             skins_scan, skins_read_ini, skins_get_path,
             presets_scan, presets_load, presets_save, presets_delete, presets_delete_multiple, presets_apply, presets_apply_multiple,
-            groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_delete_recursive,
+            groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_set_collapsed_batch, groups_delete_recursive,
             image_get_preview,
             shortcuts_load, shortcuts_save,
             global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_reload,

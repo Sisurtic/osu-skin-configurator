@@ -178,12 +178,17 @@
 
     // ── Bind: group name double-click → rename ──
     listEl.querySelectorAll('.preset-tree__group-name').forEach(nameEl => {
-      nameEl.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-        const header = nameEl.closest('.preset-tree__group-header');
-        const groupId = parseInt(header.dataset.groupId, 10);
-        const group = groupMap.get(groupId);
-        if (group) startGroupRename(header, group);
+      let last = 0;
+      nameEl.addEventListener('click', (e) => {
+        const now = Date.now();
+        if (now - last < 250) {
+          e.stopPropagation();
+          const header = nameEl.closest('.preset-tree__group-header');
+          const groupId = parseInt(header.dataset.groupId, 10);
+          const group = groupMap.get(groupId);
+          if (group) startGroupRename(header, group);
+          last = 0;
+        } else { last = now; }
       });
     });
 
@@ -452,6 +457,49 @@
       // Update initial visibility after render
       updateCountBadgeVisibility(scrollContainer);
     }
+    setupListEdgeFade();
+  }
+
+  // Vertical edge-fade overlays over the preset list viewport.
+  // Fades are created once; opacity updates on scroll/resize (not on render).
+  let _topFade = null, _botFade = null;
+  function updateListFade() {
+    if (!_topFade || !_botFade) return;
+    const host = sectionEl;
+    if (!host) return;
+    const lr = listEl.getBoundingClientRect();
+    const hr = host.getBoundingClientRect();
+    // Fade must cover the scroll viewport's top/bottom edges exactly. Aligning
+    // the fade box flush with the list's edges (no -1 fudge) avoids a 1px gap
+    // where the host/background shows through between the header and the list.
+    _topFade.style.top = (lr.top - hr.top) + 'px';
+    _topFade.style.height = Math.min(30, lr.height) + 'px';
+    _botFade.style.top = (lr.bottom - hr.top - 30) + 'px';
+    _botFade.style.height = Math.min(30, lr.height) + 'px';
+    _topFade.style.left = '0';
+    _topFade.style.right = '0';
+    _botFade.style.left = '0';
+    _botFade.style.right = '0';
+    const canScroll = listEl.scrollHeight > listEl.clientHeight + 2;
+    _topFade.style.opacity = (canScroll && listEl.scrollTop > 2) ? '1' : '0';
+    _botFade.style.opacity = (canScroll && listEl.scrollTop + listEl.clientHeight < listEl.scrollHeight - 2) ? '1' : '0';
+  }
+  function setupListEdgeFade() {
+    const host = sectionEl; // #preset-section
+    if (!host) return;
+    if (host._fadeInit) { requestAnimationFrame(updateListFade); return; }
+    host._fadeInit = true;
+    host.style.position = 'relative';
+    _topFade = document.createElement('div');
+    _topFade.className = 'preset-list-fade preset-list-fade--top';
+    _botFade = document.createElement('div');
+    _botFade.className = 'preset-list-fade preset-list-fade--bottom';
+    host.appendChild(_topFade);
+    host.appendChild(_botFade);
+    listEl.addEventListener('scroll', updateListFade, { passive: true });
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(updateListFade).observe(host);
+    requestAnimationFrame(updateListFade);
+    setTimeout(updateListFade, 300);
   }
 
   // ── Recursive rendering ──
@@ -573,9 +621,10 @@
     const root = byId.get(groupId);
     if (!root) return;
     const target = !root.collapsed;
-    const toToggle = [];
+    // Collect ids of the root + all descendant groups.
+    const ids = [];
     const collect = (g) => {
-      toToggle.push(g);
+      ids.push(g.id);
       if (!g.children) return;
       for (const c of g.children) {
         if (c.type === 'group') {
@@ -585,11 +634,12 @@
       }
     };
     collect(root);
-    for (const g of toToggle) {
-      await api.setGroupCollapsed(skin, g.id, target);
-      g.collapsed = target;
-    }
+    const idSet = new Set(ids);
+    // Update local state first so the UI re-renders immediately, then persist
+    // in one batched call (avoiding per-group IPC + file read/write stalls).
+    for (const g of groups) if (idSet.has(g.id)) g.collapsed = target;
     state.set('groups', [...groups]);
+    await api.setGroupsCollapsedBatch(skin, ids, target);
   }
 
   // ── Group rename ──

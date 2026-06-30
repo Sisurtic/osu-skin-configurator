@@ -70,7 +70,7 @@ fn load_config(skin_path: &str) -> Config {
         .map(|arr| arr.iter().map(|p| {
             let id = p.get("id").cloned().unwrap_or(json!(0));
             let meta = p.get("meta").cloned().unwrap_or_else(|| json!({"name": crate::i18n::t("preset.fallback_name", &[("id", &id.as_i64().unwrap_or(0).to_string())]), "description": "", "previewPath": ""}));
-            let actions = p.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": []}));
+            let actions = p.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": [], "fileTints": []}));
             json!({"id": id, "meta": meta, "actions": actions})
         }).collect::<Vec<_>>())
         .unwrap_or_default();
@@ -87,14 +87,21 @@ fn load_config(skin_path: &str) -> Config {
 
 fn save_config(skin_path: &str, cfg: &Config) {
     let p = config_path(skin_path);
-    let v = json!({
-        "nextPresetId": cfg.next_preset_id,
-        "nextGroupId": cfg.next_group_id,
-        "rootGroupIds": cfg.root_group_ids,
-        "groups": cfg.groups,
-        "presets": cfg.presets,
-    });
-    if let Ok(s) = serde_json::to_string_pretty(&v) {
+    let mut v = serde_json::Map::new();
+    v.insert("nextPresetId".into(), json!(cfg.next_preset_id));
+    v.insert("nextGroupId".into(), json!(cfg.next_group_id));
+    if !cfg.root_group_ids.is_empty() {
+        v.insert("rootGroupIds".into(), json!(cfg.root_group_ids));
+    }
+    if !cfg.groups.is_empty() {
+        v.insert("groups".into(), json!(cfg.groups));
+    }
+    if !cfg.presets.is_empty() {
+        v.insert("presets".into(), json!(cfg.presets));
+    }
+    // Compact (non-pretty) serialization keeps config.osp small — the file is
+    // machine-only; readers use unwrap_or defaults for any omitted keys.
+    if let Ok(s) = serde_json::to_string(&Value::Object(v)) {
         let _ = fs::write(&p, s);
     }
 }
@@ -236,11 +243,29 @@ pub fn save_preset(skin_path: &str, preset_id: Option<i64>, data: &Value) -> Res
             id
         }
     };
-    let entry = json!({
-        "id": id,
-        "meta": data.get("meta").cloned().unwrap_or_else(|| json!({"name": crate::i18n::t("preset.fallback_name", &[("id", &id.to_string())]), "description": "", "previewPath": ""})),
-        "actions": data.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": []})),
-    });
+    // Build the preset entry: keep meta fields as-is (including empty
+    // description/previewPath), keep all action arrays (even empty). Only the
+    // compact JSON serialization (in save_config) reduces file size.
+    let mut entry = serde_json::Map::new();
+    entry.insert("id".into(), json!(id));
+    let mut meta = serde_json::Map::new();
+    if let Some(m) = data.get("meta").and_then(|m| m.as_object()) {
+        let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        meta.insert("name".into(), json!(if name.is_empty() { crate::i18n::t("preset.fallback_name", &[("id", &id.to_string())]) } else { name.to_string() }));
+        meta.insert("description".into(), json!(m.get("description").and_then(|v| v.as_str()).unwrap_or("")));
+        meta.insert("previewPath".into(), json!(m.get("previewPath").and_then(|v| v.as_str()).unwrap_or("")));
+        // Carry over preview kind/frames/fps (image sequence support).
+        if let Some(k) = m.get("previewKind") { meta.insert("previewKind".into(), k.clone()); }
+        if let Some(f) = m.get("previewFrames") { meta.insert("previewFrames".into(), f.clone()); }
+        if let Some(fp) = m.get("previewFps") { meta.insert("previewFps".into(), fp.clone()); }
+    } else {
+        meta.insert("name".into(), json!(crate::i18n::t("preset.fallback_name", &[("id", &id.to_string())])));
+        meta.insert("description".into(), json!(""));
+        meta.insert("previewPath".into(), json!(""));
+    }
+    entry.insert("meta".into(), Value::Object(meta));
+    entry.insert("actions".into(), data.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": [], "fileTints": []})));
+    let entry = Value::Object(entry);
     if let Some(pos) = cfg.presets.iter().position(|p| p.get("id").and_then(|v| v.as_i64()) == Some(id)) {
         cfg.presets[pos] = entry;
     } else {
@@ -404,6 +429,17 @@ pub fn set_group_collapsed(skin_path: &str, group_id: i64, collapsed: bool) -> R
     Ok(())
 }
 
+// Set collapsed state for many groups in ONE read+write (used by Shift+click
+// recursive expand/collapse, where per-group IPC would cause a visible stall).
+pub fn set_groups_collapsed_batch(skin_path: &str, group_ids: &[i64], collapsed: bool) -> Result<(), String> {
+    let mut cfg = load_config(skin_path);
+    for g in cfg.groups.iter_mut() {
+        if group_ids.contains(&g.id) { g.collapsed = collapsed; }
+    }
+    save_config(skin_path, &cfg);
+    Ok(())
+}
+
 pub fn delete_group_recursive(skin_path: &str, group_id: i64) -> Result<Value, String> {
     let mut cfg = load_config(skin_path);
     let root_gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
@@ -452,6 +488,9 @@ pub fn get_preview_data_url(image_path: &str) -> Option<String> {
     let mime = match ext.as_str() {
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "apng" => "image/apng",
         _ => "image/png",
     };
     Some(format!("data:{};base64,{}", mime, b64))

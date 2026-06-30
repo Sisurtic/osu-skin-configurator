@@ -99,6 +99,23 @@ npm run build     # → cargo tauri build
 
 渲染层是纯 JS，无需 `npm install` 应用依赖。
 
+### 版本管理
+
+版本号的**唯一来源**是 [`package.json`](package.json) 的 `version` 字段。`src-tauri/Cargo.toml` 和 `src-tauri/tauri.conf.json` 由 pre-commit 钩子自动同步，`Cargo.lock` 在 `cargo build` 时自动跟随。
+
+clone 仓库后激活钩子（仅需一次）：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+发版时只改 `package.json` 的版本号即可，提交时钩子会把另外两处一并更新并暂存。也可手动同步：
+
+```bash
+npm run sync-version     # 写入 Cargo.toml / tauri.conf.json
+npm run version:check    # 仅检查是否一致（不写入）
+```
+
 ---
 
 ## 许可证

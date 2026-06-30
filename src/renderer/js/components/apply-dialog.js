@@ -1,13 +1,37 @@
 // Apply confirmation dialog — shows summary then applies
 (function () {
+  // Compact three-label summary, e.g. "INI 编辑×3, 文件移动×1, 图像编辑×2".
+  // Used by both the per-preset cards and the success toast so they match.
+  function summaryText(ini, file, tint) {
+    const parts = [];
+    if (ini > 0) parts.push(`${i18n.t('apply.groupIni')}×${ini}`);
+    if (file > 0) parts.push(`${i18n.t('apply.groupFile')}×${file}`);
+    if (tint > 0) parts.push(`${i18n.t('apply.groupTint')}×${tint}`);
+    return parts.join(', ');
+  }
+  // A group block: a title bar with up to two counts laid out side by side
+  // beneath it. Each count shows "<label> ×<n>". Only rendered if it has at
+  // least one non-zero count.
+  function group(title, items) {
+    const cells = items.filter(it => it.show).map(it =>
+      `<span style="flex:1;min-width:0">${i18n.t(it.key)} <strong>×${it.n}</strong></span>`).join('');
+    if (!cells) return '';
+    return `<div style="margin-bottom:8px"><div style="font-weight:600;margin-bottom:4px;padding-bottom:2px;border-bottom:1px solid var(--border)">${title}</div><div style="display:flex;gap:12px;line-height:1.7">${cells}</div></div>`;
+  }
+
   function show() {
     if (document.querySelector('.modal-overlay')) return;
     const data = window.PresetEditor?.getCurrentEditData?.() || {};
     const meta = data.meta || {};
-    const actions = data.actions || { skinIni: [], fileCopies: [], fileDeletes: [] };
-    const iniCount = actions.skinIni?.length || 0;
+    const actions = data.actions || { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] };
+    const iniModifyCount = (actions.skinIni || []).filter(e => !e._delete).length;
+    const iniDeleteCount = (actions.skinIni || []).filter(e => e._delete).length;
     const copyCount = actions.fileCopies?.length || 0;
     const deleteCount = actions.fileDeletes?.length || 0;
+    const tints = actions.fileTints || [];
+    const colorCount = tints.filter(t => t.tintEnabled).length;
+    const cropCount = tints.filter(t => t.cropEnabled || t.darkenEnabled).length;
+    const hasActions = iniModifyCount > 0 || iniDeleteCount > 0 || copyCount > 0 || deleteCount > 0 || colorCount > 0 || cropCount > 0;
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
@@ -16,13 +40,20 @@
       <div class="modal">
         <div class="modal__title">${i18n.t('apply.confirmTitle')}</div>
         <div class="modal__body">
-          <p style="margin-bottom:8px">${i18n.t('apply.willApplySingle', { name: escapeHtml(meta.name || i18n.t('apply.unnamed')) })}</p>
-          <ul style="padding-left:20px;line-height:1.8">
-            ${iniCount > 0 ? `<li>${i18n.t('apply.iniCount', { n: `<strong>${iniCount}</strong>` })}</li>` : ''}
-            ${copyCount > 0 ? `<li>${i18n.t('apply.copyCount', { n: `<strong>${copyCount}</strong>` })}</li>` : ''}
-            ${deleteCount > 0 ? `<li>${i18n.t('apply.deleteCount', { n: `<strong>${deleteCount}</strong>` })}</li>` : ''}
-          </ul>
-          ${iniCount === 0 && copyCount === 0 && deleteCount === 0 ? `<p style="color:var(--warning);margin-top:8px">${i18n.t('apply.noActions')}</p>` : ''}
+          <p style="margin-bottom:10px">${i18n.t('apply.willApplySingle', { name: escapeHtml(meta.name || i18n.t('apply.unnamed')) })}</p>
+          ${group(i18n.t('apply.groupIni'), [
+            { show: iniModifyCount > 0, key: 'apply.itemIniMod', n: iniModifyCount },
+            { show: iniDeleteCount > 0, key: 'apply.itemIniDel', n: iniDeleteCount },
+          ])}
+          ${group(i18n.t('apply.groupFile'), [
+            { show: copyCount > 0, key: 'apply.itemCopy', n: copyCount },
+            { show: deleteCount > 0, key: 'apply.itemDelete', n: deleteCount },
+          ])}
+          ${group(i18n.t('apply.groupTint'), [
+            { show: colorCount > 0, key: 'apply.itemColor', n: colorCount },
+            { show: cropCount > 0, key: 'apply.itemCrop', n: cropCount },
+          ])}
+          ${!hasActions ? `<p style="color:var(--warning);margin-top:8px">${i18n.t('apply.noActions')}</p>` : ''}
         </div>
         <div class="modal__actions">
           <button class="btn btn--primary" id="apply-confirm">${i18n.t('apply.confirmApply')}</button>
@@ -37,6 +68,7 @@
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) close();
     });
+    bindEsc();
 
     overlay.querySelector('#apply-confirm').addEventListener('click', async () => {
       const btn = overlay.querySelector('#apply-confirm');
@@ -58,16 +90,26 @@
       if (result.success) {
         const d = result.data;
         state.set('activePresets', {});
-        Toast.success(i18n.t('apply.appliedSingle', { ini: d.skinIniChanges || 0, copy: d.filesCopied || 0 }));
+        if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
+        const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0);
+        Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
       } else {
         Toast.error(i18n.t('apply.applyFailed', { msg: result.error || i18n.t('app.unknownError') }));
       }
     });
   }
 
+  // Esc closes whichever apply modal is open.
+  let _escHandler = null;
+  function bindEsc() {
+    if (_escHandler) return;
+    _escHandler = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+    document.addEventListener('keydown', _escHandler);
+  }
   function close() {
     const overlay = document.getElementById('apply-modal');
     if (overlay) overlay.remove();
+    if (_escHandler) { document.removeEventListener('keydown', _escHandler); _escHandler = null; }
   }
 
   function escapeHtml(str) {
@@ -96,7 +138,7 @@
         presetDataList.push({
           id,
           meta: result.data.meta || {},
-          actions: result.data.actions || { skinIni: [], fileCopies: [], fileDeletes: [] },
+          actions: result.data.actions || { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] },
         });
       }
     }
@@ -107,17 +149,23 @@
     }
 
     // Combine actions
-    let totalIni = 0, totalCopy = 0, totalDelete = 0;
+    let totalIniMod = 0, totalIniDel = 0, totalCopy = 0, totalDelete = 0, totalColor = 0, totalCrop = 0;
     const presetSummaries = [];
     for (const pd of presetDataList) {
-      const iniCount = pd.actions.skinIni?.length || 0;
+      const ini = pd.actions.skinIni || [];
+      const iniMod = ini.filter(e => !e._delete).length;
+      const iniDel = ini.filter(e => e._delete).length;
       const copyCount = pd.actions.fileCopies?.length || 0;
       const deleteCount = pd.actions.fileDeletes?.length || 0;
-      totalIni += iniCount;
-      totalCopy += copyCount;
-      totalDelete += deleteCount;
-      presetSummaries.push({ name: pd.meta.name || i18n.t('preset.fallbackName', { id: pd.id }), iniCount, copyCount, deleteCount });
+      const ts = pd.actions.fileTints || [];
+      const colorCount = ts.filter(t => t.tintEnabled).length;
+      const cropCount = ts.filter(t => t.cropEnabled || t.darkenEnabled).length;
+      totalIniMod += iniMod; totalIniDel += iniDel;
+      totalCopy += copyCount; totalDelete += deleteCount;
+      totalColor += colorCount; totalCrop += cropCount;
+      presetSummaries.push({ name: pd.meta.name || i18n.t('preset.fallbackName', { id: pd.id }), iniMod, iniDel, copyCount, deleteCount, colorCount, cropCount });
     }
+    const hasAny = totalIniMod > 0 || totalIniDel > 0 || totalCopy > 0 || totalDelete > 0 || totalColor > 0 || totalCrop > 0;
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
@@ -128,22 +176,28 @@
         <div class="modal__body">
           <p style="margin-bottom:8px">${i18n.t('apply.willApplyMulti', { count: presetDataList.length, name: escapeHtml(skin) })}</p>
           ${presetSummaries.map(ps => `
-            <div style="margin-bottom:6px;padding:8px;background:var(--bg-muted);border-radius:var(--radius)">
+            <div style="padding:3px 2px">
               <strong>${escapeHtml(ps.name)}</strong>
               <span style="font-size:12px;color:var(--text-muted);margin-left:8px">
-                ${ps.iniCount > 0 ? `INI×${ps.iniCount} ` : ''}
-                ${ps.copyCount > 0 ? i18n.t('apply.fragmentCopy', { n: ps.copyCount }) + ' ' : ''}
-                ${ps.deleteCount > 0 ? i18n.t('apply.fragmentDelete', { n: ps.deleteCount }) + ' ' : ''}
-                ${ps.iniCount === 0 && ps.copyCount === 0 && ps.deleteCount === 0 ? i18n.t('apply.fragmentNone') : ''}
+                ${(() => { const s = summaryText(ps.iniMod + ps.iniDel, ps.copyCount + ps.deleteCount, ps.colorCount + ps.cropCount); return s || i18n.t('apply.fragmentNone'); })()}
               </span>
             </div>
           `).join('')}
-          <ul style="padding-left:20px;line-height:1.8;margin-top:8px">
-            ${totalIni > 0 ? `<li>${i18n.t('apply.totalIni', { n: `<strong>${totalIni}</strong>` })}</li>` : ''}
-            ${totalCopy > 0 ? `<li>${i18n.t('apply.totalCopy', { n: `<strong>${totalCopy}</strong>` })}</li>` : ''}
-            ${totalDelete > 0 ? `<li>${i18n.t('apply.totalDelete', { n: `<strong>${totalDelete}</strong>` })}</li>` : ''}
-          </ul>
-          ${totalIni === 0 && totalCopy === 0 && totalDelete === 0 ? `<p style="color:var(--warning);margin-top:8px">${i18n.t('apply.noActionsMulti')}</p>` : ''}
+          <div style="margin-top:10px">
+            ${group(i18n.t('apply.groupIni'), [
+              { show: totalIniMod > 0, key: 'apply.itemIniMod', n: totalIniMod },
+              { show: totalIniDel > 0, key: 'apply.itemIniDel', n: totalIniDel },
+            ])}
+            ${group(i18n.t('apply.groupFile'), [
+              { show: totalCopy > 0, key: 'apply.itemCopy', n: totalCopy },
+              { show: totalDelete > 0, key: 'apply.itemDelete', n: totalDelete },
+            ])}
+            ${group(i18n.t('apply.groupTint'), [
+              { show: totalColor > 0, key: 'apply.itemColor', n: totalColor },
+              { show: totalCrop > 0, key: 'apply.itemCrop', n: totalCrop },
+            ])}
+          </div>
+          ${!hasAny ? `<p style="color:var(--warning);margin-top:8px">${i18n.t('apply.noActionsMulti')}</p>` : ''}
           <p style="font-size:11px;color:var(--text-muted);margin-top:8px">${i18n.t('apply.dedupHint')}</p>
         </div>
         <div class="modal__actions">
@@ -159,6 +213,7 @@
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) close();
     });
+    bindEsc();
 
     overlay.querySelector('#apply-confirm').addEventListener('click', async () => {
       const btn = overlay.querySelector('#apply-confirm');
@@ -171,7 +226,9 @@
       if (result.success) {
         const d = result.data;
         state.set('activePresets', {});
-        Toast.success(i18n.t('apply.appliedMulti', { ini: d.skinIniChanges || 0, copy: d.filesCopied || 0, del: d.filesDeleted || 0 }));
+        if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
+        const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0);
+        Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
       } else {
         Toast.error(i18n.t('apply.applyFailed', { msg: result.error || i18n.t('app.unknownError') }));
       }
@@ -233,5 +290,5 @@
     });
   }
 
-  window.ApplyDialog = { show, showMulti, showConfirmDialog };
+  window.ApplyDialog = { showMulti, showConfirmDialog };
 })();

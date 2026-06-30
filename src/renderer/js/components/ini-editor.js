@@ -92,10 +92,10 @@
                 <col>
               </colgroup>
               <thead><tr>
-                <th class="th--sortable" data-col="action">${i18n.t('ini.colAction')}${sortIndicatorHtml('action')}</th>
-                <th class="th--sortable" data-col="section">${i18n.t('ini.colSection')}${sortIndicatorHtml('section')}</th>
-                <th class="th--sortable" data-col="key">${i18n.t('ini.colKey')}${sortIndicatorHtml('key')}</th>
-                <th class="th--sortable" data-col="value">${i18n.t('ini.colValue')}${sortIndicatorHtml('value')}</th>
+                <th data-col="action">${i18n.t('ini.colAction')}</th>
+                <th data-col="section">${i18n.t('ini.colSection')}</th>
+                <th>${i18n.t('ini.colKey')}</th>
+                <th>${i18n.t('ini.colValue')}</th>
               </tr></thead>
             </table>
           </div>
@@ -570,19 +570,7 @@
       });
     }
 
-    // ── Column header sort (click toggles: same col flips asc/desc, new col = asc) ──
-    container.querySelectorAll('.ini-header-table th.th--sortable').forEach(th => {
-      th.addEventListener('click', () => {
-        const col = th.dataset.col;
-        if (sortState.col === col) {
-          sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
-        } else {
-          sortState.col = col;
-          sortState.dir = 'asc';
-        }
-        rerenderTable(container);
-      });
-    });
+
 
     // ── Tab cycling: scope to the region of the focused element ──
     // Top controls (section/key/add/delete) and the operation table rows each
@@ -732,9 +720,12 @@
       row.classList.toggle('ini-collapsed-row--expanded', !isExpanded);
     }
     container.querySelectorAll('.ini-collapsed-row').forEach(row => {
-      row.addEventListener('dblclick', (e) => {
-        if (e.target.closest('button, input, select')) return;
-        toggleGroupExpansion(row);
+      let last = 0;
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('button, input, select, .ini-group-toggle')) return;
+        const now = Date.now();
+        if (now - last < 250) { toggleGroupExpansion(row); last = 0; }
+        else { last = now; }
       });
       // Single-click the group tag to toggle (without selecting/interfering).
       const tag = row.querySelector('.ini-group-toggle');
@@ -1181,10 +1172,7 @@
     }
 
     // Apply the active column sort — DISPLAY ONLY (sort in place, do NOT
-    // setActions — that would mark dirty and race save/reload). There is
-    // always an active sort (default = action).
-    const dirMul = sortState.dir === 'desc' ? -1 : 1;
-    iniEdits.sort((a, b) => dirMul * compareEdit(a, b, sortState.col));
+    // Rows display in source (add) order, left to right — no column sort.
 
     // Pre-scan: group consecutive same-base-key perColumn entries for collapsing
     const rowPlan = [];

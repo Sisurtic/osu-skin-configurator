@@ -134,14 +134,14 @@
 
   const PRESETS = [
     '#ffffff','#cccccc','#999999','#666666','#333333','#000000',
-    '#ff6666','#ff0000','#cc0000','#990000',
-    '#ffb366','#ff8800','#cc6600','#ffcc66','#ffaa00',
-    '#ffff66','#ffff00','#cccc00','#aacc00',
-    '#66ff66','#00ff00','#00cc00','#009900',
-    '#66ffff','#00ffff','#00cccc','#009999',
-    '#66b3ff','#0088ff','#0000ff','#0000cc',
-    '#cc66ff','#9900ff','#6600cc','#cc66cc',
-    '#ff99cc','#ff66aa','#ff3388','#cc0066',
+    '#ff9999','#ff5050','#e60000','#990000',
+    '#ffcc99','#ffaa33','#e67300','#994c00',
+    '#ffff99','#ffff33','#e6e600','#999900',
+    '#ccff99','#99ee55','#33cc11','#559900',
+    '#99ffee','#33ffcc','#00cc99','#00664d',
+    '#99ddff','#33aaff','#0066ff','#003399',
+    '#cc99ff','#9933ff','#6611cc','#440088',
+    '#ffb3d9','#ff66b3','#e6008a','#990052',
   ];
 
   function attach(triggerEl, opts) {
@@ -160,6 +160,8 @@
       popover.remove();
       activeTrigger = null;
       activeForward = null;
+      if (unlistenWin) { try { unlistenWin(); } catch (_) {} unlistenWin = null; }
+      if (opts.onClose) opts.onClose();
     }
 
     const popover = document.createElement('div');
@@ -194,15 +196,22 @@
 
     document.body.appendChild(popover);
 
-    // Position popover
+    // Position popover to the LEFT of the trigger button (so it doesn't cover
+    // the image preview / stage controls on the right), vertically aligned with
+    // the trigger. Clamp into the viewport; fall back to below if no room left.
     const triggerRect = triggerEl.getBoundingClientRect();
     const popWidth = 220;
-    let left = triggerRect.left;
-    let top = triggerRect.bottom + 4;
+    const popHeight = popover.offsetHeight || 380;
+    let left = triggerRect.left - popWidth - 4;
+    let top = triggerRect.top;
+    // No room on the left → place below the trigger instead.
+    if (left < 4) left = triggerRect.right + 4;
     if (left + popWidth > window.innerWidth - 8) left = window.innerWidth - popWidth - 8;
-    if (top + 380 > window.innerHeight) top = triggerRect.top - 380 - 4;
-    popover.style.left = Math.max(4, left) + 'px';
-    popover.style.top = Math.max(4, top) + 'px';
+    if (left < 4) left = 4;
+    if (top + popHeight > window.innerHeight - 4) top = Math.max(4, window.innerHeight - popHeight - 4);
+    if (top < 4) top = 4;
+    popover.style.left = left + 'px';
+    popover.style.top = top + 'px';
 
     // Elements
     const paletteCanvas = popover.querySelector('.cp-palette');
@@ -275,9 +284,13 @@
 
     function updateAllUI(silent) {
       const hsv = rgbToHsv(current.r, current.g, current.b);
-      drawPalette(hsv.h);
+      // Use the cached `hue` (not hsv.h) for the palette bg + hue thumb: when
+      // saturation is low, hsv.h is numerically unstable and would yank the
+      // hue thumb back, making the hue bar feel stuck. SV-only drags must not
+      // move the H thumb; hue drag updates the cache itself.
+      drawPalette(hue);
       updatePaletteCursor(hsv.s, hsv.v);
-      updateHueThumb(hsv.h);
+      updateHueThumb(hue);
       if (type === 'rgba') {
         updateAlphaThumb(current.a);
         updateAlphaTrackBg();
@@ -355,28 +368,20 @@
       setFromPalette(e.clientX - rect.left, e.clientY - rect.top, rect);
     });
 
-    // Hue slider events
-    hueThumb.addEventListener('mousedown', (e) => {
-      draggingHue = true;
-      e.preventDefault();
-    });
+    // Hue slider events — bind on the track; thumb clicks bubble up to it.
     hueTrack.addEventListener('mousedown', (e) => {
-      if (e.target === hueThumb) return;
       draggingHue = true;
-      setHueFromPos(e.offsetX);
+      const rect = hueTrack.getBoundingClientRect();
+      setHueFromPos(e.clientX - rect.left);
       e.preventDefault();
     });
 
     // Alpha slider events
     if (type === 'rgba') {
-      alphaThumb.addEventListener('mousedown', (e) => {
-        draggingAlpha = true;
-        e.preventDefault();
-      });
       alphaTrack.addEventListener('mousedown', (e) => {
-        if (e.target === alphaThumb) return;
         draggingAlpha = true;
-        setAlphaFromPos(e.offsetX);
+        const rect = alphaTrack.getBoundingClientRect();
+        setAlphaFromPos(e.clientX - rect.left);
         e.preventDefault();
       });
     }
@@ -462,6 +467,21 @@
         }
       });
     }, 0);
+
+    // Close when the OS window is moved or resized — the popover's screen
+    // position would otherwise drift away from its trigger.
+    let unlistenWin = null;
+    try {
+      const T = window.__TAURI__;
+      if (T && T.window) {
+        const win = T.window.getCurrentWindow();
+        let done = 0;
+        const finish = () => { if (done++) return; closePopover(); };
+        Promise.all([win.onMoved(finish), win.onResized(finish)]).then(fns => {
+          unlistenWin = () => { fns.forEach(f => { try { f(); } catch (_) {} }); };
+        });
+      }
+    } catch (_) { /* Tauri unavailable — ignore */ }
   }
 
   // Currently-open popover, keyed by its trigger element. forwardInput lets an

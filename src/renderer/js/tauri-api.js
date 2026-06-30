@@ -52,6 +52,7 @@
     moveGroup: (skinName, groupId, targetGroupId, index) => call('groups_move', { skinName, groupId, targetGroupId, index }),
     reorderChildren: (skinName, parentGroupId, childOrder) => call('groups_reorder', { skinName, parentGroupId, childOrder }),
     setGroupCollapsed: (skinName, groupId, collapsed) => call('groups_set_collapsed', { skinName, groupId, collapsed }),
+    setGroupsCollapsedBatch: (skinName, groupIds, collapsed) => call('groups_set_collapsed_batch', { skinName, groupIds, collapsed }),
     deleteGroupRecursive: (skinName, groupId) => call('groups_delete_recursive', { skinName, groupId }),
 
     // --- images ---
@@ -93,6 +94,14 @@
     onOpenOspFile: (callback) => {
       if (!T || !T.event || !T.event.listen) return;
       T.event.listen('open-osp-file', (event) => {
+        callback(event.payload);
+      });
+    },
+    // Fired by the backend after a global shortcut applies a preset — the skin's
+    // image files may have changed, so drop every cached image and re-read on demand.
+    onGlobalShortcutApplied: (callback) => {
+      if (!T || !T.event || !T.event.listen) return;
+      T.event.listen('global-shortcut-applied', (event) => {
         callback(event.payload);
       });
     },

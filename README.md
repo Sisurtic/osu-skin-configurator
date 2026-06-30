@@ -103,6 +103,23 @@ npm run build     # → cargo tauri build
 
 The renderer is unbundled vanilla JS — no `npm install` of app dependencies needed, only the Tauri CLI.
 
+### Versioning
+
+The **single source of truth** for the version is the `version` field in [`package.json`](package.json). `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json` are kept in sync by a pre-commit hook, and `Cargo.lock` follows `Cargo.toml` automatically on `cargo build`.
+
+After cloning, enable the hook once:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+To release, just bump the version in `package.json` — the hook updates the other two files and stages them on commit. You can also sync manually:
+
+```bash
+npm run sync-version     # write Cargo.toml / tauri.conf.json
+npm run version:check    # check only (no writes)
+```
+
 ---
 
 ## License

@@ -1,12 +1,14 @@
 {
   "name": "osu-skin-configurator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "osu! 皮肤配置工具 - 管理并一键应用皮肤预设",
   "private": true,
   "author": "Citrusis",
   "license": "MIT",
   "scripts": {
     "dev": "cargo tauri dev",
-    "build": "cargo tauri build"
+    "build": "cargo tauri build",
+    "sync-version": "node scripts/sync-version.js",
+    "version:check": "node scripts/sync-version.js --check"
   }
 }

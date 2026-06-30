@@ -143,26 +143,15 @@
     const newList = viewEl.querySelector('.preset-selector__list');
     if (newList && savedScroll) newList.scrollTop = savedScroll;
 
-    // Bind collapse toggle: double-click the header, or single-click the arrow
+    // Bind collapse toggle: single-click the header = toggle this group;
+    // Shift+click the header = toggle recursively. The arrow is visual only.
     viewEl.querySelectorAll('.preset-group__header').forEach(header => {
-      header.addEventListener('dblclick', (e) => {
+      header.addEventListener('click', (e) => {
         const groupId = header.dataset.groupId;
         if (!groupId) return;
-        toggleCollapse(groupId);
+        if (e.shiftKey) toggleCollapseRecursive(groupId);
+        else toggleCollapse(groupId);
       });
-      const arrow = header.querySelector('.preset-tree__collapse-icon');
-      if (arrow) {
-        arrow.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const groupId = header.dataset.groupId;
-          if (!groupId) return;
-          if (e.shiftKey) {
-            toggleCollapseRecursive(groupId);
-          } else {
-            toggleCollapse(groupId);
-          }
-        });
-      }
     });
 
     // Bind row clicks
@@ -212,7 +201,10 @@
         const desc = (preset?.meta?.description || '').trim();
         const presetName = preset?.meta?.name || i18n.t('preset.fallbackName', { id: presetId });
         const previewPath = preset?.meta?.previewPath || null;
-        showPreview(presetName, desc, previewPath, presetId);
+        const previewKind = preset?.meta?.previewKind || 'image';
+        const previewFrames = preset?.meta?.previewFrames || null;
+        const previewFps = preset?.meta?.previewFps || 12;
+        showPreview(presetName, desc, previewPath, previewKind, previewFrames, previewFps, presetId);
       });
 
       item.addEventListener('mouseleave', () => {
@@ -515,44 +507,89 @@
     });
   }
 
-  function renderPreviewContent(presetName, description, imgSrc) {
+  function renderPreviewContent(presetName, description, mediaHtml) {
     const panel = document.getElementById('preset-preview-panel');
     if (!panel) return;
     panel.innerHTML = `
       <div class="preset-preview-panel__name">${escapeHtml(presetName)}</div>
       ${description ? `<div class="preset-preview-panel__desc">${escapeHtml(description)}</div>` : ''}
       <div class="preset-preview-panel__image-wrap">
-        ${imgSrc ? `<img src="${imgSrc}" class="preset-preview-panel__image" alt="${i18n.t('selector.noPreview')}">`
-                 : `<div class="preset-preview-panel__no-image">${i18n.t('selector.noPreview')}</div>`}
+        ${mediaHtml || `<div class="preset-preview-panel__no-image">${i18n.t('selector.noPreview')}</div>`}
       </div>
     `;
-    // Restart the fade-up animation
     panel.classList.remove('preset-preview-panel--fade');
     void panel.offsetWidth;
     panel.classList.add('preset-preview-panel--fade');
   }
 
-  function showPreview(presetName, description, previewPath, presetId) {
-    // Key cache by previewPath (stable across id compaction on delete).
-    const cached = previewPath ? previewCache[previewPath] : undefined;
-    // Cached & ready → render immediately
-    if (cached) {
-      renderPreviewContent(presetName, description, cached);
-      return;
-    }
-    // Cached but known-empty → show "no preview" immediately
-    if (cached === false) {
+  // Sequence frame-loop timer for the hover panel.
+  let panelSeqTimer = null;
+  // Token to abort stale async loads when the hovered preset changes.
+  let hoverToken = 0;
+  function stopPanelSequence() {
+    if (panelSeqTimer) { clearInterval(panelSeqTimer); panelSeqTimer = null; }
+  }
+
+  function showPreview(presetName, description, previewPath, previewKind, previewFrames, previewFps, presetId) {
+    stopPanelSequence();
+    const myToken = ++hoverToken;
+    const kind = previewKind || 'image';
+
+    if (!previewPath) {
       renderPreviewContent(presetName, description, null);
       return;
     }
 
-    // Not yet cached (or null/loading) → show text now, lazy-load image
-    renderPreviewContent(presetName, description, null);
-    if (!previewPath) return;
+    // Image sequence: cycle frames.
+    if (kind === 'sequence' && Array.isArray(previewFrames) && previewFrames.length) {
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(async () => {
+        const skin = state.get('selectedSkin');
+        const sp = skin ? await api.getSkinPath(skin) : null;
+        const skPath = sp && sp.success ? sp.data.replace(/\\/g, '/') : '';
+        const ck = (f) => 'seq:' + f;
+        const load1 = (f) => {
+          if (previewCache[ck(f)]) return Promise.resolve(previewCache[ck(f)]);
+          const abs = skPath ? skPath + '/' + f : f;
+          return api.getPreviewDataUrl(abs).then(r => {
+            if (r?.success && r.data) { previewCache[ck(f)] = r.data; return r.data; }
+            return null;
+          });
+        };
+        // Show the first frame ASAP (feels instant), then load the rest.
+        const first = await load1(previewFrames[0]);
+        if (myToken !== hoverToken) return;
+        if (!first) { renderPreviewContent(presetName, description, null); return; }
+        renderPreviewContent(presetName, description,
+          `<img src="${first}" class="preset-preview-panel__image" alt="${i18n.t('selector.noPreview')}">`);
+        // Load remaining frames in the background; start cycling once ready.
+        Promise.all(previewFrames.slice(1).map(load1)).then(rest => {
+          if (myToken !== hoverToken) return;
+          const urls = [first, ...rest].filter(Boolean);
+          if (urls.length < 2) return;
+          let idx = 0;
+          const fps = +previewFps || 12;
+          const interval = fps === -1 ? 1000 / urls.length : 1000 / Math.max(1, fps);
+          panelSeqTimer = setInterval(() => {
+            idx = (idx + 1) % urls.length;
+            const img = document.querySelector('.preset-preview-panel__image');
+            if (img && img.tagName === 'IMG') img.src = urls[idx];
+            else stopPanelSequence();
+          }, interval);
+        });
+      }, 100);
+      return;
+    }
 
+    // Single image / animated image (cached by path). previewCache[path]===false
+    // means we already tried and the file is missing.
+    const missingHtml = `<div class="preset-preview-panel__no-image">${i18n.t('selector.previewMissing')}</div>`;
+    const cached = previewCache[previewPath];
+    if (cached) { renderPreviewContent(presetName, description, `<img src="${cached}" class="preset-preview-panel__image" alt="${i18n.t('selector.noPreview')}">`); return; }
+    if (cached === false) { renderPreviewContent(presetName, description, missingHtml); return; }
+    renderPreviewContent(presetName, description, null);
     clearTimeout(hoverTimer);
     hoverTimer = setTimeout(async () => {
-      // Resolve skin-relative path to absolute for the API.
       const skin = state.get('selectedSkin');
       const spResult = skin ? await api.getSkinPath(skin) : null;
       const skPath = spResult && spResult.success ? spResult.data.replace(/\\/g, '/') : '';
@@ -560,15 +597,20 @@
       const result = await api.getPreviewDataUrl(absPath);
       if (result?.success && result.data) {
         previewCache[previewPath] = result.data;
-        const curPanel = document.getElementById('preset-preview-panel');
-        if (!curPanel) return;
-        // Only swap if the user is still on the same preset (name unchanged)
-        renderPreviewContent(presetName, description, result.data);
+        if (!document.getElementById('preset-preview-panel')) return;
+        renderPreviewContent(presetName, description, `<img src="${result.data}" class="preset-preview-panel__image" alt="${i18n.t('selector.noPreview')}">`);
+      } else {
+        // File missing — cache as false and show the missing message.
+        previewCache[previewPath] = false;
+        if (document.getElementById('preset-preview-panel')) {
+          renderPreviewContent(presetName, description, missingHtml);
+        }
       }
     }, 200);
   }
 
   function resetPreview() {
+    stopPanelSequence();
     const panel = document.getElementById('preset-preview-panel');
     if (panel) {
       panel.innerHTML = emptyPreviewHtml();
@@ -654,9 +696,10 @@
     const root = byId.get(parseInt(groupId, 10));
     if (!root) return;
     const target = !root.collapsed;
-    const toToggle = [];
+    // Collect ids of the root + all descendant groups.
+    const ids = [];
     const collect = (g) => {
-      toToggle.push(g);
+      ids.push(g.id);
       if (!g.children) return;
       for (const c of g.children) {
         if (c.type === 'group') {
@@ -666,11 +709,12 @@
       }
     };
     collect(root);
-    for (const g of toToggle) {
-      g.collapsed = target;
-      await api.setGroupCollapsed(skin, g.id, target);
-    }
+    const idSet = new Set(ids);
+    // Update local state first so the UI re-renders immediately, then persist
+    // in one batched call (avoiding per-group IPC + file read/write stalls).
+    for (const g of groups) if (idSet.has(g.id)) g.collapsed = target;
     state.set('groups', [...groups]);
+    await api.setGroupsCollapsedBatch(skin, ids, target);
   }
 
   window.PresetSelector = { render, invalidateCache: () => { previewCache = {}; } };

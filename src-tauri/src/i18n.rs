@@ -95,6 +95,7 @@ fn lookup(locale: &str, key: &str) -> Option<&'static str> {
         "warn.del_invalid_path" => row!("Skipped delete \"{path}\": invalid path", "削除をスキップ \"{path}\": 無効なパス", "跳過刪除 \"{path}\": 路徑無效", "跳过删除 \"{path}\": 路径无效"),
         "warn.del_outside_skin" => row!("Skipped delete \"{path}\": path is outside the skin folder", "削除をスキップ \"{path}\": パスがスキンフォルダ外です", "跳過刪除 \"{path}\": 路徑超出皮膚目錄", "跳过删除 \"{path}\": 路径超出皮肤目录"),
         "warn.del_missing" => row!("Skipped delete \"{path}\": file does not exist", "削除をスキップ \"{path}\": ファイルが存在しません", "跳過刪除 \"{path}\": 檔案不存在", "跳过删除 \"{path}\": 文件不存在"),
+        "warn.tint_failed" => row!("Skipped tint \"{name}\": {msg}", "色替えをスキップ \"{name}\": {msg}", "跳過調色 \"{name}\": {msg}", "跳过调色 \"{name}\": {msg}"),
 
         _ => None,
     }

@@ -32,6 +32,7 @@ const api = {
   moveGroup: (skinName, groupId, targetGroupId, index) => window.electronAPI.moveGroup(skinName, groupId, targetGroupId, index),
   reorderChildren: (skinName, parentGroupId, childOrder) => window.electronAPI.reorderChildren(skinName, parentGroupId, childOrder),
   setGroupCollapsed: (skinName, groupId, collapsed) => window.electronAPI.setGroupCollapsed(skinName, groupId, collapsed),
+  setGroupsCollapsedBatch: (skinName, groupIds, collapsed) => window.electronAPI.setGroupsCollapsedBatch(skinName, groupIds, collapsed),
   deleteGroupRecursive: (skinName, groupId) => window.electronAPI.deleteGroupRecursive(skinName, groupId),
 
   // --- images / files ---
@@ -58,6 +59,7 @@ const api = {
   checkLatestRelease: () => window.electronAPI.checkLatestRelease(),
   downloadAndRunLatestRelease: () => window.electronAPI.downloadAndRunLatestRelease(),
   onOpenOspFile: (callback) => window.electronAPI.onOpenOspFile(callback),
+  onGlobalShortcutApplied: (callback) => window.electronAPI.onGlobalShortcutApplied(callback),
 };
 
 // Helper: call API and handle generic error

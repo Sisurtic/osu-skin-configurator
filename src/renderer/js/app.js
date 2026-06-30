@@ -53,6 +53,12 @@
         state.set('appMode', 'use');
       });
 
+      // Global shortcut applied a preset from outside the window — image files
+      // may have changed, so drop all cached images so the next render is fresh.
+      api.onGlobalShortcutApplied(() => {
+        if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
+      });
+
       // Parallelize independent IPC calls to cut cold-start wait — these fan
       // out together instead of awaiting one-by-one.
       const [versionResult, shortcutsResult, pathResult, openFileResult] = await Promise.all([
@@ -298,6 +304,9 @@
   });
 
   state.on('selectedSkin', async (skinName) => {
+    // Different skins can share the same relative image paths (e.g. cursor.png)
+    // with different contents — drop all cached images so the new skin reads fresh.
+    if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
     if (!skinName) {
       state.set('presets', []);
       state.set('groups', []);
@@ -448,6 +457,9 @@
   // and its keyboard shortcut call these so behavior never diverges.
 
   async function actionRefresh() {
+    // Drop all cached images — skin files may have changed on disk since the
+    // last scan (e.g. user replaced an image externally), so re-read fresh.
+    if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
     await scanSkins();
     const skin = state.get('selectedSkin');
     if (skin) {
@@ -474,7 +486,14 @@
       }
       ApplyDialog.showMulti(ids);
     } else {
-      ApplyDialog.show();
+      // Edit mode: apply the currently selected (saved) preset, same dialog as
+      // use mode. A brand-new unsaved preset can't be applied yet.
+      const preset = state.get('selectedPreset');
+      if (!preset || preset === '__new__') {
+        Toast.warning(i18n.t('toast.selectPresetFirst'));
+        return;
+      }
+      ApplyDialog.showMulti([preset]);
     }
   }
 
@@ -497,6 +516,16 @@
   }
 
   // ── Helper functions ──
+
+  // Clear every module's in-memory image cache so the next render re-reads
+  // fresh bytes from disk. Called after applying a preset (which may copy,
+  // delete, or image-edit files) so the UI no longer shows stale images.
+  window.invalidateImageCaches = function () {
+    ['PresetSelector', 'PreviewUpload', 'FileCopyEditor', 'TintEditor'].forEach(name => {
+      const m = window[name];
+      if (m && typeof m.invalidateCache === 'function') m.invalidateCache();
+    });
+  };
 
   function updateModeButton() {
     const mode = state.get('appMode');
@@ -825,8 +854,8 @@
       e.preventDefault();
     }
 
-    if (e.key >= '1' && e.key <= '3' && !isInput && !isModal && state.get('appMode') === 'edit') {
-      const tabs = ['basic', 'ini', 'files'];
+    if (e.key >= '1' && e.key <= '4' && !isInput && !isModal && state.get('appMode') === 'edit') {
+      const tabs = ['basic', 'ini', 'files', 'tint'];
       const idx = parseInt(e.key) - 1;
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab--active'));
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('tab-content--active'));
@@ -834,6 +863,9 @@
       const targetEl = document.getElementById(`tab-${tabs[idx]}`);
       if (targetTab) targetTab.classList.add('tab--active');
       if (targetEl) targetEl.classList.add('tab-content--active');
+      if (tabs[idx] === 'tint' && window.TintEditor && window.TintEditor.layoutColumns) {
+        window.TintEditor.layoutColumns(targetEl);
+      }
     }
 
     const action = Shortcuts.matchAction(e);
