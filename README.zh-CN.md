@@ -5,7 +5,7 @@
 一个用于给 osu! 皮肤创建**预设**并一键切换的桌面工具。把一组「skin.ini 改动 + 文件复制 + 文件删除」打包成一个预设，手动点击或绑定全局快捷键即可瞬间应用——无需反复手改 ini、无需备份还原。
 
 - **平台：** Windows（osu! stable 为 Windows 专属）
-- **技术栈：** Tauri v2（Rust 后端 + 原生 JS 渲染层），单文件 exe 仅约 **4.8 MB**，免安装直接运行
+- **技术栈：** Tauri v2（Rust 后端 + 原生 JS 渲染层），单文件 exe，免安装直接运行
 - **界面语言：** 简体中文 / English / 繁體中文 / 日本語 / 한국어 / Русский（按系统语言自动选择）
 - **前置要求：** [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)（Windows 10/11 通常已预装）
 
@@ -98,7 +98,7 @@
 # 开发模式（热重载）
 npm run dev        # → cargo tauri dev
 
-# 打包独立 exe（~4.8MB）
+# 打包独立 exe
 npm run build     # → cargo tauri build
 ```
 

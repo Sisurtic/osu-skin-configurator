@@ -3,7 +3,7 @@
 A desktop tool for creating **presets** of osu! skin changes and switching between them instantly. Bundle skin.ini edits + file copies + file deletions into a named preset, apply with a click or a global hotkey — no more manual ini editing or backup/restore.
 
 - **Platform:** Windows (osu! stable is Windows-only)
-- **Tech:** Tauri v2 (Rust backend + vanilla JS renderer), standalone **~4.8 MB** exe, no installation required
+- **Tech:** Tauri v2 (Rust backend + vanilla JS renderer), standalone exe, no installation required
 - **Languages:** English / 简体中文 / 繁體中文 / 日本語 / 한국어 / Русский (auto-detected from system locale)
 - **中文文档:** [README.zh-CN.md](README.zh-CN.md)
 
@@ -99,7 +99,7 @@ For skin.ini field label translations, add entries to the `iniFields` and `iniOp
 # Development (hot reload)
 npm run dev        # → cargo tauri dev
 
-# Build standalone exe (~4.8MB)
+# Build standalone exe
 npm run build     # → cargo tauri build
 ```
 
