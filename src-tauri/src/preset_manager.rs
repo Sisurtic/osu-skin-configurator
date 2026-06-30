@@ -60,8 +60,17 @@ fn load_config(skin_path: &str) -> Config {
     if !p.exists() { return Config::empty(); }
     let raw = match fs::read_to_string(&p) { Ok(s) => s, Err(_) => return Config::empty() };
     let v: Value = match serde_json::from_str(&raw) { Ok(v) => v, Err(_) => return Config::empty() };
-    // Detect old format: needs rootGroupIds or groups
-    if v.get("rootGroupIds").is_none() && v.get("groups").is_none() {
+    // Detect legacy format (pre-groups): a bare preset array or an object with
+    // no nextPresetId/presets/groups. NOTE: a brand-new config that has presets
+    // but no groups yet legitimately omits rootGroupIds AND groups — so those two
+    // alone must NOT be treated as "legacy" (doing so makes load_config discard
+    // the just-saved file, and scan_skin's self-clean then deletes it).
+    let is_object = v.is_object();
+    let has_tree_keys = v.get("nextPresetId").is_some()
+        || v.get("presets").is_some()
+        || v.get("rootGroupIds").is_some()
+        || v.get("groups").is_some();
+    if !is_object || !has_tree_keys {
         return Config::empty();
     }
     // Normalize presets (ensure meta/actions)
@@ -85,7 +94,7 @@ fn load_config(skin_path: &str) -> Config {
     }
 }
 
-fn save_config(skin_path: &str, cfg: &Config) {
+fn save_config(skin_path: &str, cfg: &Config) -> Result<(), String> {
     let p = config_path(skin_path);
     let mut v = serde_json::Map::new();
     v.insert("nextPresetId".into(), json!(cfg.next_preset_id));
@@ -101,9 +110,10 @@ fn save_config(skin_path: &str, cfg: &Config) {
     }
     // Compact (non-pretty) serialization keeps config.osp small — the file is
     // machine-only; readers use unwrap_or defaults for any omitted keys.
-    if let Ok(s) = serde_json::to_string(&Value::Object(v)) {
-        let _ = fs::write(&p, s);
-    }
+    let s = serde_json::to_string(&Value::Object(v))
+        .map_err(|e| format!("serialize: {}", e))?;
+    fs::write(&p, s).map_err(|e| format!("write {}: {}", p.display(), e))?;
+    Ok(())
 }
 
 // ── Tree helpers ──
@@ -271,7 +281,7 @@ pub fn save_preset(skin_path: &str, preset_id: Option<i64>, data: &Value) -> Res
     } else {
         cfg.presets.push(entry);
     }
-    save_config(skin_path, &cfg);
+    save_config(skin_path, &cfg)?;
     Ok(id)
 }
 
@@ -313,7 +323,7 @@ fn save_or_prune(skin_path: &str, cfg: &Config) {
     if cfg.presets.is_empty() && cfg.groups.is_empty() {
         let _ = fs::remove_file(config_path(skin_path));
     } else {
-        save_config(skin_path, cfg);
+        let _ = save_config(skin_path, cfg);
     }
 }
 
@@ -330,7 +340,7 @@ pub fn add_group(skin_path: &str, name: &str, parent_group_id: Option<i64>) -> R
         children: vec![],
     });
     insert_into_parent(&mut cfg, id, "group", parent_group_id, None)?;
-    save_config(skin_path, &cfg);
+    save_config(skin_path, &cfg)?;
     Ok(id)
 }
 
@@ -343,7 +353,7 @@ pub fn remove_group(skin_path: &str, group_id: i64) -> Result<(), String> {
     remove_from_parent(&mut cfg, group_id, "group");
     cfg.groups.retain(|g| g.id != group_id);
     compact_ids(&mut cfg);
-    save_config(skin_path, &cfg);
+    save_config(skin_path, &cfg)?;
     Ok(())
 }
 
@@ -351,7 +361,7 @@ pub fn rename_group(skin_path: &str, group_id: i64, new_name: &str) -> Result<()
     let mut cfg = load_config(skin_path);
     let gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
     cfg.groups[gi].name = if new_name.is_empty() { crate::i18n::t("group.unnamed", &[]) } else { new_name.to_string() };
-    save_config(skin_path, &cfg);
+    save_config(skin_path, &cfg)?;
     Ok(())
 }
 
@@ -371,7 +381,7 @@ pub fn move_preset(skin_path: &str, preset_id: i64, target_group_id: Option<i64>
     if let Some(tg) = target_group_id {
         insert_into_parent(&mut cfg, preset_id, "preset", Some(tg), index)?;
     }
-    save_config(skin_path, &cfg);
+    save_config(skin_path, &cfg)?;
     Ok(())
 }
 
@@ -388,7 +398,7 @@ pub fn move_group(skin_path: &str, group_id: i64, target_group_id: Option<i64>, 
     }
     remove_from_parent(&mut cfg, group_id, "group");
     insert_into_parent(&mut cfg, group_id, "group", target_group_id, index)?;
-    save_config(skin_path, &cfg);
+    save_config(skin_path, &cfg)?;
     Ok(())
 }
 
@@ -417,7 +427,7 @@ pub fn reorder_children(skin_path: &str, parent_group_id: Option<i64>, child_ord
             });
         }
     }
-    save_config(skin_path, &cfg);
+    save_config(skin_path, &cfg)?;
     Ok(())
 }
 
@@ -425,7 +435,7 @@ pub fn set_group_collapsed(skin_path: &str, group_id: i64, collapsed: bool) -> R
     let mut cfg = load_config(skin_path);
     let gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
     cfg.groups[gi].collapsed = collapsed;
-    save_config(skin_path, &cfg);
+    save_config(skin_path, &cfg)?;
     Ok(())
 }
 
@@ -436,7 +446,7 @@ pub fn set_groups_collapsed_batch(skin_path: &str, group_ids: &[i64], collapsed:
     for g in cfg.groups.iter_mut() {
         if group_ids.contains(&g.id) { g.collapsed = collapsed; }
     }
-    save_config(skin_path, &cfg);
+    save_config(skin_path, &cfg)?;
     Ok(())
 }
 
@@ -469,7 +479,7 @@ pub fn delete_group_recursive(skin_path: &str, group_id: i64) -> Result<Value, S
     cfg.root_group_ids.retain(|id| !group_ids.contains(id));
 
     compact_ids(&mut cfg);
-    save_config(skin_path, &cfg);
+    save_config(skin_path, &cfg)?;
     Ok(json!({
         "deletedPresets": deleted_preset_ids.len() as i64,
         "deletedGroups": deleted_group_ids.len() as i64,

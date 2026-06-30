@@ -286,8 +286,18 @@
       },
     };
 
-    const result = await api.savePreset(sk, idToSend, dataToSave);
-    if (result.success) {
+    let result;
+    try {
+      result = await api.savePreset(sk, idToSend, dataToSave);
+    } catch (err) {
+      // IPC-level failure (command not registered, arg serialization, backend
+      // panic). Without this catch the rejected promise surfaces as "no reaction,
+      // no toast", which is impossible to debug.
+      console.error('[doSave] savePreset threw:', err);
+      Toast.error(i18n.t('preset.saveFailed', { msg: (err && (err.message || String(err))) || i18n.t('app.unknownError') }));
+      return false;
+    }
+    if (result && result.success) {
       state.set('presetDirty', false);
       if (currentId !== '__new__') {
         state.set('selectedPreset', result.data);

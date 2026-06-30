@@ -467,7 +467,11 @@ fn apply_one_set(
                 None => base,
             }
         };
-        let dest_path = if is_dir_only {
+        let dest_path = if dest_rel.is_empty() {
+            // Empty destination = overwrite the SOURCE file in place.
+            PathBuf::from(&source_abs)
+        } else if is_dir_only {
+            // Directory destination (e.g. "mania/") → place the source-named file there.
             PathBuf::from(skin_path).join(dest_rel).join(&dest_name)
         } else {
             PathBuf::from(skin_path).join(&dest_name)

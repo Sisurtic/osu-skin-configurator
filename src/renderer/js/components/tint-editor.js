@@ -846,11 +846,22 @@
           : new Set([idx]);
         // Splice from highest index down so indices stay valid.
         const ordered = [...toRemove].sort((a, b) => b - a);
+        const removedSources = new Set();
         for (const i of ordered) {
           if (i < 0 || i >= arr.length) continue;
           const src = arr[i].source;
           arr.splice(i, 1);
-          if (src) { thumbCache.delete(src); sourceImgCache.delete(src); }
+          if (src) removedSources.add(src);
+        }
+        // Only drop a source's cached thumb/image if NO remaining op still uses
+        // it. Tint ops frequently share a source (same skin asset, different
+        // crop/tint); deleting one must not blank the others' previews.
+        const stillUsed = new Set(arr.map(t => t.source));
+        for (const src of removedSources) {
+          if (!stillUsed.has(src)) {
+            thumbCache.delete(src);
+            sourceImgCache.delete(src);
+          }
         }
         applyTints(arr);
         selectedSet = new Set();

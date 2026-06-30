@@ -6,8 +6,6 @@ use tauri::AppHandle;
 
 #[cfg(windows)]
 pub fn register(app: &AppHandle) {
-    use std::path::PathBuf;
-    use tauri::Manager;
     use winreg::enums::*;
     use winreg::RegKey;
 
