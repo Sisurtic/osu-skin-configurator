@@ -444,6 +444,9 @@
     "mode_overlay": "오버레이",
     "mode_replace": "단색 채우기",
     "deleteZone": "작업을 여기로 드래그하여 삭제",
+    "deleteBtn": "- 삭제",
+    "deleted": "이미지 작업 {n}개 삭제됨",
+    "deleteRowsConfirm": "선택한 이미지 작업 {n}개를 삭제하시겠습니까?",
     "colDestTitle": "대상 경로 파일명 지정 가능\n끝에 / 면 폴더명, 아니면 파일명\n파일명이 없으면 원본 이름 사용"
   },
   "edit": {

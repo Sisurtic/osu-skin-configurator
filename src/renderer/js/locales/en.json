@@ -248,6 +248,9 @@
     "mode_overlay": "Overlay",
     "mode_replace": "Solid fill",
     "deleteZone": "Drag an action here to delete",
+    "deleteBtn": "- Delete",
+    "deleted": "Deleted {n} image action(s)",
+    "deleteRowsConfirm": "Delete the {n} selected image action(s)?",
     "colDestTitle": "You may specify the target path filename\nTrailing / = folder name, otherwise a filename\nA missing filename uses the source name"
   },
   "preview": {

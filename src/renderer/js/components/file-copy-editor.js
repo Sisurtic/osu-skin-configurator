@@ -2,9 +2,11 @@
 (function () {
   let getCopies, setCopies, getDeletes, setDeletes, skinName, presetName, skinPath;
 
-  // Multi-select state (unified)
-  let selectedIndices = new Set();
-  let lastClickedIndex = null;
+  // Selection / drag-to-delete is delegated to the shared OpTable module.
+  // `sel` holds the instance, created lazily on first render (it needs the
+  // container + currentFileOps at bind time). The legacy module vars below are
+  // gone; callers that read selection use sel.getSelected()/sel.getAnchor().
+  let sel = null;
   let fileDialogOpen = false;
 
   // The view-model used for the current render (source order, left to right).
@@ -133,9 +135,32 @@
   function render(container) {
     const fileOps = buildFileOps();
 
-    // Reset selection
-    selectedIndices = new Set();
-    lastClickedIndex = null;
+    // (Re)create the OpTable instance for this container on first render. The
+    // adapter closes over currentFileOps so rowMembers resolves group headers.
+    if (!sel) {
+      sel = OpTable.create({
+        container,
+        rowSelector: '.file-op-row',
+        interactiveSelector: 'input, button',
+        deleteMimeType: 'application/file-indices',
+        rowMembers: (row) => rowMemberIndices(row),
+        rowAnchor: (row) => rowAnchorIndex(row),
+        applyDelete: (indicesDesc) => {
+          const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+          for (const i of indicesDesc) ops.splice(i, 1);
+          applyFileOps(ops);
+          Toast.info(i18n.t('file.deleted', { n: indicesDesc.length }));
+          // Re-render the CURRENT #tab-files node. preset-editor may have rebuilt
+          // this node since the OpTable instance was created, so the `container`
+          // captured in this closure could be detached — always look up the live node.
+          render(document.getElementById('tab-files'));
+        },
+      });
+    } else {
+      sel.setContainer(container);
+    }
+    // Reset selection state for the fresh DOM.
+    sel.clearSelection();
     container.innerHTML = `
       <div class="editor-sticky-header">
         <div style="padding-bottom:10px;border-bottom:1px solid var(--border)">
@@ -258,9 +283,9 @@
       }
     });
 
-    // ── Bind row selection (unified) ──
+    // ── Bind row selection (unified) ── delegated to OpTable
     container.querySelectorAll('.file-op-row').forEach(row => {
-      bindRowSelection(row, fileOps);
+      sel.bindRow(row);
     });
 
     // Destination handlers — resolve the row via the SORTED view-model
@@ -281,20 +306,10 @@
         applyFileOps(ops);
       }
     }
-    // Normalize a file dest's extension to the SOURCE's extension: strip any
-    // extension the user typed, then append the source's. Copies are byte-for-
-    // byte, so a mismatched extension would corrupt the file — we always honor
-    // the source. Directory dests (ending in /) are left untouched.
+    // Normalize a file dest's extension to the SOURCE's extension (shared impl
+    // in OpTable.appendSrcExt — see the comment there).
     function appendSrcExt(val, source) {
-      if (!val || val.endsWith('/')) return val;
-      const slash = val.lastIndexOf('/');
-      const base = val.slice(slash + 1);
-      const dotPos = base.indexOf('.');
-      const stem = dotPos >= 0 ? base.slice(0, dotPos) : base;
-      const srcBase = (source || '').split(/[/\\]/).pop() || '';
-      const sDot = srcBase.lastIndexOf('.');
-      if (sDot < 0) return dotPos >= 0 ? val.slice(0, slash + 1) + stem : val; // source has no ext
-      return val.slice(0, slash + 1) + stem + srcBase.slice(sDot);
+      return OpTable.appendSrcExt(val, source);
     }
 
     function convertDestDisplay(input) {
@@ -351,9 +366,13 @@
 
     // Sequence-group expand/collapse: double-click anywhere on the header row
     // (except interactive controls) toggles expansion. Fast 250ms double-click.
+    // Ignore modifier-key clicks (Shift/Ctrl range/toggle selection) so a quick
+    // select-then-shift-select on a header isn't misread as a double-click,
+    // which would rerender the table and invalidate the selection anchor.
     container.querySelectorAll('.file-seq-group').forEach(tr => {
       let last = 0;
       tr.addEventListener('click', (e) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) { last = 0; return; }
         if (e.target.closest('.copy-dest-input, .file-seq-fill-btn, .file-seq-exact-toggle, .toggle, .toggle__slider')) return;
         const now = Date.now();
         if (now - last < 250) {
@@ -475,35 +494,8 @@
     // ── Load thumbnails for image files ──
     loadThumbnails();
 
-    // ── Delete zone drop handler ──
-    const deleteZone = container.querySelector('#file-delete-zone');
-    if (deleteZone) {
-      deleteZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        deleteZone.style.opacity = '1';
-        deleteZone.style.background = 'rgba(224,85,85,0.1)';
-      });
-      deleteZone.addEventListener('dragleave', () => {
-        deleteZone.style.opacity = '0.5';
-        deleteZone.style.background = '';
-      });
-      deleteZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        deleteZone.style.opacity = '0.5';
-        deleteZone.style.background = '';
-        const raw = e.dataTransfer.getData('application/file-indices');
-        if (!raw) return;
-        try {
-          const indices = JSON.parse(raw).sort((a, b) => b - a);
-          const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-          for (const i of indices) ops.splice(i, 1);
-          applyFileOps(ops);
-          Toast.info(i18n.t('file.deleted', { n: indices.length }));
-          render(container);
-        } catch (_) { /* ignore malformed data */ }
-      });
-    }
+    // ── Delete zone drop handler ── delegated to OpTable
+    sel.bindDeleteZone(container.querySelector('#file-delete-zone'));
 
     // Measure + apply column widths. If the tab is active but layoutColumns
     // skipped (container width not settled yet this frame), retry next frame.
@@ -543,65 +535,26 @@
     }
   }
 
-  function bindRowSelection(row, fileOps) {
-    row.addEventListener('click', (e) => {
-      if (e.target.closest('input, button')) return;
-      const idx = parseInt(row.dataset.idx);
-      if (isNaN(idx)) return;
-
-      if (e.ctrlKey || e.metaKey) {
-        if (selectedIndices.has(idx)) selectedIndices.delete(idx);
-        else selectedIndices.add(idx);
-        lastClickedIndex = idx;
-      } else if (e.shiftKey && lastClickedIndex !== null) {
-        const start = Math.min(lastClickedIndex, idx);
-        const end = Math.max(lastClickedIndex, idx);
-        if (!e.ctrlKey && !e.metaKey) selectedIndices.clear();
-        for (let i = start; i <= end; i++) selectedIndices.add(i);
-      } else {
-        selectedIndices.clear();
-        selectedIndices.add(idx);
-        lastClickedIndex = idx;
+  // Indices a row represents: a plain row → [idx]; a sequence-group header →
+  // every member index in that group. Selecting a group header selects the group.
+  function rowMemberIndices(row) {
+    const key = row.dataset.seqKey;
+    if (key && row.classList.contains('file-seq-group')) {
+      const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+      const out = [];
+      for (let k = 0; k < ops.length; k++) {
+        if (isFrame(ops[k]) && seqKey(ops[k]) === key) out.push(k);
       }
-      updateAllHighlights();
-    });
-
-    row.setAttribute('draggable', 'true');
-    row.addEventListener('dragstart', (e) => {
-      // Block drag while actively editing a value input in this row
-      const activeEl = document.activeElement;
-      if (activeEl && row.contains(activeEl) && activeEl.closest('input, select, textarea, button')) {
-        e.preventDefault();
-        return;
-      }
-      const idx = parseInt(row.dataset.idx);
-
-      if (!selectedIndices.has(idx)) {
-        selectedIndices.clear();
-        selectedIndices.add(idx);
-        lastClickedIndex = idx;
-        updateAllHighlights();
-      }
-
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('application/file-indices', JSON.stringify([...selectedIndices]));
-      // Visual feedback
-      document.querySelectorAll('.file-op-row').forEach(r => {
-        const ri = parseInt(r.dataset.idx);
-        if (selectedIndices.has(ri)) r.classList.add('row--dragging');
-      });
-    });
-
-    row.addEventListener('dragend', () => {
-      document.querySelectorAll('.file-op-row').forEach(r => r.classList.remove('row--dragging'));
-    });
+      return out;
+    }
+    const ri = parseInt(row.dataset.idx);
+    return isNaN(ri) ? [] : [ri];
   }
-
-  function updateAllHighlights() {
-    document.querySelectorAll('.file-op-row').forEach(row => {
-      const idx = parseInt(row.dataset.idx);
-      row.classList.toggle('row--selected', selectedIndices.has(idx));
-    });
+  // The anchor index for a row: a plain row → its idx; a group header → its
+  // first member's idx (so Shift range math works in data-index space).
+  function rowAnchorIndex(row) {
+    const members = rowMemberIndices(row);
+    return members.length ? members[0] : -1;
   }
 
   // Sequence-group key: strips extension, @2x, frame number (-N), and format
@@ -776,7 +729,7 @@
   }
 
   function pathBasename(p) {
-    return p.split(/[/\\]/).pop() || p;
+    return OpTable.pathBasename(p);
   }
 
   function isImagePath(p) {
@@ -816,36 +769,7 @@
   }
 
   function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str || '';
-    return div.innerHTML;
-  }
-
-  // ── Del key: delete selected file operation rows with confirmation ──
-  async function deleteSelected() {
-    if (selectedIndices.size === 0) return;
-
-    const confirmed = await ApplyDialog.showConfirmDialog(
-      i18n.t('file.deleteRowsConfirm', { n: selectedIndices.size }),
-      [
-        { label: `${i18n.t('file.delete')} (${selectedIndices.size})`, cls: 'btn--danger', value: 'delete' },
-        { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-      ]
-    );
-    if (!confirmed || confirmed !== 'delete') return;
-
-    const fileOps = currentFileOps ? [...currentFileOps] : buildFileOps();
-    const sorted = [...selectedIndices].sort((a, b) => b - a);
-    for (const i of sorted) fileOps.splice(i, 1);
-    applyFileOps(fileOps);
-    selectedIndices.clear();
-    lastClickedIndex = null;
-    Toast.info(i18n.t('file.deleted', { n: sorted.length }));
-    // Re-render current container
-    const container = document.getElementById('tab-files');
-    if (container && container.classList.contains('tab-content--active')) {
-      render(container);
-    }
+    return OpTable.escapeHtml(str);
   }
 
   // Single ResizeObserver: the ONLY driver of layoutColumns (tab visible +
@@ -857,5 +781,5 @@
     window.addEventListener('resize', () => layoutColumns(filesContainer));
   }
 
-  window.FileCopyEditor = { init, render, deleteSelected, layoutColumns, invalidateCache: () => thumbCache.clear() };
+  window.FileCopyEditor = { init, render, layoutColumns, invalidateCache: () => thumbCache.clear() };
 })();

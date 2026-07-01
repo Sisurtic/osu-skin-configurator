@@ -1,15 +1,16 @@
 // skin.ini key-value table editor — type-aware inputs driven by INI_FIELD_DEFS
 // Supports multiple [Mania] sections (per key-count) and per-column field expansion.
+// Selection + drag-to-delete is delegated to the shared OpTable module (`sel`).
 (function () {
   let getActions, setActions, skinPathFn;
-  let selectedIndices = new Set();
-  let lastClickedIndex = null;
+  // OpTable instance — created lazily on first render (needs the container).
+  let sel = null;
 
   // Column sort state for the operation table. Default = by action type
   // (modify/delete grouped), ascending. There is always an active sort.
   let sortState = { col: 'action', dir: 'asc' };
-  // Last actions array reference rendered — used to detect real data changes
-  // vs. re-renders (sort/delete) so selection isn't wiped every render.
+  // Last actions array reference rendered — handed to OpTable.maybeResetSelection
+  // so selection is reset only on a real data change, not on sort/delete re-renders.
   let lastActionsRef = null;
 
   function init(getter, setter, skPathFn) {
@@ -22,21 +23,46 @@
     const actions = getActions ? getActions() : [];
     const iniEdits = actions || [];
 
-    // Save expanded group state before rebuilding DOM
-    const expandedGroups = new Set();
-    if (container.querySelector) {
-      container.querySelectorAll('.ini-collapsed-row--expanded').forEach(r => {
-        if (r.dataset.group) expandedGroups.add(r.dataset.group);
+    // (Re)create the OpTable instance for this container on first render. The
+    // adapter closes over iniEdits-free helpers (rowMembers/rowAnchor read the
+    // row's own data-attrs), so it survives across renders.
+    if (!sel) {
+      sel = OpTable.create({
+        container,
+        rowSelector: '.ini-edit-row',
+        interactiveSelector: 'input, select, button, label, .toggle, .ini-group-toggle',
+        deleteMimeType: 'application/ini-indices',
+        rowMembers: (row) => rowMemberIndices(row),
+        rowAnchor: (row) => rowAnchorIndex(row),
+        applyDelete: (indicesDesc) => {
+          const updated = [...(getActions ? getActions() : [])];
+          for (const i of indicesDesc) updated.splice(i, 1);
+          setActions(updated);
+          Toast.info(i18n.t('ini.deleted', { n: indicesDesc.length }));
+          // Re-render the CURRENT #tab-ini node. preset-editor may have rebuilt
+          // this node since the OpTable instance was created, so the `container`
+          // captured in this closure could be detached — always look up the live node.
+          render(document.getElementById('tab-ini'));
+        },
       });
+    } else {
+      sel.setContainer(container);
     }
 
     // Reset selection only when the underlying data actually changed (different
     // array reference), not on every re-render (sort toggle, delete) — otherwise
     // re-rendering wipes the user's selection.
     if (lastActionsRef !== actions) {
-      selectedIndices = new Set();
-      lastClickedIndex = null;
+      sel.maybeResetSelection(actions);
       lastActionsRef = actions;
+    }
+
+    // Save expanded group state before rebuilding DOM
+    const expandedGroups = new Set();
+    if (container.querySelector) {
+      container.querySelectorAll('.ini-collapsed-row--expanded').forEach(r => {
+        if (r.dataset.group) expandedGroups.add(r.dataset.group);
+      });
     }
 
     container.innerHTML = `
@@ -401,174 +427,13 @@
       render(container);
       restoreSelection(container, savedSection, savedKey, savedManiaKeys);
     });
+    // ── Bind row selection (unified) ── delegated to OpTable
     container.querySelectorAll('.ini-edit-row').forEach(row => {
-      row.addEventListener('click', (e) => {
-        // Don't intercept clicks on interactive elements
-        if (e.target.closest('input, select, button, label, .toggle')) return;
-
-        const groupIndicesRaw = row.dataset.groupIndices;
-        const isGroupMain = !!groupIndicesRaw && !row.dataset.groupParent;
-        const groupIdxList = isGroupMain ? JSON.parse(groupIndicesRaw) : null;
-
-        // For range selection, the "effective index" of a group main row is
-        // its last sub-row index (so ranges work across collapsed groups).
-        const idx = isGroupMain
-          ? groupIdxList[groupIdxList.length - 1]
-          : parseInt(row.dataset.idx);
-        if (isNaN(idx)) return;
-
-        if (e.shiftKey && lastClickedIndex !== null) {
-          // Shift+click range select.
-          // - If the clicked row IS a group header (endpoint on group) → select
-          //   the whole group's sub-rows.
-          // - Range crosses a group header in the middle → SKIP the group
-          //   (don't expand), only select regular rows in range.
-          e.preventDefault();
-          if (!e.ctrlKey && !e.metaKey) selectedIndices.clear();
-          const start = Math.min(lastClickedIndex, idx);
-          const end = Math.max(lastClickedIndex, idx);
-          // Was the shift-click endpoint ON a group header?
-          const endpointOnGroup = isGroupMain;
-          container.querySelectorAll('.ini-edit-row').forEach(r => {
-            const gRaw = r.dataset.groupIndices;
-            const isMain = !!gRaw && !r.dataset.groupParent;
-            const rIdx = isMain
-              ? JSON.parse(gRaw)[0]
-              : parseInt(r.dataset.idx);
-            if (isNaN(rIdx)) return;
-            if (isMain) {
-              // Only expand a group if this group header IS the clicked endpoint.
-              // Groups in the middle of the range are skipped.
-              if (endpointOnGroup && r === row) {
-                const subIdxs = JSON.parse(gRaw);
-                for (const i of subIdxs) selectedIndices.add(i);
-              }
-              // else: skip — don't add the group header or its sub-rows.
-            } else {
-              if (rIdx < start || rIdx > end) return;
-              // Skip sub-rows of collapsed groups (they're hidden, their group
-              // header is visible but was skipped above).
-              if (r.style.display === 'none') return;
-              selectedIndices.add(rIdx);
-            }
-          });
-          updateRowHighlights(container);
-          return;
-        }
-
-        if (isGroupMain) {
-          if (e.ctrlKey || e.metaKey) {
-            const allSelected = groupIdxList.every(i => selectedIndices.has(i));
-            if (allSelected) {
-              for (const i of groupIdxList) selectedIndices.delete(i);
-            } else {
-              for (const i of groupIdxList) selectedIndices.add(i);
-            }
-          } else {
-            selectedIndices.clear();
-            for (const i of groupIdxList) selectedIndices.add(i);
-          }
-          lastClickedIndex = groupIdxList[groupIdxList.length - 1];
-          updateRowHighlights(container);
-          return;
-        }
-
-        if (e.ctrlKey || e.metaKey) {
-          if (selectedIndices.has(idx)) {
-            selectedIndices.delete(idx);
-          } else {
-            selectedIndices.add(idx);
-          }
-          lastClickedIndex = idx;
-        } else {
-          // Plain click: single select
-          selectedIndices.clear();
-          selectedIndices.add(idx);
-          lastClickedIndex = idx;
-        }
-        updateRowHighlights(container);
-      });
-
-      // ── Drag to delete (only when not editing, group-aware) ──
-      row.setAttribute('draggable', 'true');
-      row.addEventListener('dragstart', (e) => {
-        // Block drag while actively editing a value input in this row
-        const activeEl = document.activeElement;
-        if (activeEl && row.contains(activeEl) && activeEl.closest('input, select, textarea, button')) {
-          e.preventDefault();
-          return;
-        }
-
-        // If dragging a group main row, ensure all sub-row indices are selected
-        const groupIndicesRaw = row.dataset.groupIndices;
-        if (groupIndicesRaw && !row.dataset.groupParent) {
-          const groupIdxList = JSON.parse(groupIndicesRaw);
-          const allSelected = groupIdxList.every(i => selectedIndices.has(i));
-          if (!allSelected) {
-            selectedIndices.clear();
-            for (const i of groupIdxList) selectedIndices.add(i);
-            lastClickedIndex = groupIdxList[groupIdxList.length - 1];
-            updateRowHighlights(container);
-          }
-        } else {
-          const idx = parseInt(row.dataset.idx);
-          if (!isNaN(idx) && !selectedIndices.has(idx)) {
-            selectedIndices.clear();
-            selectedIndices.add(idx);
-            lastClickedIndex = idx;
-            updateRowHighlights(container);
-          }
-        }
-        // Store selected indices for delete-zone drop
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('application/ini-indices', JSON.stringify([...selectedIndices]));
-        // Add dragging class to selected rows
-        container.querySelectorAll('.ini-edit-row').forEach(r => {
-          const ri = parseInt(r.dataset.idx);
-          if (!isNaN(ri) && selectedIndices.has(ri)) r.classList.add('row--dragging');
-          // Also highlight group main row if all sub-rows are selected
-          const grpRaw = r.dataset.groupIndices;
-          if (grpRaw && !r.dataset.groupParent) {
-            const grpIdx = JSON.parse(grpRaw);
-            if (grpIdx.every(i => selectedIndices.has(i))) r.classList.add('row--dragging');
-          }
-        });
-      });
-
-      row.addEventListener('dragend', () => {
-        container.querySelectorAll('.ini-edit-row').forEach(r => r.classList.remove('row--dragging'));
-      });
+      sel.bindRow(row);
     });
 
-    // ── Delete zone drop handler ──
-    const deleteZone = container.querySelector('#ini-delete-zone');
-    if (deleteZone) {
-      deleteZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        deleteZone.style.opacity = '1';
-        deleteZone.style.background = 'rgba(224,85,85,0.1)';
-      });
-      deleteZone.addEventListener('dragleave', () => {
-        deleteZone.style.opacity = '0.5';
-        deleteZone.style.background = '';
-      });
-      deleteZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        deleteZone.style.opacity = '0.5';
-        deleteZone.style.background = '';
-        const raw = e.dataTransfer.getData('application/ini-indices');
-        if (!raw) return;
-        const indices = JSON.parse(raw).sort((a, b) => b - a); // descending for splice
-        const updated = [...iniEdits];
-        for (const i of indices) {
-          updated.splice(i, 1);
-        }
-        setActions(updated);
-        Toast.info(i18n.t('ini.deleted', { n: indices.length }));
-        render(container);
-      });
-    }
+    // ── Delete zone drop handler ── delegated to OpTable
+    sel.bindDeleteZone(container.querySelector('#ini-delete-zone'));
 
 
 
@@ -892,21 +757,23 @@
     return dir ? dir.replace(/\\/g, '/') + '/' + basename : basename;
   }
 
-  function updateRowHighlights(container) {
-    container.querySelectorAll('.ini-edit-row').forEach(row => {
-      // Group main rows use string data-idx; highlight if all sub-rows are selected
-      const groupIndicesRaw = row.dataset.groupIndices;
-      if (groupIndicesRaw && !row.dataset.groupParent) {
-        const indices = JSON.parse(groupIndicesRaw);
-        const allSelected = indices.length > 0 && indices.every(i => selectedIndices.has(i));
-        row.classList.toggle('row--selected', allSelected);
-        return;
-      }
-      const idx = parseInt(row.dataset.idx);
-      if (!isNaN(idx)) {
-        row.classList.toggle('row--selected', selectedIndices.has(idx));
-      }
-    });
+  // Indices a row represents (OpTable adapter): a plain row → [idx]; a perColumn
+  // group header → every member index in that group. Selecting a group header
+  // selects the whole group.
+  function rowMemberIndices(row) {
+    const groupIndicesRaw = row.dataset.groupIndices;
+    if (groupIndicesRaw && !row.dataset.groupParent) {
+      return JSON.parse(groupIndicesRaw);
+    }
+    const ri = parseInt(row.dataset.idx);
+    return isNaN(ri) ? [] : [ri];
+  }
+  // The anchor index for a row (OpTable adapter): a plain row → its idx; a group
+  // header → its FIRST member's idx. (FIRST vs LAST produces identical selection
+  // sets because group members are consecutive — see op-table.js header comment.)
+  function rowAnchorIndex(row) {
+    const members = rowMemberIndices(row);
+    return members.length ? members[0] : -1;
   }
 
   function sectionLabel(edit) {
@@ -1359,13 +1226,13 @@
   }
 
   function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str || '';
-    return div.innerHTML;
+    return OpTable.escapeHtml(str);
   }
 
   // ── Del key: delete selected INI rows with confirmation ──
+  // (Selection lives in the OpTable instance; read it via sel.getSelected().)
   async function deleteSelected() {
+    const selectedIndices = sel ? sel.getSelected() : new Set();
     if (selectedIndices.size === 0) return;
     const actions = getActions ? getActions() : [];
     const sorted = [...selectedIndices].sort((a, b) => b - a);
@@ -1378,24 +1245,13 @@
     );
     if (!confirmed || confirmed !== 'delete') return;
 
-    // Build a map from the (sorted) view-model index back to the underlying
-    // action, since selectedIndices reference DISPLAY positions.
+    // selectedIndices reference DISPLAY positions; splice from highest down.
     const updated = [...actions];
     for (const i of sorted) updated.splice(i, 1);
     setActions(updated);
-    // Keep remaining selection valid: drop deleted indices, reindex the rest.
-    const kept = new Set();
-    for (const idx of selectedIndices) {
-      if (sorted.includes(idx)) continue;
-      // how many deleted indices were before this one → shift down
-      let shift = 0;
-      for (const d of sorted) if (d < idx) shift++;
-      kept.add(idx - shift);
-    }
-    selectedIndices = kept;
-    lastClickedIndex = null;
     Toast.info(i18n.t('ini.deleted', { n: sorted.length }));
-    // Re-render current container
+    // Re-render current container. lastActionsRef differs from the new array →
+    // OpTable resets selection (nothing meaningful survives a Del-delete anyway).
     const container = document.getElementById('tab-ini');
     if (container && container.classList.contains('tab-content--active')) {
       render(container);

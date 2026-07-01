@@ -444,6 +444,9 @@
     "mode_overlay": "オーバーレイ",
     "mode_replace": "ベタ塗り",
     "deleteZone": "操作をここにドラッグして削除",
+    "deleteBtn": "- 削除",
+    "deleted": "{n} 個の画像操作を削除しました",
+    "deleteRowsConfirm": "選択した {n} 個の画像操作を削除しますか?",
     "colDestTitle": "対象パスのファイル名を指定可能\n末尾 / でフォルダ名、それ以外はファイル名\nファイル名がない場合は元の名前"
   },
   "edit": {

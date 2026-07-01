@@ -262,6 +262,9 @@
     "mode_overlay": "叠加",
     "mode_replace": "纯色填充",
     "deleteZone": "拖拽操作到此处删除",
+    "deleteBtn": "- 删除",
+    "deleted": "已删除 {n} 个图像操作",
+    "deleteRowsConfirm": "确定要删除选中的 {n} 个图像操作吗？",
     "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名"
   },
   "settings": {

@@ -3,12 +3,17 @@
 // Right: live canvas preview of the selected row + stage controls (tint → crop → darken).
 // Each stage is toggled by a clickable header (green underline when enabled).
 // Preview is computed client-side on a <canvas>; apply runs the same pipeline in Rust.
+// Selection + drag-to-delete is delegated to the shared OpTable module (`opSel`).
+// Dual anchor: opSel.anchorIndex drives the preview; opSel.selectedIndices drives
+// multi-select / batch edits (empty set = single, just the anchor).
 (function () {
   let getTints, setTints, skinName, presetId, skinPath;
   let container;
-  let selectedIdx = 0;            // anchor / primary selected row (for preview)
-  let selectedSet = new Set();    // multi-select (Ctrl/Shift); empty = single
-  let lastClickedIdx = -1;        // for shift-range
+  // OpTable instance — created lazily on first render (needs the container).
+  let opSel = null;
+  // Last anchor seen by onSelectionChange, to detect anchor moves (which alone
+  // justify a preview rebuild) vs mere multi-select changes (highlight + stages only).
+  let lastAnchor = 0;
   let fileDialogOpen = false;
   let splitFraction = 0.5;
   let previewDebounce = null;
@@ -22,10 +27,8 @@
   const MODES = ['multiply', 'lightness', 'screen', 'overlay', 'replace'];
 
   function isImagePath(p) { return IMG_EXTS.has((p.match(/\.[^.]+$/) || [''])[0].toLowerCase()); }
-  function pathBasename(p) { return (p || '').split(/[/\\]/).pop() || p; }
-  function escapeHtml(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-  }
+  function pathBasename(p) { return OpTable.pathBasename(p); }
+  function escapeHtml(s) { return OpTable.escapeHtml(s); }
   function colorToCss(c) {
     const p = (c || '255,255,255,255').split(',').map(n => parseInt(n.trim(), 10));
     const r = p[0] || 0, g = p[1] || 0, b = p[2] || 0, a = (p[3] !== undefined ? p[3] : 255) / 255;
@@ -43,13 +46,52 @@
   }
   function applyTints(tints) { setTints(tints); }
   function cur() { const a = getTints() || []; return a; }
-  function sel() { const a = cur(); return a[selectedIdx] || null; }
+  // The anchor row index (drives the preview). Read from the OpTable instance
+  // once it exists; clamp into range so a deleted/shortened list never indexes OOB.
+  function selectedIdx() {
+    const a = opSel ? opSel.getAnchor() : 0;
+    const len = cur().length;
+    if (a < 0 || a >= len) return Math.max(0, len - 1);
+    return a;
+  }
+  function sel() { const a = cur(); return a[selectedIdx()] || null; }
 
   // ── Render ──
   function render(parent) {
     container = parent;
     const tints = cur();
-    if (selectedIdx >= tints.length) selectedIdx = Math.max(0, tints.length - 1);
+    // (Re)create the OpTable instance for this container on first render.
+    if (!opSel) {
+      opSel = OpTable.create({
+        container,
+        rowSelector: '.tint-row',
+        interactiveSelector: 'input, select, textarea, button',
+        deleteMimeType: 'application/tint-indices',
+        selectedClass: 'tint-row--selected',
+        rowMembers: (row) => {
+          const ri = parseInt(row.dataset.idx, 10);
+          return isNaN(ri) ? [] : [ri];
+        },
+        rowAnchor: (row) => {
+          const ri = parseInt(row.dataset.idx, 10);
+          return isNaN(ri) ? -1 : ri;
+        },
+        // Selection change → refresh stages + re-highlight. Only recompute the
+        // (heavy) preview when the ANCHOR moved (it drives the preview); a mere
+        // multi-select change (Ctrl/Shift adding rows) just re-highlights + re-
+        // renders the stage panel (batch-edit targets changed), no preview rebuild.
+        onSelectionChange: ({ anchor }) => {
+          const moved = anchor !== lastAnchor;
+          lastAnchor = anchor;
+          refreshDetailAndList(moved);
+        },
+        applyDelete: (indicesDesc) => applyDeleteOps(indicesDesc),
+      });
+      // Default anchor = 0 (preview the first row on initial load).
+      opSel.setSelected(new Set(), 0);
+    } else {
+      opSel.setContainer(container);
+    }
     container.innerHTML = `
       <div class="tint-split">
         <div class="tint-ops" style="flex:0 0 ${(splitFraction * 100).toFixed(1)}%">
@@ -114,9 +156,13 @@
 
   function renderRow(t, idx) {
     const src = t.source || '';
-    const isSel = selectedSet.has(idx) || (selectedSet.size === 0 && idx === selectedIdx);
+    // Initial paint: match OpTable's highlight rule (in-set, or anchor when empty).
+    // OpTable.highlightAll() reconciles this after rows are bound.
+    const set = opSel ? opSel.getSelected() : new Set();
+    const anchor = opSel ? opSel.getAnchor() : 0;
+    const isSel = set.has(idx) || (set.size === 0 && idx === anchor);
     const selCls = isSel ? ' tint-row--selected' : '';
-    return `<tr class="tint-row${selCls}" data-idx="${idx}" draggable="true">
+    return `<tr class="tint-row${selCls}" data-idx="${idx}">
       <td><span class="file-thumb" data-path="${escapeHtml(src)}" title="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(src)}</span></td>
       <td><input type="text" class="form-input tint-dest" data-idx="${idx}" value="${escapeHtml(t.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>
     </tr>`;
@@ -644,8 +690,56 @@
 
   // Indices to apply stage edits to: the multi-select set if non-empty, else the anchor row.
   function editTargets() {
-    const s = selectedSet.size > 0 ? [...selectedSet] : [selectedIdx];
+    const set = opSel ? opSel.getSelected() : new Set();
+    const s = set.size > 0 ? [...set] : [selectedIdx()];
     return s.filter(i => cur()[i] != null);
+  }
+
+  // Remove ops at the given (descending) indices, evicting a source's cached
+  // thumb/image ONLY when no remaining op still uses it. Tint ops frequently
+  // share a source (same skin asset, different crop/tint); deleting one must not
+  // blank the others' previews. Shared by drag-to-delete and Del-key delete.
+  function applyDeleteOps(indicesDesc) {
+    const arr = cur();
+    const removedSources = new Set();
+    for (const i of indicesDesc) {
+      if (i < 0 || i >= arr.length) continue;
+      const src = arr[i].source;
+      arr.splice(i, 1);
+      if (src) removedSources.add(src);
+    }
+    const stillUsed = new Set(arr.map(t => t.source));
+    for (const src of removedSources) {
+      if (!stillUsed.has(src)) {
+        thumbCache.delete(src);
+        sourceImgCache.delete(src);
+      }
+    }
+    applyTints(arr);
+    // Re-anchor to a valid row, then re-render. preset-editor may have rebuilt
+    // #tab-tint since opSel was created, so look up the live node.
+    const len = arr.length;
+    const anchor = opSel ? opSel.getAnchor() : 0;
+    opSel.setSelected(new Set(), len ? Math.min(anchor, len - 1) : 0);
+    render(document.getElementById('tab-tint'));
+  }
+
+  // ── Del key: delete selected tint rows with confirmation ──
+  async function deleteSelected() {
+    const set = opSel ? opSel.getSelected() : new Set();
+    const targetIdx = set.size > 0 ? [...set] : (opSel && opSel.getAnchor() >= 0 ? [opSel.getAnchor()] : []);
+    if (targetIdx.length === 0) return;
+    const sorted = [...new Set(targetIdx)].sort((a, b) => b - a);
+    const confirmed = await ApplyDialog.showConfirmDialog(
+      i18n.t('tint.deleteRowsConfirm', { n: sorted.length }),
+      [
+        { label: `${i18n.t('tint.deleteBtn').replace(/^- ?/, '')} (${sorted.length})`, cls: 'btn--danger', value: 'delete' },
+        { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
+      ]
+    );
+    if (!confirmed || confirmed !== 'delete') return;
+    applyDeleteOps(sorted);
+    Toast.info(i18n.t('tint.deleted', { n: sorted.length }));
   }
   // Enforce: tailH (cropA) + blank (cropB) + darkenD ≤ outH (cropC).
   // When a field grows past the available room, clamp THAT field so the sum
@@ -703,18 +797,17 @@
     applyTints(arr);
   }
 
-  function refreshDetailAndList() {
+  // Refresh the stage panel + row highlights. `recompute` controls whether the
+  // (heavy) preview is rebuilt: the anchor drives the preview, so only an anchor
+  // change needs it; a multi-select change re-renders stages (batch targets) +
+  // re-highlights but skips the preview rebuild.
+  function refreshDetailAndList(recompute) {
     const stages = container.querySelector('#tint-stages');
     if (stages) stages.innerHTML = renderStages();
-    // Update selected highlight in list (do NOT rewrite rows — that would drop
-    // Highlight all selected rows (multi-select) — bound once handlers are preserved.
-    const sel = (i) => selectedSet.has(i) || (selectedSet.size === 0 && i === selectedIdx);
-    container.querySelectorAll('.tint-row').forEach(r => {
-      const i = parseInt(r.dataset.idx, 10);
-      r.classList.toggle('tint-row--selected', sel(i));
-    });
+    // Highlight via OpTable (empty set → anchor only; non-empty → every member).
+    if (opSel) opSel.highlightAll();
     bindStageHandlers();
-    recomputePreview(true);
+    if (recompute) recomputePreview(true);
   }
 
   function bindHandlers() {
@@ -739,53 +832,23 @@
           tints.push(defaultOp(relPath));
         }
         applyTints(tints);
-        selectedIdx = tints.length - 1;
+        // Select the newly-added row (anchor it for preview).
+        opSel.setSelected(new Set(), tints.length - 1);
         render(container);
       } finally { fileDialogOpen = false; unblockUI(); }
     });
 
-    // Row click → select (Ctrl=toggle, Shift=range); row dragstart → delete.
+    // ── Bind row selection (unified) ── delegated to OpTable.
+    // opSel.onSelectionChange → refreshDetailAndList() (re-render stages +
+    // re-highlight + recompute preview), so the preview follows the anchor.
     container.querySelectorAll('.tint-row').forEach(row => {
-      row.addEventListener('click', (e) => {
-        if (e.target.closest('input, select, textarea')) return;
-        const idx = parseInt(row.dataset.idx, 10);
-        const tints = cur();
-        if (e.ctrlKey || e.metaKey) {
-          if (selectedSet.has(idx)) selectedSet.delete(idx); else selectedSet.add(idx);
-          selectedIdx = idx;
-        } else if (e.shiftKey && lastClickedIdx >= 0) {
-          const lo = Math.min(lastClickedIdx, idx), hi = Math.max(lastClickedIdx, idx);
-          selectedSet = new Set();
-          for (let k = lo; k <= hi; k++) selectedSet.add(k);
-          selectedIdx = lastClickedIdx;
-        } else {
-          selectedSet = new Set();
-          selectedIdx = idx;
-        }
-        lastClickedIdx = idx;
-        refreshDetailAndList();
-      });
-      row.addEventListener('dragstart', (e) => {
-        const activeEl = document.activeElement;
-        if (activeEl && row.contains(activeEl) && activeEl.closest('input, select, textarea')) { e.preventDefault(); return; }
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('application/tint-idx', row.dataset.idx);
-      });
+      opSel.bindRow(row);
     });
 
-    // Normalize a file dest's extension to the SOURCE's extension: strip any
-    // extension the user typed, then append the source's (shared with
-    // file-copy-editor). Directory dests (ending in /) are left untouched.
+    // Normalize a file dest's extension to the SOURCE's extension (shared impl
+    // in OpTable.appendSrcExt — see the comment there).
     function appendSrcExt(val, source) {
-      if (!val || val.endsWith('/')) return val;
-      const slash = val.lastIndexOf('/');
-      const base = val.slice(slash + 1);
-      const dotPos = base.indexOf('.');
-      const stem = dotPos >= 0 ? base.slice(0, dotPos) : base;
-      const srcBase = (source || '').split(/[/\\]/).pop() || '';
-      const sDot = srcBase.lastIndexOf('.');
-      if (sDot < 0) return dotPos >= 0 ? val.slice(0, slash + 1) + stem : val;
-      return val.slice(0, slash + 1) + stem + srcBase.slice(sDot);
+      return OpTable.appendSrcExt(val, source);
     }
 
     // Destination input (per row).
@@ -827,48 +890,10 @@
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
     });
 
-    // Delete drop zone.
-    const dz = container.querySelector('#tint-delete-zone');
-    if (dz) {
-      dz.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; dz.style.opacity = '1'; dz.style.background = 'rgba(224,85,85,0.1)'; });
-      dz.addEventListener('dragleave', () => { dz.style.opacity = '0.5'; dz.style.background = ''; });
-      dz.addEventListener('drop', (e) => {
-        e.preventDefault(); dz.style.opacity = '0.5'; dz.style.background = '';
-        const raw = e.dataTransfer.getData('application/tint-idx');
-        if (raw == null || raw === '') return;
-        const idx = parseInt(raw, 10);
-        const arr = cur();
-        if (idx < 0 || idx >= arr.length) return;
-        // If the dragged row is part of the current multi-selection, delete the
-        // whole selection; otherwise delete just the dragged row.
-        const toRemove = (selectedSet.size > 0 && selectedSet.has(idx))
-          ? new Set([...selectedSet])
-          : new Set([idx]);
-        // Splice from highest index down so indices stay valid.
-        const ordered = [...toRemove].sort((a, b) => b - a);
-        const removedSources = new Set();
-        for (const i of ordered) {
-          if (i < 0 || i >= arr.length) continue;
-          const src = arr[i].source;
-          arr.splice(i, 1);
-          if (src) removedSources.add(src);
-        }
-        // Only drop a source's cached thumb/image if NO remaining op still uses
-        // it. Tint ops frequently share a source (same skin asset, different
-        // crop/tint); deleting one must not blank the others' previews.
-        const stillUsed = new Set(arr.map(t => t.source));
-        for (const src of removedSources) {
-          if (!stillUsed.has(src)) {
-            thumbCache.delete(src);
-            sourceImgCache.delete(src);
-          }
-        }
-        applyTints(arr);
-        selectedSet = new Set();
-        if (selectedIdx >= arr.length) selectedIdx = Math.max(0, arr.length - 1);
-        render(container);
-      });
-    }
+    // ── Delete zone drop handler ── delegated to OpTable.
+    // The delete + shared-source cache eviction lives in applyDeleteOps (the
+    // adapter callback), so it also serves the new Del-key deleteSelected.
+    opSel.bindDeleteZone(container.querySelector('#tint-delete-zone'));
 
     // Divider drag → resize split.
     const divider = container.querySelector('#tint-divider');
@@ -1003,7 +1028,7 @@
             applyToTargets({ cropEnabled: true });
           }
         }
-        refreshDetailAndList();
+        refreshDetailAndList(true);
       });
     });
     // Tint color swatch.
@@ -1069,9 +1094,9 @@
     const commit = () => {
       const inputVal = readVal();
       applyToTargets({ [key]: inputVal });
-      // Read the clamped value back from the anchor (selectedIdx) target.
+      // Read the clamped value back from the anchor target.
       const arr = cur();
-      const t = arr[selectedIdx];
+      const t = arr[selectedIdx()];
       const clamped = t && t[key] != null ? t[key] : inputVal;
       el.value = clamped;
       schedulePreview(true);
@@ -1095,5 +1120,5 @@
 
   function layoutColumns() { /* preview uses canvas scaling; no-op */ }
 
-  window.TintEditor = { init, render, layoutColumns, invalidateCache: () => { thumbCache.clear(); sourceImgCache.clear(); } };
+  window.TintEditor = { init, render, layoutColumns, deleteSelected, invalidateCache: () => { thumbCache.clear(); sourceImgCache.clear(); } };
 })();

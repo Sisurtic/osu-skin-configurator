@@ -444,6 +444,9 @@
     "mode_overlay": "疊加",
     "mode_replace": "純色填充",
     "deleteZone": "拖曳操作到此處刪除",
+    "deleteBtn": "- 刪除",
+    "deleted": "已刪除 {n} 個圖像操作",
+    "deleteRowsConfirm": "確定要刪除選中的 {n} 個圖像操作嗎?",
     "colDestTitle": "允許指定目標路徑檔名\n末尾加 / 作為資料夾名，否則為檔名\n檔名不存在時使用原始檔名"
   },
   "edit": {
