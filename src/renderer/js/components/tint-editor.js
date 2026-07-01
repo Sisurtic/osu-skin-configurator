@@ -19,12 +19,20 @@
   let previewDebounce = null;
   let liveFrame = 0;            // rAF id for in-flight live (color-drag) preview
   let previewFullFit = false;
+  let vpActive = false;            // true while the live preview is viewport-virtualized
+  let vpScrollFrame = 0;           // rAF id coalescing virtualized scroll repaints
 
   const IMG_EXTS = new Set(['.png']);
   const thumbCache = new Map();      // src path → dataURL (for list thumbnails)
   const sourceImgCache = new Map();  // src path → HTMLImageElement (for preview)
   const FADE = 'tint-preview--fade';
   const MODES = ['multiply', 'lightness', 'screen', 'overlay', 'replace'];
+  // Above this logical output height the canvas2D backing would be too large to
+  // repaint per frame (e.g. cropC=32800 → ~8M px → ~200ms/clear+drawImage). We
+  // instead render only the visible viewport (sticky canvas) and keep a spacer
+  // the size of the full logical output to drive the scrollbar. Below it the
+  // whole canvas is small enough to render directly (no virtualization needed).
+  const VIRTUALIZE_THRESHOLD = 2000;
 
   function isImagePath(p) { return IMG_EXTS.has((p.match(/\.[^.]+$/) || [''])[0].toLowerCase()); }
   function pathBasename(p) { return OpTable.pathBasename(p); }
@@ -228,6 +236,9 @@
   // ── Canvas preview pipeline ──
   // Apply the current fit mode (width-fit default, full-fit after dblclick) to a preview canvas.
   function applyPreviewFit(canvasEl, previewEl) {
+    // Virtualized previews own their own canvas layout (sticky + spacer); a fit
+    // toggle / resize just needs a re-layout + repaint, not max-dimension tweaks.
+    if (vpActive && repaintVirtual(previewEl)) return;
     // The GL renderer sets canvas.style.width (real logical px) + aspect-ratio;
     // here we only constrain max dimensions and scrolling behavior.
     if (previewFullFit) {
@@ -355,6 +366,345 @@
   }
   const TINT_MODE_IDX = { multiply: 0, screen: 1, overlay: 2, lightness: 3, replace: 4 };
 
+  // ── Viewport virtualization (crop/darken canvas2D path) ──
+  // Build the TINTED source canvas (the input cropCanvas/darkenCanvas operate
+  // on). Factored out so the viewport painter and the full-render path share it.
+  //
+  // When tint is on, prefer an OFF-SCREEN WebGL render (GlPreview, tint-only):
+  // tint is the one stage GL does in O(1) — a color drag is a uniform update,
+  // the source texture is cached by srcKey, and a single drawArrays rasterises
+  // the tinted source without the JS per-pixel tintCanvas loop (which is the
+  // color-drag bottleneck). `host` is the canvas element the GL renderer is
+  // cached on (the live / shown preview canvas); falls back to JS tintCanvas if
+  // WebGL is unavailable.
+  function buildTintedSource(img, t, host) {
+    if (t.tintEnabled) {
+      const gl = getTintedSourceGL(img, t, host);
+      if (gl) return gl;
+    }
+    let canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    if (t.tintEnabled) canvas = tintCanvas(canvas, t.color, t.mode);
+    return canvas;
+  }
+
+  // Lazily create / reuse an off-screen GlPreview renderer that rasterises the
+  // tinted source. Cached on `host` keyed by srcKey (texture never re-uploaded
+  // for the same source). Each call re-renders with the CURRENT t.color/mode —
+  // a uniform update + one drawArrays — so color dragging is cheap.
+  //
+  // The GL canvas uses preserveDrawingBuffer:false (per gl-preview.js), so we
+  // blit each render into a stable 2D result canvas before returning — that 2D
+  // canvas is what cropViewportCanvas samples via drawImage, and it stays valid
+  // across frames. The blit is a GPU→readback but only touches source px (not
+  // the huge cropC output), far cheaper than the JS tintCanvas loop.
+  function getTintedSourceGL(img, t, host) {
+    const GlPreview = window.GlPreview;
+    if (!GlPreview) return null;
+    const srcW = img.naturalWidth, srcH = img.naturalHeight;
+    if (!srcW || !srcH) return null;
+    // GPU caps texture size; render at source resolution but clamp to the limit.
+    const MAX = 16384;
+    const scale = (srcW > MAX || srcH > MAX) ? Math.min(MAX / srcW, MAX / srcH) : 1;
+    const w = Math.max(1, Math.round(srcW * scale));
+    const h = Math.max(1, Math.round(srcH * scale));
+    // Reuse the off-screen GL canvas + renderer + 2D result canvas on the host;
+    // rebuild if the source changed (different srcKey) or dims changed.
+    let entry = host && host._tintGL;
+    if (entry && (entry.srcKey !== t.source || entry.gl.width !== w || entry.gl.height !== h)) {
+      // Source/dims changed: release the previous GL renderer before rebuilding.
+      try { entry.renderer.destroy(); } catch (_) {}
+      entry = null;
+    }
+    if (!entry) {
+      try {
+        const gl = document.createElement('canvas');
+        gl.width = w; gl.height = h;
+        const renderer = GlPreview.createRenderer(gl);
+        if (!renderer) { if (host) host._tintGL = null; return null; }
+        const out = document.createElement('canvas');
+        out.width = w; out.height = h;
+        entry = { srcKey: t.source, gl, renderer, out };
+        if (host) host._tintGL = entry;
+      } catch (_) { if (host) host._tintGL = null; return null; }
+    }
+    try {
+      const tc = parseColorUniforms(t.color);
+      entry.renderer.render({
+        img, srcKey: t.source, srcW, srcH, outW: srcW, outH: srcH,
+        tint: { on: true, color: tc.color, t: tc.t, mode: TINT_MODE_IDX[t.mode] || 0 },
+        crop: { on: false }, darken: { on: false },
+      });
+      // Blit the (possibly volatile) GL backing into the stable 2D result canvas.
+      entry.out.getContext('2d').clearRect(0, 0, w, h);
+      entry.out.getContext('2d').drawImage(entry.gl, 0, 0);
+      return entry.out;
+    } catch (_) { return null; }
+  }
+
+  // Signature of everything that affects the (tinted) source canvas EXCEPT the
+  // tint COLOR — color is applied at paint time via the GL tint renderer (a
+  // uniform update), so a color drag must NOT invalidate the cached source.
+  function tintSourceSig(img, t) {
+    return (img && img.naturalWidth) + 'x' + (img && img.naturalHeight) + '|' +
+      (t.source || '') + '|' + (t.tintEnabled ? 1 : 0) + '|' + (t.mode || '');
+  }
+
+  // Draw the crop+darken result for ONE output row range [visTop, visTop+visH)
+  // into `ctx` at destination y = 0 (the top of the viewport canvas).
+  //
+  // This is a viewport-clipped reimplementation of cropCanvas()+darkenCanvas():
+  // it never materialises the full outW×total backing — it only paints the rows
+  // actually visible. Geometry is byte-identical to the full render:
+  //   tail  : output [blank, blank+tailSrcH) ← source [0, tailSrcH) 1:1
+  //   body  : output [blank+tailSrcH, total) ← source [tailSrcH, srcH)
+  //           stretched (one drawImage) OR tiled (down from y0 / up from bottom)
+  //   blank : output [0, blank) transparent (nothing drawn)
+  // darken (post-crop, over-composite):
+  //   ghost  = crop slice [visTop, visTop+visH) at alpha=darkenAlpha
+  //   opaque = crop slice [visTop-shift, visTop+visH-shift) at alpha=1, shifted DOWN
+  //
+  // `ds` (dest scale, default 1) multiplies the DESTINATION width/height/x/y of
+  // every drawImage so the result can be painted at a smaller backing resolution
+  // (full-fit mode downsamples the whole output; width-fit keeps ds=1 = crisp).
+  // Source sampling stays at full source resolution in every case.
+  function cropViewportCanvas(ctx, src, tailH, blank, total, tile, tileDir,
+                              darkenOn, shift, darkenAlpha, visTop, visH, ds) {
+    if (ds == null) ds = 1;
+    const w = src.width, h = src.height;
+    const tailSrcH = Math.min(Math.max(0, Math.round(tailH)), h);
+    const bodySrcH = h - tailSrcH;
+    // Visible output rows, clamped to the logical canvas.
+    const visBot = Math.min(total, visTop + visH);
+    const y0 = blank + tailSrcH;            // body starts here in output
+    const dw = w * ds;                      // dest width
+
+    // Paint the crop result for the visible range into a scratch canvas, then
+    // composite darken over it. (For non-darken we draw straight into ctx.)
+    let baseCtx = ctx;
+    let scratch = null;
+    if (darkenOn) {
+      scratch = document.createElement('canvas');
+      scratch.width = Math.max(1, Math.round(dw));
+      scratch.height = Math.max(1, Math.round(visH * ds));
+      baseCtx = scratch.getContext('2d');
+    }
+    baseCtx.clearRect(0, 0, dw, visH * ds);
+
+    // --- TAIL (面尾): output [blank, blank+tailSrcH) ← source [0, tailSrcH) 1:1 ---
+    if (tailSrcH > 0) {
+      const tailOutTop = blank;
+      const tailOutBot = Math.min(total, blank + tailSrcH);
+      if (tailOutBot > visTop && tailOutTop < visBot) {
+        const drawTop = Math.max(visTop, tailOutTop);
+        const drawBot = Math.min(visBot, tailOutBot);
+        baseCtx.drawImage(src,
+          0, drawTop - tailOutTop, w, drawBot - drawTop,
+          0, (drawTop - visTop) * ds, dw, (drawBot - drawTop) * ds);
+      }
+    }
+
+    // --- BODY (面身): output [y0, total) ← source [tailSrcH, srcH) ---
+    if (bodySrcH > 0) {
+      const bodyOutTop = y0;
+      const bodyOutBot = total;
+      if (bodyOutBot > visTop && bodyOutTop < visBot) {
+        if (tile) {
+          if (tileDir === 'up') {
+            // Tile UPWARD from the bottom edge: tile j (0 = bottom-most) covers
+            // output [total-(j+1)*bodySrcH, total-j*bodySrcH), drawn 1:1 from
+            // source [tailSrcH, tailSrcH+bodySrcH). The bottom tile is j=0; as j
+            // grows the tile moves UP. Only tiles intersecting the viewport are
+            // drawn, and the walk stops once it passes above the region top.
+            // Start at the lowest j whose tile is at/above the viewport bottom.
+            let j = Math.max(0, Math.floor((total - visBot) / bodySrcH));
+            for (; ; j++) {
+              const tileOutTop = total - (j + 1) * bodySrcH;
+              const tileOutBot = tileOutTop + bodySrcH;   // = total - j*bodySrcH
+              if (tileOutBot <= visTop) break;            // tile fully above viewport
+              if (tileOutBot <= bodyOutTop) break;        // tile fully above the body region
+              const drawTop = Math.max(visTop, Math.max(bodyOutTop, tileOutTop));
+              const drawBot = Math.min(visBot, tileOutBot);
+              if (drawBot > drawTop) {
+                baseCtx.drawImage(src,
+                  0, tailSrcH + (drawTop - tileOutTop), w, drawBot - drawTop,
+                  0, (drawTop - visTop) * ds, dw, (drawBot - drawTop) * ds);
+              }
+            }
+          } else {
+            // Tile DOWNWARD from y0: tiles at output y = y0 + k*bodySrcH.
+            const firstK = Math.max(0, Math.floor((visTop - bodyOutTop) / bodySrcH));
+            for (let k = firstK; ; k++) {
+              const tileOutTop = bodyOutTop + k * bodySrcH;
+              const tileOutBot = tileOutTop + bodySrcH;
+              if (tileOutTop >= visBot) break;      // past viewport
+              const drawTop = Math.max(visTop, tileOutTop);
+              const drawBot = Math.min(visBot, tileOutBot);
+              if (drawBot > drawTop) {
+                baseCtx.drawImage(src,
+                  0, tailSrcH + (drawTop - tileOutTop), w, drawBot - drawTop,
+                  0, (drawTop - visTop) * ds, dw, (drawBot - drawTop) * ds);
+              }
+            }
+          }
+        } else {
+          // STRETCH: source [tailSrcH, srcH) → output [bodyOutTop, bodyOutBot)
+          // linearly. Map the visible sub-range back into the source.
+          const drawTop = Math.max(visTop, bodyOutTop);
+          const drawBot = Math.min(visBot, bodyOutBot);
+          if (drawBot > drawTop) {
+            const outSpan = bodyOutBot - bodyOutTop;
+            const srcFromTop = (drawTop - bodyOutTop) * (bodySrcH / outSpan);
+            const srcFromBot = (drawBot - bodyOutTop) * (bodySrcH / outSpan);
+            baseCtx.drawImage(src,
+              0, tailSrcH + srcFromTop, w, srcFromBot - srcFromTop,
+              0, (drawTop - visTop) * ds, dw, (drawBot - drawTop) * ds);
+          }
+        }
+      }
+    }
+
+    // --- DARKEN (over-composite): ghost + opaque-shifted copy, within viewport ---
+    if (darkenOn) {
+      // Ghost: the crop viewport slice at alpha=darkenAlpha, drawn at dest y=0.
+      ctx.globalAlpha = darkenAlpha;
+      ctx.drawImage(scratch, 0, 0);
+      // Opaque: the crop slice [visTop-shift, visBot-shift) shifted DOWN by
+      // `shift` lands back at [visTop, visBot) — i.e. we re-render the crop
+      // result for rows (visTop-shift .. visBot-shift) and draw it at dest y=0.
+      ctx.globalAlpha = 1;
+      const opVisTop = visTop - shift;
+      if (opVisTop < total && opVisTop + visH > 0) {
+        // Build the opaque crop slice (no darken — straight crop) into a 2nd scratch.
+        const opScratch = document.createElement('canvas');
+        opScratch.width = Math.max(1, Math.round(dw));
+        opScratch.height = Math.max(1, Math.round(visH * ds));
+        const opCtx = opScratch.getContext('2d');
+        // Recursive call with darken OFF paints only the crop slice [opVisTop, +visH).
+        cropViewportCanvas(opCtx, src, tailH, blank, total, tile, tileDir,
+                           false, 0, 0, opVisTop, visH, ds);
+        ctx.drawImage(opScratch, 0, 0);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // ── Virtualized viewport plumbing ──
+  // The viewport canvas is `position: sticky; top: 0` so it stays pinned to the
+  // top of the scroll pane while the (tall) stage scrolls behind it. Only the
+  // visible output rows are painted into its (small) backing each frame.
+  //
+  // Scale relationship between logical output px and CSS display px:
+  //   displayW = min(paneW, outW)         (canvas is width-fit then height-auto)
+  //   scale    = displayW / outW           (CSS px per logical px)
+  //   visH     = ceil(paneH / scale)       (logical rows that fill the viewport)
+  //   spacerH  = total * scale             (full logical height, in CSS px)
+  //   visTop   = scrollTop / scale         (top logical row currently in view)
+
+  // Paint the viewport slice into the on-screen canvas. Returns the visH used.
+  // In full-fit mode the whole logical output is rendered (downsampled via ds so
+  // the backing stays small); in width-fit mode only the scrolled viewport is
+  // painted at full logical resolution (ds=1, crisp).
+  function paintViewport(shown, srcCanvas, t, total) {
+    const outW = srcCanvas.width;
+    const previewEl = shown.closest('.tint-preview');
+    const paneW = previewEl ? previewEl.clientWidth : outW;
+    const paneH = previewEl ? previewEl.clientHeight : 400;
+
+    let bw, bh, cssW, cssH, ds, visTop, visH;
+    if (previewFullFit) {
+      // Whole output fits the pane; downsample so the backing is small.
+      const fit = Math.min(paneW / outW, paneH / total);
+      ds = fit;
+      bw = Math.max(1, Math.round(outW * ds));
+      bh = Math.max(1, Math.round(total * ds));
+      cssW = bw; cssH = bh;
+      visTop = 0; visH = total;
+    } else {
+      const displayW = Math.min(paneW, outW);
+      const scale = displayW / outW;
+      ds = 1;                                 // width-fit: render at full resolution
+      visH = Math.max(1, Math.ceil((paneH + 2) / scale));
+      const scrollTop = previewEl ? previewEl.scrollTop : 0;
+      visTop = Math.max(0, scrollTop / scale);
+      bw = outW; bh = visH;
+      cssW = displayW; cssH = paneH;
+    }
+
+    if (shown.width !== bw || shown.height !== bh) {
+      shown.width = bw; shown.height = bh;
+    }
+    // Force the canvas CSS size to the viewport (override height:auto /
+    // maxWidth so our explicit sticky layout wins).
+    shown.style.width = cssW + 'px';
+    shown.style.height = cssH + 'px';
+    shown.style.maxWidth = 'none';
+    shown.style.maxHeight = 'none';
+    shown.style.position = 'sticky';
+    shown.style.top = '0';
+
+    const ctx = shown.getContext('2d');
+    ctx.clearRect(0, 0, bw, bh);
+    cropViewportCanvas(ctx, srcCanvas,
+      +t.cropA || 0, +t.cropB || 0, total, !!t.cropTile, t.cropTileDir,
+      isDarkening(t), +t.darkenD || 0, Math.max(0, Math.min(1, (+t.darkenOpacity || 0) / 100)),
+      visTop, visH, ds);
+    return visH;
+  }
+
+  // Size the stage (spacer) so the scrollbar reflects the full logical height,
+  // and re-measure the visible viewport scale (pane may have resized). Returns
+  // the displayed total CSS height. In full-fit the stage is exactly the pane
+  // height (no scrolling); in width-fit it is the full logical output height.
+  function layoutVirtualStage(stage, srcCanvas, total) {
+    const outW = srcCanvas.width;
+    const previewEl = stage.closest('.tint-preview');
+    const paneW = previewEl ? previewEl.clientWidth : outW;
+    const paneH = previewEl ? previewEl.clientHeight : 400;
+    let spacerH;
+    if (previewFullFit) {
+      const fit = Math.min(paneW / outW, paneH / total);
+      spacerH = total * fit;
+    } else {
+      const displayW = Math.min(paneW, outW);
+      const scale = displayW / outW;
+      spacerH = total * scale;
+    }
+    stage.style.height = spacerH + 'px';
+    return spacerH;
+  }
+
+  // Should this op's crop/darken preview be viewport-virtualized? Only when crop
+  // (or its derived darken) is on AND the logical output exceeds the threshold —
+  // small outputs render the whole canvas directly (no virtualization needed).
+  function shouldVirtualize(t, img) {
+    if (!t || !t.cropEnabled || !img) return false;
+    const cropOutH = Math.max(1, Math.round(+t.cropC || 32800));
+    return cropOutH > VIRTUALIZE_THRESHOLD;
+  }
+
+  // Re-layout the spacer + repaint the viewport of an ALREADY-built virtualized
+  // preview (used by scroll, pane resize, and fit-toggle). No-op if the preview
+  // is not currently virtualized.
+  function repaintVirtual(previewEl) {
+    if (!vpActive) return false;
+    const shown = previewEl && previewEl.querySelector('.tint-preview__canvas');
+    const stage = previewEl && previewEl.querySelector('.tint-preview__stage');
+    if (!shown || !stage || !shown._vpSrc) return false;
+    const t = sel();
+    if (!t) return false;
+    const total = Math.max(1, Math.round(+t.cropC || 32800));
+    // Keep the scroll mode in sync with the current fit (applyPreviewFit is
+    // virtualization-aware and calls back into us, so set overflow directly).
+    previewEl.style.overflow = previewFullFit ? 'hidden' : 'auto';
+    layoutVirtualStage(stage, shown._vpSrc, total);
+    paintViewport(shown, shown._vpSrc, t, total);
+    relayoutGuideIndent(stage, t, total);
+    return true;
+  }
+
   // Render one frame. Tint-only uses the WebGL path (fast, smooth live dragging).
   // When crop or darken is enabled we fall back to the canvas2D pipeline — its
   // drawImage scaling produced cleaner results than the GL shader for the crop
@@ -395,9 +745,17 @@
     // canvas2D path (crop/darken, or WebGL unavailable).
     // Release any GL renderer bound to this canvas before using its 2D context.
     if (shown._glRenderer) { try { shown._glRenderer.destroy(); } catch (_) {} shown._glRenderer = null; }
+    // Clear any leftover virtual-viewport layout (sticky positioning etc.) so a
+    // live drag that crosses the threshold back to a full render lays out inline.
     shown.style.width = '';
     shown.style.height = '';
     shown.style.aspectRatio = '';
+    shown.style.position = '';
+    shown.style.top = '';
+    shown.style.maxWidth = '';
+    shown.style.maxHeight = '';
+    shown._vpSrc = null;
+    shown._vpSig = null;
     let canvas = document.createElement('canvas');
     canvas.width = outW; canvas.height = srcH;
     canvas.getContext('2d').drawImage(img, 0, 0);
@@ -429,6 +787,31 @@
       if (live) {
         const liveCanvas = previewEl.querySelector('.tint-preview__canvas');
         if (liveCanvas) {
+          // Virtualized live update: the source canvas is cached on the canvas
+          // element; just re-layout the spacer + repaint the viewport (cheap).
+          if (vpActive && liveCanvas._vpSrc && shouldVirtualize(t, img)) {
+            // If the tinted SOURCE changed (mode/source swap while crop is on),
+            // rebuild the cached source canvas before repainting. The tint COLOR
+            // is NOT in the sig: when tint is on and GL is available, the source
+            // is re-rasterised every paint via a uniform update (cheap), so a
+            // color drag repaints without rebuilding the (expensive) JS source.
+            const sig = tintSourceSig(img, t);
+            const glTint = t.tintEnabled && window.GlPreview;
+            if (glTint || liveCanvas._vpSig !== sig) {
+              liveCanvas._vpSrc = buildTintedSource(img, t, liveCanvas);
+              liveCanvas._vpSig = sig;
+            }
+            const total = Math.max(1, Math.round(+t.cropC || 32800));
+            const stage = previewEl.querySelector('.tint-preview__stage');
+            if (stage) {
+              const guide = stage.querySelector('.tint-guide');
+              if (guide) guide.replaceWith(buildGuide(t, total));
+              layoutVirtualStage(stage, liveCanvas._vpSrc, total);
+              paintViewport(liveCanvas, liveCanvas._vpSrc, t, total);
+              relayoutGuideIndent(stage, t, total);
+            }
+            return;
+          }
           const outH = drawProcessed(liveCanvas, img, t, t.source);
           if (t.cropEnabled) {
             const stage = previewEl.querySelector('.tint-preview__stage');
@@ -456,23 +839,49 @@
       stage.className = 'tint-preview__stage';
       const shown = document.createElement('canvas');
       shown.className = 'tint-preview__canvas';
-      const outH = drawProcessed(shown, img, t, t.source);
-      applyPreviewFit(shown, previewEl);
-      stage.appendChild(shown);
-      // Percy LN guide lines: mark blank / top / extended-bottom heights.
-      if (t.cropEnabled) {
-        const total = outH || 1;
+
+      // ── Virtualized crop/darken path: sticky viewport canvas + tall spacer. ──
+      // Renders only the visible output rows each frame (and on scroll), keeping
+      // the canvas2D backing small regardless of cropC. Falls back to the full
+      // canvas render below when the output fits the threshold (small cropC).
+      if (shouldVirtualize(t, img)) {
+        vpActive = true;
+        const srcCanvas = buildTintedSource(img, t, shown);
+        shown._vpSrc = srcCanvas;
+        shown._vpSig = tintSourceSig(img, t);
+        const total = Math.max(1, Math.round(+t.cropC || 32800));
+        previewEl.style.overflow = previewFullFit ? 'hidden' : 'auto';
+        stage.appendChild(shown);
         const guide = buildGuide(t, total);
         stage.appendChild(guide);
-      }
-      wrap.appendChild(stage);
-      previewEl.appendChild(wrap);
-      // Re-measure indents AFTER the stage is in the DOM, so the displayed
-      // height (post-fit) is real — otherwise getBoundingClientRect() returns 0
-      // and every label collapses onto one line.
-      if (t.cropEnabled) {
-        const total = outH || 1;
+        wrap.appendChild(stage);
+        previewEl.appendChild(wrap);
+        // Paint must run AFTER the stage is in the DOM (paintViewport measures
+        // the pane). Spacer layout first so the scrollbar is correct.
+        layoutVirtualStage(stage, srcCanvas, total);
+        paintViewport(shown, srcCanvas, t, total);
         relayoutGuideIndent(stage, t, total);
+        bindVirtualScroll(previewEl);
+      } else {
+        vpActive = false;
+        const outH = drawProcessed(shown, img, t, t.source);
+        applyPreviewFit(shown, previewEl);
+        stage.appendChild(shown);
+        // Percy LN guide lines: mark blank / top / extended-bottom heights.
+        if (t.cropEnabled) {
+          const total = outH || 1;
+          const guide = buildGuide(t, total);
+          stage.appendChild(guide);
+        }
+        wrap.appendChild(stage);
+        previewEl.appendChild(wrap);
+        // Re-measure indents AFTER the stage is in the DOM, so the displayed
+        // height (post-fit) is real — otherwise getBoundingClientRect() returns 0
+        // and every label collapses onto one line.
+        if (t.cropEnabled) {
+          const total = outH || 1;
+          relayoutGuideIndent(stage, t, total);
+        }
       }
       if (fadeOnChange) {
         previewEl.classList.remove(FADE);
@@ -480,6 +889,21 @@
         previewEl.classList.add(FADE);
       }
     } catch (_) { /* ignore */ }
+  }
+
+  // Bind (once per scroll container) a passive scroll listener that repaints the
+  // virtualized viewport on a rAF. No-op when not virtualized or in full-fit.
+  function bindVirtualScroll(previewEl) {
+    if (!previewEl || previewEl._vpScrollBound) return;
+    previewEl._vpScrollBound = true;
+    previewEl.addEventListener('scroll', () => {
+      if (!vpActive || previewFullFit) return;
+      if (vpScrollFrame) return;
+      vpScrollFrame = requestAnimationFrame(() => {
+        vpScrollFrame = 0;
+        repaintVirtual(previewEl);
+      });
+    }, { passive: true });
   }
 
   // schedulePreview(live): live updates (color drag) are coalesced on a rAF and
@@ -973,9 +1397,14 @@
           const canvas = previewEl.querySelector('.tint-preview__canvas');
           if (canvas) applyPreviewFit(canvas, previewEl);
           // Re-measure guide indents now that the canvas has its new display size.
-          const stage = previewEl.querySelector('.tint-preview__stage');
-          const t = sel();
-          if (stage && t && t.cropEnabled) relayoutGuideIndent(stage, t, canvas.height);
+          // (Virtualized previews are fully re-laid-out inside applyPreviewFit →
+          // repaintVirtual, so skip the manual call there — canvas.height would be
+          // the viewport height, not the full logical height, in that mode.)
+          if (!vpActive) {
+            const stage = previewEl.querySelector('.tint-preview__stage');
+            const t = sel();
+            if (stage && t && t.cropEnabled) relayoutGuideIndent(stage, t, canvas.height);
+          }
           lastClick = 0;
         } else {
           lastClick = now;
@@ -992,9 +1421,11 @@
             const canvas = previewEl.querySelector('.tint-preview__canvas');
             if (!canvas) return;
             applyPreviewFit(canvas, previewEl);
-            const stage = previewEl.querySelector('.tint-preview__stage');
-            const t = sel();
-            if (stage && t && t.cropEnabled) relayoutGuideIndent(stage, t, canvas.height);
+            if (!vpActive) {
+              const stage = previewEl.querySelector('.tint-preview__stage');
+              const t = sel();
+              if (stage && t && t.cropEnabled) relayoutGuideIndent(stage, t, canvas.height);
+            }
           });
         };
         new ResizeObserver(onResize).observe(previewEl);
