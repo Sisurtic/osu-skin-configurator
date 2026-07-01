@@ -124,42 +124,6 @@ npm run version:check    # check only (no writes)
 
 ---
 
-## Changelog
-
-### v1.0.1
-
-**New features**
-- **Image editor tab** — a tint → crop → darken pipeline with a real-time WebGL tint preview. Generate long-note (Percy LN) slider bodies from a short source via crop + tile, with on-canvas guide lines for the tail / blank / extended body. Per-source tint color and blend mode, plus an optional darken stage.
-- **Preview image sequences & animated images** — pick multiple frames as an image sequence (with an FPS input; `-1` plays all frames within 1 second, like osu!'s `AnimationFramerate`), or use animated GIF / APNG / WebP. Works in both edit mode and the use-mode hover panel.
-- **Compact `config.osp` storage** — disabled stages are dropped; enabled stages keep their full parameter set. A migration script (`scripts/migrate-osp.{js,bat}`) converts older pretty-printed files.
-
-**Performance**
-- Image processing parallelized with rayon: crop went from ~5.6s to ~2.5ms; tint and darken now run in parallel. Release builds use `opt-level = 3`.
-
-**Apply dialog & toasts**
-- Unified single/multi apply into one dialog with a three-group summary (INI edits / file moves / image edits). The success toast shows a compact `[INI×N, files×N, image×N]` summary.
-- Toasts are click-to-dismiss with a parabolic toss animation.
-
-**UI polish**
-- HSV color picker repositioned to the left of its trigger.
-- Disabled stages dim their controls; preset list gains edge-fade overlays; Tab cycling now reaches the edit-FPS button.
-- Distinct destination-path placeholders for file moves vs. image edits.
-
-**Bug fixes**
-- `FPS = -1` now persists (previously clamped to 12).
-- Switching from a sequence preset to an image preset no longer leaks the sequence preview; the first click on a sequence preset now shows its preview. Replaced the per-`<img>` timer with a single shared timer guarded by a view-generation token.
-- Fixed the top edge-fade gap; marked a non-passive wheel listener as passive.
-- Stale sequence fields no longer persist when switching back to a single image.
-
-**Project**
-- `package.json` is now the single source of truth for the version; a pre-commit hook keeps `Cargo.toml` and `tauri.conf.json` in sync (see [Versioning](#versioning)).
-
-### v1.0.0
-
-- Initial release.
-
----
-
 ## License
 
 MIT © Citrusis
