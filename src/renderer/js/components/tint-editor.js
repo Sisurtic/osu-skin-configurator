@@ -787,6 +787,15 @@
       if (live) {
         const liveCanvas = previewEl.querySelector('.tint-preview__canvas');
         if (liveCanvas) {
+          // If the output is huge (shouldVirtualize) but the viewport-virtualized
+          // state isn't ready yet (e.g. cropC just crossed the threshold from a
+          // small value), do NOT fall through to drawProcessed — it would build
+          // an outW×cropC backing (fails / goes blank past the canvas size limit,
+          // ~65536). Force a full rebuild instead, which sets up virtualization.
+          if (shouldVirtualize(t, img) && !(vpActive && liveCanvas._vpSrc)) {
+            recomputePreview(false);
+            return;
+          }
           // Virtualized live update: the source canvas is cached on the canvas
           // element; just re-layout the spacer + repaint the viewport (cheap).
           if (vpActive && liveCanvas._vpSrc && shouldVirtualize(t, img)) {
