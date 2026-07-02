@@ -8,6 +8,12 @@
     "initFailed": "應用初始化失敗: {msg}",
     "unknownError": "未知錯誤"
   },
+  "titlebar": {
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "restore": "還原",
+    "close": "關閉"
+  },
   "sidebar": {
     "skins": "📁 皮膚列表",
     "currentSkin": "🎨 目前皮膚",
@@ -69,13 +75,14 @@
     "upToDate": "已是最新版本",
     "checkFailedRetry": "檢查失敗,請稍後再試",
     "checkFailed": "檢查失敗",
-    "updateAvailable": "發現新版本 {ver},點擊更新將下載並執行安裝程式",
+    "updateAvailable": "發現新版本 {ver}",
     "dotTooltip": "發現新版本 {ver},點擊更新"
   },
   "update": {
     "downloadFailed": "下載更新失敗",
     "downloadFailedDetail": "下載更新失敗: {msg}",
-    "downloaded": "已下載到 {name}，請關閉程式後替換舊 exe"
+    "downloaded": "已下載到 {name}，請關閉程式後替換舊 exe",
+    "downloadCancelled": "取消下載"
   },
   "apply": {
     "confirmTitle": "確認套用預設",

@@ -20,6 +20,7 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-store = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-decorum = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 indexmap = { version = "2", features = ["serde"] }
@@ -30,7 +31,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 rayon = "1"
 # Used only for the GitHub update check + installer download.
 # rustls-tls-native-roots uses Windows system root certs (no OpenSSL needed).
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "stream"] }
+futures-util = "0.3"
 # OS locale detection for backend-side i18n.
 sys-locale = "0.3"
 

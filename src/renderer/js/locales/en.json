@@ -8,6 +8,12 @@
     "initFailed": "Initialization failed: {msg}",
     "unknownError": "Unknown error"
   },
+  "titlebar": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close"
+  },
   "sidebar": {
     "skins": "📁 Skins",
     "currentSkin": "🎨 Current skin",
@@ -69,13 +75,14 @@
     "upToDate": "You are on the latest version",
     "checkFailedRetry": "Check failed, please try again later",
     "checkFailed": "Check failed",
-    "updateAvailable": "New version {ver} found — click to download and run the installer",
+    "updateAvailable": "New version {ver} found",
     "dotTooltip": "New version {ver} available — click to update"
   },
   "update": {
     "downloadFailed": "Update download failed",
     "downloadFailedDetail": "Update download failed: {msg}",
-    "downloaded": "Downloaded to {name}. Close this app and replace the old exe."
+    "downloaded": "Downloaded to {name}. Close this app and replace the old exe.",
+    "downloadCancelled": "Cancel download"
   },
   "apply": {
     "confirmTitle": "Confirm applying preset",

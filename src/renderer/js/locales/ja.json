@@ -8,6 +8,12 @@
     "initFailed": "初期化に失敗しました: {msg}",
     "unknownError": "不明なエラー"
   },
+  "titlebar": {
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "restore": "元に戻す",
+    "close": "閉じる"
+  },
   "sidebar": {
     "skins": "📁 スキン一覧",
     "currentSkin": "🎨 現在のスキン",
@@ -69,13 +75,14 @@
     "upToDate": "最新のバージョンです",
     "checkFailedRetry": "確認に失敗しました。後でもう一度お試しください",
     "checkFailed": "確認に失敗しました",
-    "updateAvailable": "新バージョン {ver} があります。クリックするとインストーラーをダウンロードして実行します",
+    "updateAvailable": "新バージョン {ver} があります",
     "dotTooltip": "新バージョン {ver} があります — クリックして更新"
   },
   "update": {
     "downloadFailed": "更新のダウンロードに失敗しました",
     "downloadFailedDetail": "更新のダウンロードに失敗しました: {msg}",
-    "downloaded": "{name} にダウンロードしました。アプリを閉じて古い exe を置き換えてください。"
+    "downloaded": "{name} にダウンロードしました。アプリを閉じて古い exe を置き換えてください。",
+    "downloadCancelled": "ダウンロードをキャンセル"
   },
   "apply": {
     "confirmTitle": "プリセット適用の確認",

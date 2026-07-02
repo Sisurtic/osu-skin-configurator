@@ -14,13 +14,25 @@
 <body>
   <div class="app-shell">
 
-    <!-- Title Bar -->
-    <header class="titlebar">
+    <!-- Title Bar. data-tauri-drag-region makes the bar draggable + double-click
+         maximizes (Tauri native). The decorum control buttons inside opt out
+         automatically (data-tauri-drag-region doesn't cascade to children), so
+         they stay clickable. -->
+    <header class="titlebar" data-tauri-drag-region>
       <div class="titlebar__title">
-        <span class="titlebar__dot"></span>
+        <span class="titlebar__dot">
+          <span class="titlebar__dot-core"></span>
+          <svg class="titlebar__ring" viewBox="0 0 16 16" aria-hidden="true">
+            <!-- The progress arc. Each revolution it breathes: extends from the
+                 real progress toward a full circle, then retracts back. Spun +
+                 colored by JS. -->
+            <circle class="titlebar__ring-head" cx="8" cy="8" r="6" />
+          </svg>
+        </span>
         <span data-i18n="app.title">osu! Skin Configurator</span>
       </div>
-      <span class="titlebar__version" id="app-version"></span>
+      <!-- tauri-plugin-decorum injects the minimize/maximize/close buttons here. -->
+      <div class="titlebar__controls" data-tauri-decorum-tb></div>
     </header>
 
     <!-- Toolbar -->

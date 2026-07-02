@@ -12,9 +12,10 @@
   height: var(--titlebar-height);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
-  padding: 0 12px;
-  /* No -webkit-app-region: drag — dragging is handled in JS via
-     startDragging() so double-click can be suppressed (no maximize). */
+  padding: 0 0 0 12px;
+  /* No -webkit-app-region: drag here — on WebView2 it swallows clicks on child
+     buttons. Window dragging + double-click-maximize are wired imperatively in
+     app.js (startDragging / toggleMaximize on mousedown of the bar background). */
 }
 .titlebar__title {
   display: flex;
@@ -25,17 +26,24 @@
   color: var(--text-secondary);
 }
 .titlebar__dot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.titlebar__dot-core {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--accent);
+  transition: transform 0.25s ease, opacity 0.2s ease, background 0.2s ease;
 }
 /* Update-available state: orange dot with expanding ring pulse. */
-.titlebar__dot--update {
+.titlebar__dot--update .titlebar__dot-core {
   background: #e0a040;
   position: relative;
 }
-.titlebar__dot--update::before {
+.titlebar__dot--update .titlebar__dot-core::before {
   content: '';
   position: absolute;
   inset: -2px;
@@ -47,10 +55,33 @@
   0%   { transform: scale(0.6); opacity: 0.8; }
   100% { transform: scale(1.8); opacity: 0; }
 }
-.titlebar__version {
-  font-size: 11px;
-  color: var(--text-muted);
+
+/* ── Window controls (injected by tauri-plugin-decorum) ──
+   decorum injects three buttons (minimize/maximize/close) into the
+   [data-tauri-decorum-tb] element. The titlebar is `justify-content:
+   space-between`, so .titlebar__controls sits flush right. */
+.titlebar__controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  flex-shrink: 0;
+}
+button.decorum-tb-btn {
+  width: 46px;
+  height: var(--titlebar-height);
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
   -webkit-app-region: no-drag;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+button.decorum-tb-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+button#decorum-tb-close:hover {
+  background: var(--danger);
+  color: #fff;
 }
 
 /* ── Toolbar ── */

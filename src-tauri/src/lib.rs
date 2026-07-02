@@ -14,9 +14,14 @@ mod preset_manager;
 mod skin_scanner;
 
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_decorum::WebviewWindowExt; // custom titlebar helpers (hide native decoration, keep native resize frame)
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+/// Set by `cancel_update_download` to abort the in-flight download stream.
+static DOWNLOAD_CANCEL: AtomicBool = AtomicBool::new(false);
 
 /// Pending .osp skin name from cold-start argv (drained one-shot by
 /// app_get_open_file).
@@ -376,7 +381,11 @@ fn parse_semver(s: &str) -> (u32, u32, u32) {
 fn gh_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent("osu-skin-configurator-updater")
-        .timeout(std::time::Duration::from_secs(10))
+        // Only the CONNECT phase gets a short timeout; the body read must be
+        // allowed to take as long as the download needs (release exe ~5MB over a
+        // slow link can exceed 10s). A whole-request timeout aborts streaming
+        // mid-download → a truncated file + "download read failed".
+        .connect_timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| format!("client build failed: {}", e))
 }
@@ -449,20 +458,70 @@ async fn download_and_run_latest_release(app: AppHandle) -> Value {
         None => return wrap_ok(json!("cancelled")),
     };
 
-    // Download to the chosen path.
+    // Stream the download to disk, emitting progress events so the UI can show
+    // a progress bar. Falls back to a single write if streaming fails.
     let dl_resp = match client.get(&asset.browser_download_url).send().await {
         Ok(r) => r,
         Err(_) => return wrap_err("download failed"),
     };
-    let content = match dl_resp.bytes().await {
-        Ok(b) => b,
-        Err(_) => return wrap_err("download read failed"),
+    let total = dl_resp.content_length().unwrap_or(0); // 0 = unknown
+    let mut file = match std::fs::File::create(&dest) {
+        Ok(f) => f,
+        Err(_) => return wrap_err("write failed"),
+    };
+    use std::io::Write;
+    let mut downloaded: u64 = 0;
+    let mut streamed_ok = true;
+    let mut cancelled = false;
+    DOWNLOAD_CANCEL.store(false, Ordering::SeqCst);
+    let mut stream = dl_resp.bytes_stream();
+    use futures_util::StreamExt;
+    while let Some(chunk) = stream.next().await {
+        if DOWNLOAD_CANCEL.load(Ordering::SeqCst) {
+            cancelled = true;
+            break;
+        }
+        match chunk {
+            Ok(bytes) => {
+                if file.write_all(&bytes).is_err() {
+                    streamed_ok = false;
+                    break;
+                }
+                downloaded = downloaded.saturating_add(bytes.len() as u64);
+                let _ = app.emit("update-download-progress", json!({
+                    "downloaded": downloaded,
+                    "total": total,
+                }));
+            }
+            Err(_) => { streamed_ok = false; break; }
+        }
+    }
+    if cancelled {
+        drop(file);
+        let _ = std::fs::remove_file(&dest);   // delete the partial download
+        return wrap_ok(json!("cancelled"));
+    }
+    if streamed_ok {
+        let _ = app.emit("update-download-progress", json!({ "done": true, "downloaded": downloaded, "total": total }));
+        return wrap_ok(json!(dest.to_string_lossy().to_string()));
+    }
+    // Fallback: streaming failed mid-way — re-fetch and write in one shot.
+    drop(file);
+    let content = match client.get(&asset.browser_download_url).send().await {
+        Ok(r) => match r.bytes().await { Ok(b) => b, Err(_) => return wrap_err("download read failed") },
+        Err(_) => return wrap_err("download failed"),
     };
     if std::fs::write(&dest, &content).is_err() {
         return wrap_err("write failed");
     }
-
     wrap_ok(json!(dest.to_string_lossy().to_string()))
+}
+
+/// Cancel an in-flight update download (the stream loop checks DOWNLOAD_CANCEL).
+#[tauri::command]
+fn cancel_update_download() -> Value {
+    DOWNLOAD_CANCEL.store(true, Ordering::SeqCst);
+    wrap_ok(json!(true))
 }
 
 // ── .osp argv parsing ──
@@ -500,9 +559,18 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_decorum::init())
         .manage(PendingOsp(Mutex::new(None)))
         .manage(global_shortcut::State::default())
         .setup(|app| {
+            // Custom titlebar: on Windows this hides the native decoration and
+            // injects custom window-control buttons (decorum-tb-*), while KEEPING
+            // the native resize frame — so edge-drag resizing stays smooth
+            // (OS-driven WS_THICKFRAME), unlike a decorations:false window whose
+            // JS resize loop makes the right edge flicker when dragging the left.
+            if let Some(main_window) = app.get_webview_window("main") {
+                let _ = main_window.create_overlay_titlebar();
+            }
             // cold-start .osp argv
             let mut found: Option<String> = None;
             for a in std::env::args().skip(1) {
@@ -543,7 +611,7 @@ pub fn run() {
             image_get_preview,
             shortcuts_load, shortcuts_save,
             global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_reload,
-            app_get_open_file, app_get_version, check_latest_release, download_and_run_latest_release, locales_list,
+            app_get_open_file, app_get_version, check_latest_release, download_and_run_latest_release, cancel_update_download, locales_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

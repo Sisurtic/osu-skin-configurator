@@ -69,7 +69,8 @@
       ]);
 
       if (versionResult.success && versionResult.data) {
-        const versionEl = document.getElementById('app-version');
+        // Version now lives in the About dialog (titlebar shows window controls).
+        const versionEl = document.getElementById('info-version');
         if (versionEl) versionEl.textContent = 'v' + versionResult.data;
       }
 
@@ -529,7 +530,8 @@
 
   function updateModeButton() {
     const mode = state.get('appMode');
-    btnToggleMode.textContent = mode === 'use' ? i18n.t('mode.use') : i18n.t('mode.edit');
+    // The button shows the mode you'll switch TO (not the current one).
+    btnToggleMode.textContent = mode === 'use' ? i18n.t('mode.edit') : i18n.t('mode.use');
     btnToggleMode.title = mode === 'use' ? i18n.t('mode.switchToEdit') : i18n.t('mode.switchToUse');
   }
 
@@ -841,7 +843,21 @@
             if (first) first.focus();
           }
         } else if (!editorVisible) {
+          // Use mode: cycle Tab through the focusable toolbar / sidebar /
+          // preset-grid controls (browser default would also work, but a scoped
+          // loop keeps focus inside the app instead of escaping to the body).
           e.preventDefault();
+          const focusable = document.querySelectorAll(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          );
+          const els = Array.from(focusable).filter(el => el.offsetParent !== null);
+          if (els.length > 0) {
+            const current = els.indexOf(document.activeElement);
+            const next = e.shiftKey
+              ? (current <= 0 ? els.length - 1 : current - 1)
+              : (current >= els.length - 1 ? 0 : current + 1);
+            els[next].focus();
+          }
         }
       }
     }

@@ -8,6 +8,12 @@
     "initFailed": "초기화 실패: {msg}",
     "unknownError": "알 수 없는 오류"
   },
+  "titlebar": {
+    "minimize": "최소화",
+    "maximize": "최대화",
+    "restore": "복원",
+    "close": "닫기"
+  },
   "sidebar": {
     "skins": "📁 스킨 목록",
     "currentSkin": "🎨 현재 스킨",
@@ -69,13 +75,14 @@
     "upToDate": "최신 버전입니다",
     "checkFailedRetry": "확인 실패, 나중에 다시 시도해 주세요",
     "checkFailed": "확인 실패",
-    "updateAvailable": "새 버전 {ver}이(가) 있습니다 — 클릭하여 설치 파일을 다운로드하고 실행",
+    "updateAvailable": "새 버전 {ver}이(가) 있습니다",
     "dotTooltip": "새 버전 {ver} 사용 가능 — 클릭하여 업데이트"
   },
   "update": {
     "downloadFailed": "업데이트 다운로드 실패",
     "downloadFailedDetail": "업데이트 다운로드 실패: {msg}",
-    "downloaded": "{name}에 다운로드했습니다. 앱을 닫고 이전 exe를 교체하세요."
+    "downloaded": "{name}에 다운로드했습니다. 앱을 닫고 이전 exe를 교체하세요.",
+    "downloadCancelled": "다운로드 취소"
   },
   "apply": {
     "confirmTitle": "프리셋 적용 확인",

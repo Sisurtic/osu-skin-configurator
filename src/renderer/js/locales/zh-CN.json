@@ -8,6 +8,12 @@
     "initFailed": "应用初始化失败: {msg}",
     "unknownError": "未知错误"
   },
+  "titlebar": {
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "restore": "还原",
+    "close": "关闭"
+  },
   "sidebar": {
     "skins": "📁 皮肤列表",
     "currentSkin": "🎨 当前皮肤",
@@ -69,13 +75,14 @@
     "upToDate": "已是最新版本",
     "checkFailedRetry": "检查失败，请稍后再试",
     "checkFailed": "检查失败",
-    "updateAvailable": "发现新版本 {ver}，点击更新将下载并运行安装程序",
+    "updateAvailable": "发现新版本 {ver}",
     "dotTooltip": "发现新版本 {ver}，点击更新"
   },
   "update": {
     "downloadFailed": "下载更新失败",
     "downloadFailedDetail": "下载更新失败: {msg}",
-    "downloaded": "已下载到 {name}，请关闭程序后替换旧 exe"
+    "downloaded": "已下载到 {name}，请关闭程序后替换旧 exe",
+    "downloadCancelled": "取消下载"
   },
   "apply": {
     "confirmTitle": "确认应用预设",

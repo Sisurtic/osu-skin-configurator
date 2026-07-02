@@ -386,6 +386,53 @@ select.form-input {
   font-weight: 600;
   margin-bottom: 16px;
 }
+
+/* ── Update dot / loading ring (titlebar) ──
+   The yellow dot (update available) and the circular loading ring (downloading)
+   share the same anchor. On download start the dot shrinks+fades out, then the
+   ring scales+fades in. The ring grows with download progress AND spins on its
+   own (non-linear, eased) so it reads as "working" even before bytes move. */
+.titlebar__dot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+/* Ring: small + thick. Hidden until --downloading. The whole SVG spins, and
+   the inner arcs' dasharray (set by JS) grow the arc = progress. */
+.titlebar__ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.titlebar__dot--downloading .titlebar__dot-core {
+  transform: scale(0);
+  opacity: 0;
+  transition: transform 0.25s ease, opacity 0.2s ease;
+}
+/* Fade in; the SVG is spun by JS (rAF, accumulating 340°/revolution so each
+   revolution's start angle continues from the previous — no per-loop reset
+   "snap"). Color graduates yellow→green via JS on both arcs. */
+.titlebar__dot--downloading .titlebar__ring {
+  opacity: 1;
+}
+.titlebar__ring-head {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  /* stroke (color) + stroke-dasharray + stroke-dashoffset set by JS — a CSS
+     stroke value would override the JS attribute and the yellow→green progress
+     gradient would never show. */
+}
+
 .modal__body {
   color: var(--text-secondary);
   font-size: 13px;

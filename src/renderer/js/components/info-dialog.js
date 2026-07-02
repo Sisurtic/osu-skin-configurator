@@ -33,9 +33,6 @@
 
   function open() {
     if (!overlay || !overlay.hidden) return;
-    const v = document.getElementById('app-version');
-    const target = document.getElementById('info-version');
-    if (target) target.textContent = v ? v.textContent : '';
     overlay.hidden = false;
     overlay.classList.remove('info-overlay--closing');
     spawnParticles();
@@ -53,7 +50,12 @@
 
   if (titleEl) {
     titleEl.style.cursor = 'pointer';
-    titleEl.addEventListener('click', open);
+    // Open About on title click — but NOT when the click lands on the update
+    // dot/ring (that's the update-download control, handled in update-check.js).
+    titleEl.addEventListener('click', (e) => {
+      if (e.target.closest('.titlebar__dot')) return;
+      open();
+    });
   }
   if (closeBtn) closeBtn.addEventListener('click', close);
 
