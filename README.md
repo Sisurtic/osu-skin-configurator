@@ -20,7 +20,8 @@ A desktop tool for creating **presets** of osu! skin changes and switching betwe
 | 🖱️ **Drag-and-drop editing** | Drag presets into groups, drag to delete, Ctrl+C duplicate, Ctrl+G smart grouping |
 | 🖼️ **Image editor** | Tint → crop → darken pipeline with real-time WebGL tint preview; build long-note (Percy LN) slider bodies from a short source |
 | 🔧 **Rebindable shortcuts** | All in-app actions (refresh, mode toggle, save, new, etc.) have customizable hotkeys |
-| 🔄 **Auto-update** | Checks GitHub for new releases on startup, one-click download and upgrade |
+| 🪟 **Borderless window** | Custom titlebar with native resize frame; drag to move, double-click to maximize, Windows 11 Snap Layout |
+| 🔄 **Auto-update** | Checks GitHub for new releases on startup; one-click download with a live progress ring on the titlebar dot (right-click to cancel) |
 | 📎 **`.osp` file association** | Double-click a skin's `config.osp` to open it directly |
 
 ### Two modes
