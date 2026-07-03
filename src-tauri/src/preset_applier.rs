@@ -244,6 +244,13 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
             };
             orow[..stride].copy_from_slice(src_row_bytes);
         });
+        // Clear the bottom output row (transparent). osu! draws the LN body up
+        // to but not including the very last row; leaving it set would extend
+        // the body one row past the intended cropC height.
+        if out_h > 0 {
+            let last = (out_h - 1) * stride;
+            for b in &mut out[last .. last + stride] { *b = 0; }
+        }
         // Wrap into RgbaImage (dimensions = w × out_h).
         rgba = image::ImageBuffer::from_raw(w as u32, out_h as u32, out.into_vec()).unwrap_or(rgba);
         _t_crop = _ts.elapsed();
