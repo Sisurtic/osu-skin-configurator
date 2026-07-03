@@ -244,13 +244,6 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
             };
             orow[..stride].copy_from_slice(src_row_bytes);
         });
-        // Clear the bottom output row (transparent). osu! draws the LN body up
-        // to but not including the very last row; leaving it set would extend
-        // the body one row past the intended cropC height.
-        if out_h > 0 {
-            let last = (out_h - 1) * stride;
-            for b in &mut out[last .. last + stride] { *b = 0; }
-        }
         // Wrap into RgbaImage (dimensions = w × out_h).
         rgba = image::ImageBuffer::from_raw(w as u32, out_h as u32, out.into_vec()).unwrap_or(rgba);
         _t_crop = _ts.elapsed();
@@ -304,6 +297,20 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
         });
         rgba = out;
         eprintln!("[tint perf] darken: {:.2?}", _ts.elapsed());
+    }
+
+    // Clear the bottom row of the final image (transparent). Done AFTER darken
+    // because darken shifts content down by `shift` rows and would otherwise
+    // re-fill a row cleared at crop time. osu! draws the LN body up to but not
+    // including the very last row; this keeps the body exactly at cropC height.
+    {
+        let (cw, ch) = rgba.dimensions();
+        if ch > 0 {
+            let stride = (cw as usize) * 4;
+            let last = (ch as usize - 1) * stride;
+            let buf = rgba.as_mut();
+            for b in &mut buf[last .. last + stride] { *b = 0; }
+        }
     }
 
     // Encode PNG with zune-png (much faster than `image`'s deflate for large
