@@ -190,7 +190,7 @@
 
     // WebGL caps texture size and canvas drawing-buffer size (commonly 16384).
     // We clamp to the GPU's reported limit so very tall crop outputs (cropC
-    // default 32800) and huge @2x sources still render — the shader maps
+    // default 32768) and huge @2x sources still render — the shader maps
     // fragments into the full output space via u_outH, so a clamped canvas is
     // just a smaller-resolution rendering.
     const MAX = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 16384;

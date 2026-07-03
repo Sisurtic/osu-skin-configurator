@@ -28,7 +28,7 @@
   const FADE = 'tint-preview--fade';
   const MODES = ['multiply', 'lightness', 'screen', 'overlay', 'replace'];
   // Above this logical output height the canvas2D backing would be too large to
-  // repaint per frame (e.g. cropC=32800 → ~8M px → ~200ms/clear+drawImage). We
+  // repaint per frame (e.g. cropC=32768 → ~8M px → ~200ms/clear+drawImage). We
   // instead render only the visible viewport (sticky canvas) and keep a spacer
   // the size of the full logical output to drive the scrollbar. Below it the
   // whole canvas is small enough to render directly (no virtualization needed).
@@ -218,7 +218,7 @@
       ${stageBlock('percy', cropOn, i18n.t('edit.stagePercy'), `
         ${field(i18n.t('edit.cropA') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-a"${dis(cropOn)} value="${t.cropA || 0}">`, i18n.t('edit.cropAHint'))}
         ${field(i18n.t('edit.cropB') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-b"${dis(cropOn)} value="${t.cropB || 0}">`)}
-        ${field(i18n.t('edit.cropC') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-c"${dis(cropOn)} value="${t.cropC || 32800}">`)}
+        ${field(i18n.t('edit.cropC') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-c"${dis(cropOn)} value="${t.cropC || 32768}">`)}
         ${field(i18n.t('edit.cropTile'), `<div style="display:flex;align-items:center;gap:6px;width:100%;min-height:32px"><label class="toggle crop-tile-toggle${cropOn ? '' : ' is-disabled'}"><input type="checkbox" class="crop-tile"${dis(cropOn)} ${t.cropTile ? 'checked' : ''}><span class="toggle__slider"></span></label><button type="button" class="crop-tile-dir${tileDirCls}"${dis(cropOn)} title="${escapeHtml(tileDirTitle)}">${tileDirIcon}</button></div>`)}
         <div class="stage__sep"></div>
         ${field(i18n.t('edit.darkenD') + ' (px)', `<input type="number" min="0" step="1" class="form-input darken-d"${dis(cropOn)} value="${t.darkenD || 0}">`)}
@@ -681,7 +681,7 @@
   // small outputs render the whole canvas directly (no virtualization needed).
   function shouldVirtualize(t, img) {
     if (!t || !t.cropEnabled || !img) return false;
-    const cropOutH = Math.max(1, Math.round(+t.cropC || 32800));
+    const cropOutH = Math.max(1, Math.round(+t.cropC || 32768));
     return cropOutH > VIRTUALIZE_THRESHOLD;
   }
 
@@ -695,7 +695,7 @@
     if (!shown || !stage || !shown._vpSrc) return false;
     const t = sel();
     if (!t) return false;
-    const total = Math.max(1, Math.round(+t.cropC || 32800));
+    const total = Math.max(1, Math.round(+t.cropC || 32768));
     // Keep the scroll mode in sync with the current fit (applyPreviewFit is
     // virtualization-aware and calls back into us, so set overflow directly).
     previewEl.style.overflow = previewFullFit ? 'hidden' : 'auto';
@@ -713,7 +713,7 @@
     const srcW = img.naturalWidth, srcH = img.naturalHeight;
     const cropOn = !!t.cropEnabled;
     const darkenOn = isDarkening(t);
-    const cropOutH = Math.max(1, Math.round(+t.cropC || 32800));
+    const cropOutH = Math.max(1, Math.round(+t.cropC || 32768));
     const outW = srcW;
     const outH = cropOn ? cropOutH : srcH;
     const tc = parseColorUniforms(t.color);
@@ -760,7 +760,7 @@
     canvas.width = outW; canvas.height = srcH;
     canvas.getContext('2d').drawImage(img, 0, 0);
     if (t.tintEnabled) canvas = tintCanvas(canvas, t.color, t.mode);
-    if (cropOn) canvas = cropCanvas(canvas, +t.cropA || 0, +t.cropB || 0, +t.cropC || 32800, !!t.cropTile, t.cropTileDir);
+    if (cropOn) canvas = cropCanvas(canvas, +t.cropA || 0, +t.cropB || 0, +t.cropC || 32768, !!t.cropTile, t.cropTileDir);
     if (darkenOn) canvas = darkenCanvas(canvas, +t.darkenD || 0, +t.darkenOpacity || 0);
     if (shown.width !== canvas.width || shown.height !== canvas.height) {
       shown.width = canvas.width; shown.height = canvas.height;
@@ -810,7 +810,7 @@
               liveCanvas._vpSrc = buildTintedSource(img, t, liveCanvas);
               liveCanvas._vpSig = sig;
             }
-            const total = Math.max(1, Math.round(+t.cropC || 32800));
+            const total = Math.max(1, Math.round(+t.cropC || 32768));
             const stage = previewEl.querySelector('.tint-preview__stage');
             if (stage) {
               const guide = stage.querySelector('.tint-guide');
@@ -858,7 +858,7 @@
         const srcCanvas = buildTintedSource(img, t, shown);
         shown._vpSrc = srcCanvas;
         shown._vpSig = tintSourceSig(img, t);
-        const total = Math.max(1, Math.round(+t.cropC || 32800));
+        const total = Math.max(1, Math.round(+t.cropC || 32768));
         previewEl.style.overflow = previewFullFit ? 'hidden' : 'auto';
         stage.appendChild(shown);
         const guide = buildGuide(t, total);
@@ -1463,7 +1463,7 @@
         } else if (stage === 'percy') {
           if (anchor.cropEnabled) {
             // Turning crop OFF → reset the whole crop/darken block to defaults.
-            applyToTargets({ cropEnabled: false, cropA: 0, cropB: 0, cropC: 32800, cropTile: false, cropTileDir: 'down', darkenD: 0, darkenOpacity: 0 });
+            applyToTargets({ cropEnabled: false, cropA: 0, cropB: 0, cropC: 32768, cropTile: false, cropTileDir: 'down', darkenD: 0, darkenOpacity: 0 });
           } else {
             applyToTargets({ cropEnabled: true });
           }
@@ -1553,7 +1553,7 @@
     return {
       source: relPath, color: '255,255,255,255', mode: 'multiply', destination: '',
       tintEnabled: false,
-      cropEnabled: false, cropA: 0, cropB: 0, cropC: 32800, cropTile: false, cropTileDir: 'down',
+      cropEnabled: false, cropA: 0, cropB: 0, cropC: 32768, cropTile: false, cropTileDir: 'down',
       darkenEnabled: false, darkenD: 0, darkenOpacity: 0,
     };
   }

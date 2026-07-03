@@ -21,7 +21,7 @@
       destination: t.destination || '',
       tintEnabled: !!t.tintEnabled,
       cropEnabled: !!t.cropEnabled,
-      cropA: +t.cropA || 0, cropB: +t.cropB || 0, cropC: +t.cropC || 32800,
+      cropA: +t.cropA || 0, cropB: +t.cropB || 0, cropC: +t.cropC || 32768,
       cropTile: !!t.cropTile, cropTileDir: t.cropTileDir === 'up' ? 'up' : 'down',
       darkenEnabled: !!t.cropEnabled && (+t.darkenOpacity || 0) > 0,
       darkenD: +t.darkenD || 0, darkenOpacity: +t.darkenOpacity || 0,
@@ -275,7 +275,7 @@
             o.cropEnabled = true;
             o.cropA = +t.cropA || 0;
             o.cropB = +t.cropB || 0;
-            o.cropC = +t.cropC || 32800;
+            o.cropC = +t.cropC || 32768;
             o.cropTile = !!t.cropTile;
             o.cropTileDir = t.cropTileDir === 'up' ? 'up' : 'down';
             o.darkenD = +t.darkenD || 0;

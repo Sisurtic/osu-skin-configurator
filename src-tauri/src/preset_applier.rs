@@ -428,7 +428,7 @@ fn apply_one_set(
             crop_enabled: tint.get("cropEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
             crop_a: tint.get("cropA").and_then(|v| v.as_f64()).unwrap_or(0.0),
             crop_b: tint.get("cropB").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            crop_c: tint.get("cropC").and_then(|v| v.as_f64()).unwrap_or(32800.0),
+            crop_c: tint.get("cropC").and_then(|v| v.as_f64()).unwrap_or(32768.0),
             crop_tile: tint.get("cropTile").and_then(|v| v.as_bool()).unwrap_or(false),
             crop_tile_dir: tint.get("cropTileDir").and_then(|v| v.as_str()).unwrap_or("down").to_string(),
             darken_enabled: tint.get("darkenEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
