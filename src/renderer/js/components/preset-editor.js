@@ -293,7 +293,6 @@
       // IPC-level failure (command not registered, arg serialization, backend
       // panic). Without this catch the rejected promise surfaces as "no reaction,
       // no toast", which is impossible to debug.
-      console.error('[doSave] savePreset threw:', err);
       Toast.error(i18n.t('preset.saveFailed', { msg: (err && (err.message || String(err))) || i18n.t('app.unknownError') }));
       return false;
     }

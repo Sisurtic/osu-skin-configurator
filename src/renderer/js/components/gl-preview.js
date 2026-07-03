@@ -232,7 +232,6 @@
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     } catch (e) {
-      console.error('gl-preview init failed:', e);
       return null;
     }
 

@@ -140,7 +140,6 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
         i
     };
     let mut rgba = img.to_rgba8();
-    let (w0, h0) = rgba.dimensions();
 
     // Stage 1: tint (parallelized across pixel rows via rayon).
     let mut _t_tint = std::time::Duration::ZERO;
@@ -296,7 +295,7 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
             }
         });
         rgba = out;
-        eprintln!("[tint perf] darken: {:.2?}", _ts.elapsed());
+        let _ = _ts.elapsed();
     }
 
     // Clear the bottom row of the final image (transparent). Done AFTER darken
@@ -327,8 +326,7 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
     use image::ImageEncoder;
     let r = enc.write_image(raw, w, h, image::ExtendedColorType::Rgba8)
         .map_err(|e| e.to_string());
-    eprintln!("[tint perf] src {}x{} -> out {}x{} | decode {:.2?} | tint {:.2?} | crop {:.2?} | png {:.2?} | total {:.2?}",
-        w0, h0, rgba.width(), rgba.height(), _t_decode, _t_tint, _t_crop, _ts.elapsed(), _t0.elapsed());
+    let _ = (_t_decode, _t_tint, _t_crop, _ts.elapsed(), _t0.elapsed());
     r
 }
 

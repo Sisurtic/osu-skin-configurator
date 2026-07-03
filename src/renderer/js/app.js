@@ -139,7 +139,6 @@
         }
       }
     } catch (err) {
-      console.error('init failed:', err);
       if (window.Toast && typeof window.Toast.error === 'function') {
         window.Toast.error(i18n.t('app.initFailed', { msg: (err && (err.message || String(err)) || i18n.t('app.unknownError')) }));
       }
@@ -439,7 +438,6 @@
             if (!ok) return;
           }
         } catch (e) {
-          console.error('save before mode switch failed:', e);
           return;
         }
       } else if (choice === 'discard') {
