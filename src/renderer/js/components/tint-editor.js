@@ -611,7 +611,13 @@
     const outW = srcCanvas.width;
     const previewEl = shown.closest('.tint-preview');
     const paneW = previewEl ? previewEl.clientWidth : outW;
-    const paneH = previewEl ? previewEl.clientHeight : 400;
+    // The pane has no size while its tab is hidden (clientWidth=0). Painting now
+    // would compute scale=0 → visH=Infinity → a broken canvas. Skip; the caller
+    // re-paints once the tab is shown (ResizeObserver / rAF / scroll).
+    if (paneW <= 0) return 0;
+    // clientHeight can be 0 on first render before layout settles. Fall back to
+    // a sane default so the viewport canvas gets a real height.
+    const paneH = (previewEl && previewEl.clientHeight > 0) ? previewEl.clientHeight : 400;
 
     let bw, bh, cssW, cssH, ds, visTop, visH;
     if (previewFullFit) {
@@ -662,7 +668,7 @@
     const outW = srcCanvas.width;
     const previewEl = stage.closest('.tint-preview');
     const paneW = previewEl ? previewEl.clientWidth : outW;
-    const paneH = previewEl ? previewEl.clientHeight : 400;
+    const paneH = (previewEl && previewEl.clientHeight > 0) ? previewEl.clientHeight : 400;
     let spacerH;
     if (previewFullFit) {
       const fit = Math.min(paneW / outW, paneH / total);
@@ -871,6 +877,16 @@
         paintViewport(shown, srcCanvas, t, total);
         relayoutGuideIndent(stage, t, total);
         bindVirtualScroll(previewEl);
+        // On first open the pane may not have a measured height yet (clientHeight
+        // 0 → canvas painted at 0 height → sticky-scroll dead). Re-paint next
+        // frame once layout has settled.
+        requestAnimationFrame(() => {
+          if (vpActive && shown._vpSrc) {
+            layoutVirtualStage(stage, shown._vpSrc, total);
+            paintViewport(shown, shown._vpSrc, t, total);
+            relayoutGuideIndent(stage, t, total);
+          }
+        });
       } else {
         vpActive = false;
         const outH = drawProcessed(shown, img, t, t.source);
