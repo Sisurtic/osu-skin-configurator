@@ -152,7 +152,7 @@
     "tabTint": "圖像編輯"
   },
   "group": {
-    "movedOut": "已將 {count} 個預設移出分組",
+    "movedOut": "已將 {count} 個預設移至根層級",
     "movedToRoot": "已將分組移至根層級",
     "cannotMoveIntoChild": "不能將父分組移動到其子分組內部",
     "moveFailed": "移動分組失敗: {msg}",

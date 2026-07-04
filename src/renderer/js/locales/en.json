@@ -152,7 +152,7 @@
     "tabTint": "Image edit"
   },
   "group": {
-    "movedOut": "Moved {count} preset(s) out of the group",
+    "movedOut": "Moved {count} preset(s) to the root level",
     "movedToRoot": "Moved group to the root level",
     "cannotMoveIntoChild": "A parent group cannot be moved into its own child group",
     "moveFailed": "Move group failed: {msg}",

@@ -375,6 +375,91 @@
           el.style.removeProperty('--drop-indent');
           el.classList.remove('preset-tree__group--drop-target');
         });
+        const dl = document.getElementById('__group_drop_line');
+        if (dl) dl.style.display = 'none';
+      });
+
+      // Per-header drop: reorder a group BEFORE/AFTER this group (same-level
+      // position), as opposed to dropping on the group body (nest into it).
+      const getGroupLine = () => {
+        let line = document.getElementById('__group_drop_line');
+        if (!line) {
+          line = document.createElement('div');
+          line.id = '__group_drop_line';
+          line.className = 'preset-drop-line-overlay';
+          document.body.appendChild(line);
+        }
+        return line;
+      };
+      header.addEventListener('dragover', (e) => {
+        if (!dragGroupId) return;
+        // Block dropping onto own descendant or self
+        const groups = state.get('groups') || [];
+        if (isDescendantOfGroup(groups, dragGroupId, parseInt(header.dataset.groupId, 10))) return;
+        const r = header.getBoundingClientRect();
+        const before = (e.clientY - r.top) < r.height / 2;
+        if (!before) return; // lower half → let the group-body nest handler take over
+        // Upper half = insert before this group (same-level reorder).
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        const line = getGroupLine();
+        line.style.display = '';
+        line.style.left = r.left + 'px';
+        line.style.width = r.width + 'px';
+        line.style.top = (before ? r.top : r.bottom) + 'px';
+      });
+      header.addEventListener('dragleave', () => {
+        const line = document.getElementById('__group_drop_line');
+        if (line) line.style.display = 'none';
+      });
+      header.addEventListener('drop', async (e) => {
+        if (!dragGroupId) return;
+        const groups = state.get('groups') || [];
+        if (isDescendantOfGroup(groups, dragGroupId, parseInt(header.dataset.groupId, 10))) return;
+        const r = header.getBoundingClientRect();
+        const before = (e.clientY - r.top) < r.height / 2;
+        if (!before) return; // lower half → let group-body nest handler drop
+        e.preventDefault();
+        e.stopPropagation();
+        const line = document.getElementById('__group_drop_line');
+        if (line) line.style.display = 'none';
+        const targetGroupId = parseInt(header.dataset.groupId, 10);
+        if (dragGroupId === targetGroupId) return;
+        // Find target group's parent and its index among siblings.
+        const skin = state.get('selectedSkin');
+        if (!skin) return;
+        // Determine target's parent + child index.
+        let targetParentId = null;
+        let targetChildIdx = -1;
+        for (const g of groups) {
+          const idx = g.children.findIndex(c => c.type === 'group' && c.id === targetGroupId);
+          if (idx >= 0) { targetParentId = g.id; targetChildIdx = idx; break; }
+        }
+        if (targetChildIdx < 0) {
+          // Target is at root — find in rootGroupIds.
+          const rootGroupIds = state.get('rootGroupIds') || [];
+          targetChildIdx = rootGroupIds.indexOf(targetGroupId);
+        }
+        if (targetChildIdx < 0) return;
+        // `before` already computed above (upper half only reaches here).
+        let insertIdx = targetChildIdx;
+        // Same-parent adjust: move_group removes source first.
+        // Check if drag group is in the same parent and before the target.
+        const checkSameParent = (parentId) => {
+          if (parentId === null) {
+            const rootGroupIds = state.get('rootGroupIds') || [];
+            const srcIdx = rootGroupIds.indexOf(dragGroupId);
+            return srcIdx >= 0 && srcIdx < insertIdx;
+          }
+          const pg = groups.find(g => g.id === parentId);
+          if (!pg) return false;
+          const srcIdx = pg.children.findIndex(c => c.type === 'group' && c.id === dragGroupId);
+          return srcIdx >= 0 && srcIdx < insertIdx;
+        };
+        if (checkSameParent(targetParentId)) insertIdx = Math.max(0, insertIdx - 1);
+        await api.moveGroup(skin, dragGroupId, targetParentId, insertIdx);
+        refreshSkinData(skin);
       });
     });
 
@@ -514,22 +599,25 @@
         if (!skin) return;
 
         if (dragPresetIds && dragPresetIds.length > 0) {
-          // Only move + toast when the preset actually came FROM a group
-          // (dragSourceGroupId !== null). Root-to-root drops on empty space are
-          // a no-op (already at root) — don't re-append to end or show "moved out".
-          if (dragSourceGroupId === null) return;
           const movedCount = dragPresetIds.length;
+          const fromGroup = dragSourceGroupId !== null;
           for (const pid of dragPresetIds) {
             await api.movePresetGroup(skin, pid, null);
           }
           await refreshSkinData(skin);
           multiSelected.clear();
           updateMultiSelectHighlights();
-          Toast.info(i18n.t('group.movedOut', { count: movedCount }));
+          if (fromGroup) {
+            Toast.info(i18n.t('group.movedOut', { count: movedCount }));
+          }
         } else if (dragGroupId) {
+          const rootGroupIds = state.get('rootGroupIds') || [];
+          const alreadyRoot = rootGroupIds.includes(dragGroupId);
           await api.moveGroup(skin, dragGroupId, null);
           await refreshSkinData(skin);
-          Toast.info(i18n.t('group.movedToRoot'));
+          if (!alreadyRoot) {
+            Toast.info(i18n.t('group.movedToRoot'));
+          }
         }
       });
     }

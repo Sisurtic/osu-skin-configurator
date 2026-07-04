@@ -152,7 +152,7 @@
     "tabTint": "이미지 편집"
   },
   "group": {
-    "movedOut": "프리셋 {count}개를 그룹 밖으로 이동했습니다",
+    "movedOut": "프리셋 {count}개를 루트로 이동했습니다",
     "movedToRoot": "그룹을 루트로 이동했습니다",
     "cannotMoveIntoChild": "부모 그룹은 자신의 하위 그룹 안으로 이동할 수 없습니다",
     "moveFailed": "그룹 이동 실패: {msg}",

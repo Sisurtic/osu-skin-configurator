@@ -152,7 +152,7 @@
     "tabTint": "画像編集"
   },
   "group": {
-    "movedOut": "{count} 個のプリセットをグループから移出しました",
+    "movedOut": "{count} 個のプリセットをルート階層に移動しました",
     "movedToRoot": "グループをルート階層に移動しました",
     "cannotMoveIntoChild": "親グループを自身の子グループ内に移動できません",
     "moveFailed": "グループの移動に失敗しました: {msg}",
