@@ -69,13 +69,24 @@
     for (const g of groups) collectPresets(g.children);
     const orphanPresets = presets.filter(p => !presetsInTree.has(p.id));
 
+    // Root presets: ordered by rootPresetIds (the user's drag order); any orphan
+    // not in rootPresetIds is appended as a fallback (data inconsistency).
+    const rootPresetIds = state.get('rootPresetIds') || [];
+    const rootPresetIdSet = new Set(rootPresetIds);
+    const orderedRootPresets = rootPresetIds
+      .map(id => presetMap.get(id))
+      .filter(Boolean);
+    for (const p of orphanPresets) {
+      if (!rootPresetIdSet.has(p.id)) orderedRootPresets.push(p);
+    }
+
     // Build root children HTML
     let html = '';
 
-    // Render orphan presets at root level (before groups)
-    if (orphanPresets.length > 0) {
+    // Render root presets (ordered) at root level (before groups)
+    if (orderedRootPresets.length > 0) {
       html += '<div class="preset-tree-root">';
-      for (const p of orphanPresets) {
+      for (const p of orderedRootPresets) {
         html += renderPresetNode(p, selectedPreset, 0);
       }
       html += '</div>';
@@ -224,8 +235,89 @@
           el.style.removeProperty('--drop-indent');
           el.classList.remove('preset-tree__group--drop-target');
         });
+        const dl = document.getElementById('__preset_drop_line');
+        if (dl) dl.style.display = 'none';
         dragPresetIds = null;
         dragSourceGroupId = null;
+      });
+
+      // ── Per-item drop target: insert before/after this preset (in-group
+      // reorder + cross-group positioned move). stopPropagation so the group-
+      // level drop handler (append-to-end) does NOT also fire.
+      const clearDropLine = () => {
+        const line = document.getElementById('__preset_drop_line');
+        if (line) line.style.display = 'none';
+      };
+      item.addEventListener('dragover', (e) => {
+        if (!dragPresetIds) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        const r = item.getBoundingClientRect();
+        const before = (e.clientY - r.top) < r.height / 2;
+        let line = document.getElementById('__preset_drop_line');
+        if (!line) {
+          line = document.createElement('div');
+          line.id = '__preset_drop_line';
+          line.className = 'preset-drop-line-overlay';
+          document.body.appendChild(line);
+        }
+        line.style.display = '';
+        line.style.left = r.left + 'px';
+        line.style.width = r.width + 'px';
+        line.style.top = (before ? r.top : r.bottom) + 'px';
+      });
+      item.addEventListener('dragleave', clearDropLine);
+      item.addEventListener('drop', async (e) => {
+        if (!dragPresetIds) return;
+        const groupEl = item.closest('.preset-tree__group');
+        e.preventDefault();
+        e.stopPropagation();
+        clearDropLine();
+        const targetId = parseInt(item.dataset.id, 10);
+        const r = item.getBoundingClientRect();
+        const before = (e.clientY - r.top) < r.height / 2;
+        const skin = state.get('selectedSkin');
+        if (!skin) return;
+        const srcGroupId = dragSourceGroupId; // snapshot before any await (dragend may null it)
+        const movedCount = dragPresetIds ? dragPresetIds.length : 0;
+        if (groupEl) {
+          // In-group: index in the group's `children` array (presets + sub-
+          // groups interleaved — NOT DOM order).
+          const targetGroupId = parseInt(groupEl.dataset.groupId, 10);
+          const groups = state.get('groups') || [];
+          const targetGroup = groups.find(g => g.id === targetGroupId);
+          const children = (targetGroup && targetGroup.children) || [];
+          const childIdx = children.findIndex(c => c.type === 'preset' && c.id === targetId);
+          if (childIdx < 0) return;
+          let insertIdx = before ? childIdx : childIdx + 1;
+          for (const pid of dragPresetIds) {
+            if (dragSourceGroupId === targetGroupId) {
+              const srcIdx = children.findIndex(c => c.type === 'preset' && c.id === pid);
+              if (srcIdx >= 0 && srcIdx < insertIdx) insertIdx = Math.max(0, insertIdx - 1);
+            }
+            await api.movePresetGroup(skin, pid, targetGroupId, insertIdx);
+            insertIdx++;
+          }
+        } else {
+          // Root: index in rootPresetIds (targetGroupId = null).
+          const rootPresetIds = state.get('rootPresetIds') || [];
+          const childIdx = rootPresetIds.indexOf(targetId);
+          let insertIdx = before ? childIdx : childIdx + 1;
+          for (const pid of dragPresetIds) {
+            if (srcGroupId === null) {
+              const srcIdx = rootPresetIds.indexOf(pid);
+              if (srcIdx >= 0 && srcIdx < insertIdx) insertIdx = Math.max(0, insertIdx - 1);
+            }
+            await api.movePresetGroup(skin, pid, null, insertIdx);
+            insertIdx++;
+          }
+          // "Moved out of group" toast when the source was a group (not root-to-root).
+          if (srcGroupId !== null) {
+            Toast.info(i18n.t('group.movedOut', { count: movedCount }));
+          }
+        }
+        await refreshSkinData(skin);
       });
     });
 
@@ -422,13 +514,18 @@
         if (!skin) return;
 
         if (dragPresetIds && dragPresetIds.length > 0) {
+          // Only move + toast when the preset actually came FROM a group
+          // (dragSourceGroupId !== null). Root-to-root drops on empty space are
+          // a no-op (already at root) — don't re-append to end or show "moved out".
+          if (dragSourceGroupId === null) return;
+          const movedCount = dragPresetIds.length;
           for (const pid of dragPresetIds) {
             await api.movePresetGroup(skin, pid, null);
           }
           await refreshSkinData(skin);
           multiSelected.clear();
           updateMultiSelectHighlights();
-          Toast.info(i18n.t('group.movedOut', { count: dragPresetIds.length }));
+          Toast.info(i18n.t('group.movedOut', { count: movedCount }));
         } else if (dragGroupId) {
           await api.moveGroup(skin, dragGroupId, null);
           await refreshSkinData(skin);
@@ -593,6 +690,7 @@
         presets: scanResult.data.presets,
         groups: scanResult.data.groups,
         rootGroupIds: scanResult.data.rootGroupIds,
+        rootPresetIds: scanResult.data.rootPresetIds,
       });
     }
   }

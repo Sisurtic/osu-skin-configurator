@@ -135,6 +135,7 @@
             presets: presetsResult.data.presets,
             groups: presetsResult.data.groups,
             rootGroupIds: presetsResult.data.rootGroupIds,
+            rootPresetIds: presetsResult.data.rootPresetIds,
           });
         }
       }
@@ -330,6 +331,7 @@
           presets: result.data.presets,
           groups: result.data.groups,
           rootGroupIds: result.data.rootGroupIds,
+            rootPresetIds: result.data.rootPresetIds,
         });
       }
     }
@@ -468,6 +470,7 @@
           presets: result.data.presets,
           groups: result.data.groups,
           rootGroupIds: result.data.rootGroupIds,
+            rootPresetIds: result.data.rootPresetIds,
         });
       }
     }

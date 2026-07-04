@@ -12,6 +12,11 @@
   // Last actions array reference rendered — handed to OpTable.maybeResetSelection
   // so selection is reset only on a real data change, not on sort/delete re-renders.
   let lastActionsRef = null;
+  // Persist Section/Key/ManiaKeys selection across re-renders (add/delete/value
+  // edit). Only empty on first app load.
+  let lastSection = '';
+  let lastKey = '';
+  let lastManiaKeys = '';
 
   function init(getter, setter, skPathFn) {
     getActions = getter;
@@ -39,9 +44,17 @@
           for (const i of indicesDesc) updated.splice(i, 1);
           setActions(updated);
           Toast.info(i18n.t('ini.deleted', { n: indicesDesc.length }));
-          // Re-render the CURRENT #tab-ini node. preset-editor may have rebuilt
-          // this node since the OpTable instance was created, so the `container`
-          // captured in this closure could be detached — always look up the live node.
+          render(document.getElementById('tab-ini'));
+        },
+        isGroupMemberRow: (row) => !!row.dataset.groupParent,
+        reorder: (fromIndices, toIndex) => {
+          const actions = getActions ? getActions() : [];
+          const { arr, insertAt, count } = OpTable.reorderArray(actions, fromIndices, toIndex);
+          setActions(arr);
+          const ns = new Set();
+          for (let i = 0; i < count; i++) ns.add(insertAt + i);
+          sel.setSelected(ns, insertAt);
+          lastActionsRef = arr;
           render(document.getElementById('tab-ini'));
         },
       });
@@ -177,7 +190,7 @@
       keyDropdown.querySelectorAll('.ini-combo__option').forEach(opt => {
         opt.addEventListener('mousedown', (e) => {
           e.preventDefault(); // prevent blur on input
-          keyInput.value = opt.dataset.key;
+          keyInput.value = opt.dataset.key; lastKey = keyInput.value;
           keyActiveIndex = -1;
           closeDropdown();
         });
@@ -200,6 +213,7 @@
 
     secSelect.addEventListener('change', () => {
       const sec = secSelect.value;
+      lastSection = sec;
       if (sec === 'Mania') {
         maniaKeysRow.style.display = '';
       } else {
@@ -208,8 +222,15 @@
       updateKeyDropdown();
     });
 
+    // Persist Mania keys value.
+    const maniaKeysInputEl = container.querySelector('#ini-mania-keys-custom');
+    if (maniaKeysInputEl) {
+      maniaKeysInputEl.addEventListener('input', () => { lastManiaKeys = maniaKeysInputEl.value; });
+    }
+
     // Input: filter & show dropdown
     keyInput.addEventListener('input', () => {
+      lastKey = keyInput.value;
       const filtered = filterFields(keyInput.value);
       keyActiveIndex = -1;
       renderDropdown(filtered);
@@ -242,18 +263,18 @@
       } else if (e.key === 'Enter' && isOpen) {
         e.preventDefault();
         if (keyActiveIndex >= 0 && keyActiveIndex < filtered.length) {
-          keyInput.value = filtered[keyActiveIndex].key;
+          keyInput.value = filtered[keyActiveIndex].key; lastKey = keyInput.value;
         } else if (filtered.length === 1) {
-          keyInput.value = filtered[0].key;
+          keyInput.value = filtered[0].key; lastKey = keyInput.value;
         }
         keyActiveIndex = -1;
         closeDropdown();
       } else if (e.key === 'Tab' && keyInput.value && isOpen) {
         e.preventDefault();
         if (keyActiveIndex >= 0 && keyActiveIndex < filtered.length) {
-          keyInput.value = filtered[keyActiveIndex].key;
+          keyInput.value = filtered[keyActiveIndex].key; lastKey = keyInput.value;
         } else if (filtered.length > 0) {
-          keyInput.value = filtered[0].key;
+          keyInput.value = filtered[0].key; lastKey = keyInput.value;
         }
         keyActiveIndex = -1;
         closeDropdown();
@@ -262,7 +283,7 @@
         const all = filterFields(keyInput.value);
         if (all.length > 0) {
           e.preventDefault();
-          keyInput.value = all[0].key;
+          keyInput.value = all[0].key; lastKey = keyInput.value;
         }
       } else if (e.key === 'Escape' && isOpen) {
         keyActiveIndex = -1;
@@ -287,7 +308,7 @@
       } else {
         curIdx = curIdx <= 0 ? all.length - 1 : curIdx - 1;
       }
-      keyInput.value = all[curIdx].key;
+      keyInput.value = all[curIdx].key; lastKey = keyInput.value;
       keyActiveIndex = curIdx;
       renderDropdown(filterFields(keyInput.value));
     }, { passive: false });
@@ -732,6 +753,12 @@
       requestAnimationFrame(updateFade);
       setTimeout(updateFade, 300);
     }
+
+    // Restore Section/Key/ManiaKeys AFTER all event handlers are bound (so the
+    // dispatched 'change' sets currentFields; without it key validation fails).
+    if (lastSection) {
+      restoreSelection(container, lastSection, lastKey, lastManiaKeys);
+    }
   }
 
   function convertToSkinIniPath(fullPath, skinPath, edit, field) {
@@ -783,8 +810,12 @@
     return edit.section;
   }
 
-  // Restore selection state after render() rebuilds the DOM
+  // Restore selection state after render() rebuilds the DOM. Also persists to
+  // module-level so ANY re-render (not just add/delete) can restore.
   function restoreSelection(container, section, key, maniaKeys) {
+    if (section) lastSection = section;
+    if (key) lastKey = key;
+    if (maniaKeys) lastManiaKeys = maniaKeys;
     const newSec = container.querySelector('#ini-section-select');
     const newKey = container.querySelector('#ini-key-input');
     const newManiaKeys = container.querySelector('#ini-mania-keys-custom');

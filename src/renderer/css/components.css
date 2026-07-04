@@ -999,6 +999,15 @@ select.form-input {
 .row--dragging {
   opacity: 0.4;
 }
+/* Drop-to-reorder indicator: a fixed-position accent line overlay (drawn at
+   the row boundary, never inserted into the table → no reflow / no jitter). */
+.op-drop-line-overlay {
+  position: fixed;
+  height: 0;
+  z-index: 9999;
+  pointer-events: none;
+  border-top: 2px solid var(--accent);
+}
 .editor-delete-zone {
   user-select: none;
 }
@@ -1335,6 +1344,15 @@ select.form-input {
 }
 .preset-tree__item--dragging {
   opacity: 0.3;
+}
+/* Drop-to-reorder indicator: fixed-position accent line overlay for the preset
+   tree (never inserted into the DOM tree → no reflow / no jitter). */
+.preset-drop-line-overlay {
+  position: fixed;
+  height: 0;
+  z-index: 9999;
+  pointer-events: none;
+  border-top: 2px solid var(--accent);
 }
 .preset-tree__item-icon {
   font-size: 12px;

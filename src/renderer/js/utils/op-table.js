@@ -182,6 +182,12 @@
           e.preventDefault();
           return;
         }
+        // Group MEMBER rows can't be dragged (no reordering inside a group, no
+        // dragging out). Only plain rows and group headers start a drag.
+        if (typeof A.isGroupMemberRow === 'function' && A.isGroupMemberRow(row)) {
+          e.preventDefault();
+          return;
+        }
         const members = A.rowMembers(row);
         const fullySelected = members.length > 0 && members.every(m => selectedIndices.has(m));
         if (!fullySelected) {
@@ -204,7 +210,65 @@
       });
       row.addEventListener('dragend', () => {
         root().querySelectorAll(A.rowSelector).forEach(r => r.classList.remove(draggingClass));
+        const line = document.getElementById('__op_drop_line');
+        if (line) line.style.display = 'none';
       });
+
+      // ── Drop-to-reorder: this row is a drop target (parallel to the delete
+      // zone). Upper half of the row → insert before it; lower half → after.
+      // Group member rows are NOT reorder targets (no changing in-group order).
+      if (typeof A.reorder === 'function') {
+        const isMember = typeof A.isGroupMemberRow === 'function';
+        // A single fixed-position overlay line — drawn ABOVE the table, never
+        // inserted into it, so it can't trigger a reflow or make rows jitter.
+        const getLine = () => {
+          let line = document.getElementById('__op_drop_line');
+          if (!line) {
+            line = document.createElement('div');
+            line.id = '__op_drop_line';
+            line.className = 'op-drop-line-overlay';
+            document.body.appendChild(line);
+          }
+          return line;
+        };
+        const hideLine = () => {
+          const line = document.getElementById('__op_drop_line');
+          if (line) line.style.display = 'none';
+        };
+        row.addEventListener('dragover', (e) => {
+          const raw = e.dataTransfer.types.includes(A.deleteMimeType);
+          if (!raw) return;
+          if (isMember && A.isGroupMemberRow(row)) return; // members: no reorder drop
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          const r = row.getBoundingClientRect();
+          const before = (e.clientY - r.top) < r.height / 2;
+          const line = getLine();
+          line.style.display = '';
+          line.style.left = r.left + 'px';
+          line.style.width = r.width + 'px';
+          line.style.top = (before ? r.top : r.bottom) + 'px';
+        });
+        row.addEventListener('dragleave', hideLine);
+        row.addEventListener('drop', (e) => {
+          const raw = e.dataTransfer.getData(A.deleteMimeType);
+          hideLine();
+          if (!raw) return;
+          if (isMember && A.isGroupMemberRow(row)) return;
+          e.preventDefault();
+          let from;
+          try { from = JSON.parse(raw); } catch (_) { return; }
+          if (!Array.isArray(from) || from.length === 0) return;
+          const r = row.getBoundingClientRect();
+          const before = (e.clientY - r.top) < r.height / 2;
+          const anchor = A.rowAnchor(row);
+          // Insert before the anchor row, or after its last member.
+          const toIndex = before ? anchor : anchor + A.rowMembers(row).length;
+          // No-op if dropping onto itself (anchor inside the dragged set).
+          if (from.includes(anchor)) return;
+          A.reorder(from, toIndex);
+        });
+      }
     }
 
     function bindDeleteZone(zoneEl) {
@@ -290,5 +354,26 @@
     return val.slice(0, slash + 1) + stem + srcBase.slice(sDot);
   }
 
-  window.OpTable = { create, escapeHtml, pathBasename, appendSrcExt };
+  // Reorder `arr`: move the items at `fromIndices` (in original-array positions)
+  // so they land at `toIndex` (original-array position, "insert before this row"
+  // semantics). Returns { arr: NEW array, insertAt: start index of the moved
+  // block in the new array, count: how many were moved }. `toIndex` is adjusted
+  // for the removed items. fromIndices need not be contiguous (multi-select /
+  // whole-group block).
+  function reorderArray(arr, fromIndices, toIndex) {
+    const set = new Set(fromIndices);
+    const moved = arr.filter((_, i) => set.has(i));           // preserve order
+    const rest = arr.filter((_, i) => !set.has(i));
+    // Map original toIndex → index in `rest` (subtract removed items before it).
+    const sortedFrom = [...fromIndices].sort((a, b) => a - b);
+    let removedBefore = 0;
+    for (const f of sortedFrom) { if (f < toIndex) removedBefore++; else break; }
+    let target = toIndex - removedBefore;
+    if (target < 0) target = 0;
+    if (target > rest.length) target = rest.length;
+    rest.splice(target, 0, ...moved);
+    return { arr: rest, insertAt: target, count: moved.length };
+  }
+
+  window.OpTable = { create, escapeHtml, pathBasename, appendSrcExt, reorderArray };
 })();

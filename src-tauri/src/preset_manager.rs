@@ -37,6 +37,8 @@ pub struct Config {
     pub next_group_id: i64,
     #[serde(rename = "rootGroupIds", default)]
     pub root_group_ids: Vec<i64>,
+    #[serde(rename = "rootPresetIds", default)]
+    pub root_preset_ids: Vec<i64>,
     #[serde(default)]
     pub groups: Vec<Group>,
     #[serde(default)]
@@ -47,7 +49,7 @@ fn d1() -> i64 { 1 }
 
 impl Config {
     fn empty() -> Self {
-        Config { next_preset_id: 1, next_group_id: 1, root_group_ids: vec![], groups: vec![], presets: vec![] }
+        Config { next_preset_id: 1, next_group_id: 1, root_group_ids: vec![], root_preset_ids: vec![], groups: vec![], presets: vec![] }
     }
 }
 
@@ -83,14 +85,53 @@ fn load_config(skin_path: &str) -> Config {
             json!({"id": id, "meta": meta, "actions": actions})
         }).collect::<Vec<_>>())
         .unwrap_or_default();
+    let root_group_ids: Vec<i64> = v.get("rootGroupIds").and_then(|x| x.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_i64()).collect()).unwrap_or_default();
+    let groups: Vec<Group> = v.get("groups").and_then(|x| x.as_array())
+        .map(|a| a.iter().filter_map(|g| serde_json::from_value(g.clone()).ok()).collect()).unwrap_or_default();
+    let mut root_preset_ids: Vec<i64> = v.get("rootPresetIds").and_then(|x| x.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_i64()).collect()).unwrap_or_default();
+    // Migrate orphans: presets not referenced by any group's children (and not
+    // already in root_preset_ids) → append to root_preset_ids in presets order.
+    // This backfills rootPresetIds for configs saved before root presets existed.
+    {
+        let mut in_a_group: Vec<i64> = Vec::new();
+        for g in &groups {
+            collect_preset_ids(&g.children, &groups, &mut in_a_group);
+        }
+        let in_a_group_set: std::collections::HashSet<i64> = in_a_group.into_iter().collect();
+        let already_root: std::collections::HashSet<i64> = root_preset_ids.iter().copied().collect();
+        for p in &presets {
+            if let Some(id) = p.get("id").and_then(|x| x.as_i64()) {
+                if !in_a_group_set.contains(&id) && !already_root.contains(&id) {
+                    root_preset_ids.push(id);
+                }
+            }
+        }
+    }
     Config {
         next_preset_id: v.get("nextPresetId").and_then(|x| x.as_i64()).unwrap_or(1),
         next_group_id: v.get("nextGroupId").and_then(|x| x.as_i64()).unwrap_or(1),
-        root_group_ids: v.get("rootGroupIds").and_then(|x| x.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_i64()).collect()).unwrap_or_default(),
-        groups: v.get("groups").and_then(|x| x.as_array())
-            .map(|a| a.iter().filter_map(|g| serde_json::from_value(g.clone()).ok()).collect()).unwrap_or_default(),
+        root_group_ids,
+        root_preset_ids,
+        groups,
         presets,
+    }
+}
+
+// Recursively collect every preset id reachable through a group's children
+// (sub-groups included), so load_config can tell which presets are orphans.
+fn collect_preset_ids(children: &[ChildRef], groups: &[Group], out: &mut Vec<i64>) {
+    for c in children {
+        match c.kind.as_str() {
+            "preset" => out.push(c.id),
+            "group" => {
+                if let Some(g) = groups.iter().find(|g| g.id == c.id) {
+                    collect_preset_ids(&g.children, groups, out);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -101,6 +142,9 @@ fn save_config(skin_path: &str, cfg: &Config) -> Result<(), String> {
     v.insert("nextGroupId".into(), json!(cfg.next_group_id));
     if !cfg.root_group_ids.is_empty() {
         v.insert("rootGroupIds".into(), json!(cfg.root_group_ids));
+    }
+    if !cfg.root_preset_ids.is_empty() {
+        v.insert("rootPresetIds".into(), json!(cfg.root_preset_ids));
     }
     if !cfg.groups.is_empty() {
         v.insert("groups".into(), json!(cfg.groups));
@@ -123,11 +167,11 @@ fn find_group_mut<'a>(cfg: &'a mut Config, group_id: i64) -> Option<usize> {
 }
 
 fn remove_from_parent(cfg: &mut Config, child_id: i64, kind: &str) -> bool {
-    if kind == "group" {
-        if let Some(pos) = cfg.root_group_ids.iter().position(|x| *x == child_id) {
-            cfg.root_group_ids.remove(pos);
-            return true;
-        }
+    // Root-level: presets in root_preset_ids, groups in root_group_ids.
+    let root_arr = if kind == "preset" { &cfg.root_preset_ids } else { &cfg.root_group_ids };
+    if let Some(pos) = root_arr.iter().position(|x| *x == child_id) {
+        if kind == "preset" { cfg.root_preset_ids.remove(pos); } else { cfg.root_group_ids.remove(pos); }
+        return true;
     }
     for g in &mut cfg.groups {
         if let Some(pos) = g.children.iter().position(|c| c.kind == kind && c.id == child_id) {
@@ -139,15 +183,20 @@ fn remove_from_parent(cfg: &mut Config, child_id: i64, kind: &str) -> bool {
 }
 
 fn insert_into_parent(cfg: &mut Config, child_id: i64, kind: &str, parent_group_id: Option<i64>, index: Option<i64>) -> Result<(), String> {
-    if kind == "preset" && parent_group_id.is_none() {
-        return Err(crate::i18n::t("err.preset_at_root", &[]));
-    }
     match parent_group_id {
         None => {
-            let len = cfg.root_group_ids.len() as i64;
-            let i = index.filter(|x| *x >= 0).unwrap_or(len) as usize;
-            let i = i.min(cfg.root_group_ids.len());
-            cfg.root_group_ids.insert(i, child_id);
+            // Root: presets → root_preset_ids, groups → root_group_ids.
+            let len;
+            let i;
+            if kind == "preset" {
+                len = cfg.root_preset_ids.len() as i64;
+                i = index.filter(|x| *x >= 0).unwrap_or(len).min(len) as usize;
+                cfg.root_preset_ids.insert(i, child_id);
+            } else {
+                len = cfg.root_group_ids.len() as i64;
+                i = index.filter(|x| *x >= 0).unwrap_or(len).min(len) as usize;
+                cfg.root_group_ids.insert(i, child_id);
+            }
         }
         Some(pid) => {
             let gi = find_group_mut(cfg, pid).ok_or_else(|| crate::i18n::t("err.target_group_not_found", &[("id", &pid.to_string())]))?;
@@ -233,6 +282,7 @@ pub fn scan_skin(skin_path: &str) -> Value {
         "presets": preset_summaries,
         "groups": cfg.groups,
         "rootGroupIds": cfg.root_group_ids,
+        "rootPresetIds": cfg.root_preset_ids,
         "nextPresetId": cfg.next_preset_id,
         "nextGroupId": cfg.next_group_id,
     })
@@ -378,9 +428,7 @@ pub fn move_preset(skin_path: &str, preset_id: i64, target_group_id: Option<i64>
         }
     }
     remove_from_parent(&mut cfg, preset_id, "preset");
-    if let Some(tg) = target_group_id {
-        insert_into_parent(&mut cfg, preset_id, "preset", Some(tg), index)?;
-    }
+    insert_into_parent(&mut cfg, preset_id, "preset", target_group_id, index)?;
     save_config(skin_path, &cfg)?;
     Ok(())
 }

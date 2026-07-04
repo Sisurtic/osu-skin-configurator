@@ -155,6 +155,17 @@
           // captured in this closure could be detached — always look up the live node.
           render(document.getElementById('tab-files'));
         },
+        isGroupMemberRow: (row) => !!row.dataset.groupParent,
+        reorder: (fromIndices, toIndex) => {
+          const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+          const { arr, insertAt, count } = OpTable.reorderArray(ops, fromIndices, toIndex);
+          applyFileOps(arr);
+          // Select the moved block at its new contiguous home.
+          const ns = new Set();
+          for (let i = 0; i < count; i++) ns.add(insertAt + i);
+          sel.setSelected(ns, insertAt);
+          render(document.getElementById('tab-files'));
+        },
       });
     } else {
       sel.setContainer(container);
@@ -589,15 +600,9 @@
     if (fileOps.length === 0) {
       return `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">${i18n.t('file.empty')}</div>`;
     }
-    // Sort by file extension, then by file name (stable).
-    fileOps.sort((a, b) => {
-      const fa = (opFile(a) || '').replace(/\\/g, '/').split('/').pop() || '';
-      const fb = (opFile(b) || '').replace(/\\/g, '/').split('/').pop() || '';
-      const ea = (fa.match(/\.[^.]+$/) || [''])[0].toLowerCase();
-      const eb = (fb.match(/\.[^.]+$/) || [''])[0].toLowerCase();
-      if (ea !== eb) return ea < eb ? -1 : 1;
-      return fa < fb ? -1 : (fa > fb ? 1 : 0);
-    });
+    // Order is user-controlled (drag-reorder); no auto-sort here. buildFileOps()
+    // gives copies-then-deletes; the user can drag rows to any order and it
+    // persists (applyFileOps preserves within-bucket relative order).
     // Publish the view-model so data-idx consumers (destination input, row
     // selection, delete) index the same order they see.
     currentFileOps = fileOps;

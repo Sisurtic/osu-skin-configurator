@@ -317,6 +317,7 @@
           presets: scanResult.data.presets,
           groups: scanResult.data.groups,
           rootGroupIds: scanResult.data.rootGroupIds,
+            rootPresetIds: scanResult.data.rootPresetIds,
         });
       }
     } else {
@@ -350,6 +351,7 @@
           presets: scanResult.data.presets,
           groups: scanResult.data.groups,
           rootGroupIds: scanResult.data.rootGroupIds,
+            rootPresetIds: scanResult.data.rootPresetIds,
         });
       }
     } else {

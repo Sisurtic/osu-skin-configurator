@@ -94,6 +94,7 @@
           refreshDetailAndList(moved);
         },
         applyDelete: (indicesDesc) => applyDeleteOps(indicesDesc),
+        reorder: (fromIndices, toIndex) => applyReorderOps(fromIndices, toIndex),
       });
       // Default anchor = 0 (preview the first row on initial load).
       opSel.setSelected(new Set(), 0);
@@ -1170,6 +1171,18 @@
     const len = arr.length;
     const anchor = opSel ? opSel.getAnchor() : 0;
     opSel.setSelected(new Set(), len ? Math.min(anchor, len - 1) : 0);
+    render(document.getElementById('tab-tint'));
+  }
+
+  // Move the rows at `fromIndices` to land at `toIndex` (original-array index,
+  // "insert before"). Splice + commit + re-select the moved block + re-render.
+  function applyReorderOps(fromIndices, toIndex) {
+    const { arr, insertAt, count } = OpTable.reorderArray(cur(), fromIndices, toIndex);
+    applyTints(arr);
+    // Select the moved block at its new contiguous home [insertAt, insertAt+count).
+    const sel = new Set();
+    for (let i = 0; i < count; i++) sel.add(insertAt + i);
+    if (opSel) opSel.setSelected(sel, insertAt);
     render(document.getElementById('tab-tint'));
   }
 
