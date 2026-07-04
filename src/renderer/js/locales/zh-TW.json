@@ -288,6 +288,7 @@
     "clearShortcut": "清除快捷鍵",
     "bound": "已綁定快捷鍵 {acc} 到 {count} 個預設",
     "bindFailed": "綁定失敗",
+    "shortcutInvalid": "無效快捷鍵 — 請使用字母/數字/功能鍵加至少一個修飾鍵",
     "cleared": "已清除快捷鍵",
     "clearFailed": "清除失敗",
     "noPreview": "暫無預覽圖",

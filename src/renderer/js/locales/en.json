@@ -311,6 +311,7 @@
     "clearShortcut": "Clear shortcut",
     "bound": "Bound {acc} to {count} preset(s)",
     "bindFailed": "Bind failed",
+    "shortcutInvalid": "Invalid shortcut — use a letter/number/function key with at least one modifier",
     "cleared": "Shortcut cleared",
     "clearFailed": "Clear failed",
     "noPreview": "No preview image",

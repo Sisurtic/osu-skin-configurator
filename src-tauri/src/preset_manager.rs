@@ -27,6 +27,9 @@ pub struct Group {
     pub collapsed: bool,
     #[serde(default)]
     pub children: Vec<ChildRef>,
+    /// "" = normal group, "table" = table group (sub-groups are table rows).
+    #[serde(default, rename = "type")]
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -379,7 +382,7 @@ fn save_or_prune(skin_path: &str, cfg: &Config) {
 
 // ── Group CRUD ──
 
-pub fn add_group(skin_path: &str, name: &str, parent_group_id: Option<i64>) -> Result<i64, String> {
+pub fn add_group(skin_path: &str, name: &str, parent_group_id: Option<i64>, kind: &str) -> Result<i64, String> {
     let mut cfg = load_config(skin_path);
     let id = cfg.next_group_id;
     cfg.next_group_id += 1;
@@ -388,6 +391,7 @@ pub fn add_group(skin_path: &str, name: &str, parent_group_id: Option<i64>) -> R
         name: if name.is_empty() { crate::i18n::t("group.default_empty_name", &[]) } else { name.to_string() },
         collapsed: false,
         children: vec![],
+        kind: kind.to_string(),
     });
     insert_into_parent(&mut cfg, id, "group", parent_group_id, None)?;
     save_config(skin_path, &cfg)?;
@@ -426,6 +430,11 @@ pub fn move_preset(skin_path: &str, preset_id: i64, target_group_id: Option<i64>
         if find_group_mut(&mut cfg, tg).is_none() {
             return Err(crate::i18n::t("err.target_group_not_found", &[("id", &tg.to_string())]));
         }
+        // Presets can't be direct children of a table group — only sub-groups (rows) can.
+        let target_kind = cfg.groups.iter().find(|g| g.id == tg).map(|g| g.kind.as_str()).unwrap_or("");
+        if target_kind == "table" {
+            return Err(crate::i18n::t("err.table_group_no_preset", &[]));
+        }
     }
     remove_from_parent(&mut cfg, preset_id, "preset");
     insert_into_parent(&mut cfg, preset_id, "preset", target_group_id, index)?;
@@ -443,11 +452,27 @@ pub fn move_group(skin_path: &str, group_id: i64, target_group_id: Option<i64>, 
         if is_descendant(&cfg, group_id, tg) {
             return Err(crate::i18n::t("err.group_move_into_child", &[]));
         }
+        // Table-group nesting guard: a group cannot be moved INTO a table sub-group
+        // (sub-groups are leaf rows — no nesting under them).
+        if parent_kind(&cfg, tg) == "table" {
+            return Err(crate::i18n::t("err.table_row_no_nest", &[]));
+        }
     }
     remove_from_parent(&mut cfg, group_id, "group");
     insert_into_parent(&mut cfg, group_id, "group", target_group_id, index)?;
     save_config(skin_path, &cfg)?;
     Ok(())
+}
+
+/// Returns the `kind` of the group that has `gid` in its children (the parent),
+/// or "" if `gid` is at root / not found.
+fn parent_kind(cfg: &Config, gid: i64) -> String {
+    for g in &cfg.groups {
+        if g.children.iter().any(|c| c.kind == "group" && c.id == gid) {
+            return g.kind.clone();
+        }
+    }
+    String::new()
 }
 
 fn is_descendant(cfg: &Config, ancestor_id: i64, group_id: i64) -> bool {

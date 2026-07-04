@@ -288,6 +288,7 @@
     "clearShortcut": "ショートカットを消去",
     "bound": "ショートカット {acc} を {count} 個のプリセットに割り当てました",
     "bindFailed": "割り当て失敗",
+    "shortcutInvalid": "無効なショートカット — 修飾キーと文字/数字/ファンクションキーを組み合わせてください",
     "cleared": "ショートカットを消去しました",
     "clearFailed": "消去失敗",
     "noPreview": "プレビュー画像がありません",

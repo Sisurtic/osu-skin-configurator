@@ -311,6 +311,7 @@
     "clearShortcut": "清除快捷键",
     "bound": "已绑定快捷键 {acc} 到 {count} 个预设",
     "bindFailed": "绑定失败",
+    "shortcutInvalid": "无效快捷键 — 请使用字母/数字/功能键加至少一个修饰键",
     "cleared": "已清除快捷键",
     "clearFailed": "清除失败",
     "noPreview": "暂无预览图",

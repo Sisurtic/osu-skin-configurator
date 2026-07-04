@@ -163,9 +163,10 @@ fn presets_apply_multiple(app: AppHandle, skin_name: String, preset_ids: Vec<i64
 // ── groups ──
 
 #[tauri::command]
-fn groups_add(app: AppHandle, skin_name: String, name: String, parent_group_id: Option<i64>) -> Value {
+fn groups_add(app: AppHandle, skin_name: String, name: String, parent_group_id: Option<i64>, kind: Option<String>) -> Value {
     let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
-    match preset_manager::add_group(&sp, &name, parent_group_id) {
+    let k = kind.unwrap_or_default();
+    match preset_manager::add_group(&sp, &name, parent_group_id, &k) {
         Ok(id) => wrap_ok(json!(id)),
         Err(e) => wrap_err(&e),
     }

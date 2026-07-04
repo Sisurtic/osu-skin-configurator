@@ -463,8 +463,9 @@
         e.preventDefault();
         bindShortcut(acc);
       } else {
-        // Bare modifier / forbidden key — swallow so it doesn't reach the page
+        // Bare modifier / forbidden key — tell the user it's invalid
         e.preventDefault();
+        Toast.warning(i18n.t('selector.shortcutInvalid'));
       }
     });
   }

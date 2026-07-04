@@ -783,15 +783,13 @@ select.form-input {
 .preset-group__item--shortcut-sel::after {
   content: '';
   position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, rgba(221, 205, 120, 0), rgba(222, 206, 122, 0.22));
-  border-radius: 4px;
+  right: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background: #ded77a;
+  border-radius: 2px;
   pointer-events: none;
-  z-index: 0;
-}
-.preset-group__item--shortcut-sel > * {
-  position: relative;
-  z-index: 1;
 }
 .shortcut-recorder {
   position: fixed;

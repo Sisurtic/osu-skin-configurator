@@ -77,6 +77,8 @@ fn lookup(locale: &str, key: &str) -> Option<&'static str> {
         "err.group_not_empty" => row!("Group is not empty; cannot delete", "グループが空ではないため削除できません", "分組非空，無法刪除", "分组非空，无法删除"),
         "err.group_move_into_self" => row!("A group cannot be moved into itself", "グループを自身の中に移動できません", "不能將分組移動到自身內部", "不能将分组移动到自身内部"),
         "err.group_move_into_child" => row!("A group cannot be moved into its own child group", "グループを自身の子グループ内に移動できません", "不能將分組移動到其子分組內部", "不能将分组移动到其子分组内部"),
+        "err.table_row_no_nest" => row!("Table rows cannot contain sub-groups", "テーブル行にサブグループを含めることはできません", "表格行不能包含子分組", "表格行不能包含子分组"),
+        "err.table_group_no_preset" => row!("Presets cannot be placed directly in a table group; put them in a row sub-group", "プリセットをテーブルグループに直接配置できません。行サブグループに入れてください", "預設不能直接放入表格分組，請放入行子分組", "预设不能直接放入表格分组，请放入行子分组"),
 
         // ── fallback names / defaults ──
         "preset.fallback_name" => row!("Preset {id}", "プリセット {id}", "預設 {id}", "预设 {id}"),

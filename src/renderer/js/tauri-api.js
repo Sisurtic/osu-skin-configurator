@@ -45,7 +45,7 @@
     applyMultiplePresets: (skinName, presetIds) => call('presets_apply_multiple', { skinName, presetIds }),
 
     // --- groups ---
-    addGroup: (skinName, name, parentGroupId) => call('groups_add', { skinName, name, parentGroupId }),
+    addGroup: (skinName, name, parentGroupId, kind) => call('groups_add', { skinName, name, parentGroupId, kind }),
     removeGroup: (skinName, groupId) => call('groups_remove', { skinName, groupId }),
     renameGroup: (skinName, groupId, newName) => call('groups_rename', { skinName, groupId, newName }),
     movePresetGroup: (skinName, presetId, targetGroupId, index) => call('groups_move_preset', { skinName, presetId, targetGroupId, index }),

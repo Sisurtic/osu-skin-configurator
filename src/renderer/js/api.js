@@ -25,7 +25,7 @@ const api = {
   applyMultiplePresets: (skinName, presetIds) => window.electronAPI.applyMultiplePresets(skinName, presetIds),
 
   // --- groups ---
-  addGroup: (skinName, name, parentGroupId) => window.electronAPI.addGroup(skinName, name, parentGroupId),
+  addGroup: (skinName, name, parentGroupId, kind) => window.electronAPI.addGroup(skinName, name, parentGroupId, kind),
   removeGroup: (skinName, groupId) => window.electronAPI.removeGroup(skinName, groupId),
   renameGroup: (skinName, groupId, newName) => window.electronAPI.renameGroup(skinName, groupId, newName),
   movePresetGroup: (skinName, presetId, targetGroupId, index) => window.electronAPI.movePresetGroup(skinName, presetId, targetGroupId, index),

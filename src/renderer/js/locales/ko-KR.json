@@ -288,6 +288,7 @@
     "clearShortcut": "단축키 해제",
     "bound": "단축키 {acc}을(를) 프리셋 {count}개에 할당",
     "bindFailed": "할당 실패",
+    "shortcutInvalid": "잘못된 단축키 — 문자/숫자/기능키와 조합하여 사용하세요",
     "cleared": "단축키 해제됨",
     "clearFailed": "해제 실패",
     "noPreview": "미리보기 이미지 없음",
