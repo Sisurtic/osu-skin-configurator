@@ -34,6 +34,12 @@ const api = {
   setGroupCollapsed: (skinName, groupId, collapsed) => window.electronAPI.setGroupCollapsed(skinName, groupId, collapsed),
   setGroupsCollapsedBatch: (skinName, groupIds, collapsed) => window.electronAPI.setGroupsCollapsedBatch(skinName, groupIds, collapsed),
   deleteGroupRecursive: (skinName, groupId) => window.electronAPI.deleteGroupRecursive(skinName, groupId),
+  setGroupDescription: (skinName, groupId, description) => window.electronAPI.setGroupDescription(skinName, groupId, description),
+  setGroupPreview: (skinName, groupId, preview) => window.electronAPI.setGroupPreview(skinName, groupId, preview),
+  setGroupActions: (skinName, groupId, actions) => window.electronAPI.setGroupActions(skinName, groupId, actions),
+  applyGroup: (skinName, groupId) => window.electronAPI.applyGroup(skinName, groupId),
+  flattenGroupSubgroups: (skinName, groupId) => window.electronAPI.flattenGroupSubgroups(skinName, groupId),
+  setTableState: (skinName, expanded, rowSelection) => window.electronAPI.setTableState(skinName, expanded, rowSelection),
 
   // --- images / files ---
   getPreviewDataUrl: (imagePath) => window.electronAPI.getPreviewDataUrl(imagePath),

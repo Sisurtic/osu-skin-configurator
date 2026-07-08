@@ -54,6 +54,12 @@
     setGroupCollapsed: (skinName, groupId, collapsed) => call('groups_set_collapsed', { skinName, groupId, collapsed }),
     setGroupsCollapsedBatch: (skinName, groupIds, collapsed) => call('groups_set_collapsed_batch', { skinName, groupIds, collapsed }),
     deleteGroupRecursive: (skinName, groupId) => call('groups_delete_recursive', { skinName, groupId }),
+    setGroupDescription: (skinName, groupId, description) => call('groups_set_description', { skinName, groupId, description }),
+    setGroupPreview: (skinName, groupId, preview) => call('groups_set_preview', { skinName, groupId, path: preview?.path ?? null, kind: preview?.kind ?? null, frames: preview?.frames ?? null, fps: preview?.fps ?? null }),
+    setGroupActions: (skinName, groupId, actions) => call('groups_set_actions', { skinName, groupId, actions }),
+    applyGroup: (skinName, groupId) => call('groups_apply', { skinName, groupId }),
+    flattenGroupSubgroups: (skinName, groupId) => call('groups_flatten_subgroups', { skinName, groupId }),
+    setTableState: (skinName, expanded, rowSelection) => call('set_table_state', { skinName, expanded, rowSelection }),
 
     // --- images ---
     getPreviewDataUrl: (imagePath) => call('image_get_preview', { imagePath }),

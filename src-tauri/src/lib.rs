@@ -204,7 +204,7 @@ fn groups_move(app: AppHandle, skin_name: String, group_id: i64, target_group_id
     }
 }
 #[tauri::command]
-fn groups_reorder(app: AppHandle, skin_name: String, parent_group_id: Option<i64>, child_order: Vec<i64>) -> Value {
+fn groups_reorder(app: AppHandle, skin_name: String, parent_group_id: Option<i64>, child_order: Vec<preset_manager::ChildRef>) -> Value {
     let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
     match preset_manager::reorder_children(&sp, parent_group_id, child_order) {
         Ok(_) => wrap_ok(json!(true)),
@@ -219,6 +219,77 @@ fn groups_set_collapsed(app: AppHandle, skin_name: String, group_id: i64, collap
         Err(e) => wrap_err(&e),
     }
 }
+
+#[tauri::command]
+fn groups_set_shortcut(app: AppHandle, skin_name: String, group_id: i64, shortcut: String) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    match preset_manager::set_group_shortcut(&sp, group_id, &shortcut) {
+        Ok(_) => {
+            // Re-register global shortcuts so the new binding takes effect immediately.
+            let _ = global_shortcut::reload(&app, Some(sp));
+            wrap_ok(json!(true))
+        }
+        Err(e) => wrap_err(&e),
+    }
+}
+#[tauri::command]
+fn groups_set_description(app: AppHandle, skin_name: String, group_id: i64, description: String) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    match preset_manager::set_group_description(&sp, group_id, &description) {
+        Ok(_) => wrap_ok(json!(true)),
+        Err(e) => wrap_err(&e),
+    }
+}
+#[tauri::command]
+fn groups_set_preview(
+    app: AppHandle,
+    skin_name: String,
+    group_id: i64,
+    path: Option<String>,
+    kind: Option<String>,
+    frames: Option<Vec<String>>,
+    fps: Option<i64>,
+) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    let fps_i32 = fps.and_then(|v| i32::try_from(v).ok());
+    match preset_manager::set_group_preview(&sp, group_id, path.as_deref(), kind.as_deref(), frames, fps_i32) {
+        Ok(_) => wrap_ok(json!(true)),
+        Err(e) => wrap_err(&e),
+    }
+}
+#[tauri::command]
+fn groups_set_actions(app: AppHandle, skin_name: String, group_id: i64, actions: Value) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    match preset_manager::set_group_actions(&sp, group_id, &actions) {
+        Ok(_) => wrap_ok(json!(true)),
+        Err(e) => wrap_err(&e),
+    }
+}
+#[tauri::command]
+fn groups_apply(app: AppHandle, skin_name: String, group_id: i64) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    match preset_applier::apply_group(&sp, group_id) {
+        Ok(r) => wrap_ok(r),
+        Err(e) => wrap_err(&e),
+    }
+}
+#[tauri::command]
+fn groups_flatten_subgroups(app: AppHandle, skin_name: String, group_id: i64) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    match preset_manager::flatten_group_subgroups(&sp, group_id) {
+        Ok(_) => wrap_ok(json!(true)),
+        Err(e) => wrap_err(&e),
+    }
+}
+#[tauri::command]
+fn set_table_state(app: AppHandle, skin_name: String, expanded: Value, row_selection: Value) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    match preset_manager::set_table_state(&sp, &expanded, &row_selection) {
+        Ok(_) => wrap_ok(json!(true)),
+        Err(e) => wrap_err(&e),
+    }
+}
+
 #[tauri::command]
 fn groups_set_collapsed_batch(app: AppHandle, skin_name: String, group_ids: Vec<i64>, collapsed: bool) -> Value {
     let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
@@ -561,6 +632,18 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_decorum::init())
+        // Disable default webview/browser shortcuts (Ctrl+F find, Ctrl+P print,
+        // F3, Ctrl+J downloads, etc.) at the webview layer where JS
+        // preventDefault can't reach. Keep RELOAD (F5/Ctrl+R) and DEV_TOOLS
+        // (F12) so reload/devtools stay available for development.
+        .plugin(
+            tauri_plugin_prevent_default::Builder::new()
+                .with_flags(
+                    tauri_plugin_prevent_default::Flags::all()
+                        .difference(tauri_plugin_prevent_default::Flags::RELOAD | tauri_plugin_prevent_default::Flags::DEV_TOOLS),
+                )
+                .build(),
+        )
         .manage(PendingOsp(Mutex::new(None)))
         .manage(global_shortcut::State::default())
         .setup(|app| {
@@ -608,7 +691,7 @@ pub fn run() {
             osu_auto_detect, osu_get_path, osu_get_last_skin, osu_set_last_skin, osu_set_path,
             skins_scan, skins_read_ini, skins_get_path,
             presets_scan, presets_load, presets_save, presets_delete, presets_delete_multiple, presets_apply, presets_apply_multiple,
-            groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_set_collapsed_batch, groups_delete_recursive,
+            groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_set_collapsed_batch, groups_delete_recursive, groups_set_shortcut, groups_set_description, groups_set_preview, groups_set_actions, groups_apply, groups_flatten_subgroups, set_table_state,
             image_get_preview,
             shortcuts_load, shortcuts_save,
             global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_reload,

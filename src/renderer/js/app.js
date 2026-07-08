@@ -21,10 +21,137 @@
     state.set('currentView', viewId);
   }
 
+  // ── Mode-switch animation (use ↔ edit) ──
+  // While true, sidebar section display is owned here; skin-list/preset-list/
+  // updateSkinHeader skip their own display toggles.
+  let modeTransitioning = false;
+  const ALL_MODE_ANIM = [
+    'mode-anim--exit-left', 'mode-anim--enter-right',
+    'mode-anim--exit-right', 'mode-anim--enter-left',
+    'mode-anim--exit-up', 'mode-anim--enter-down',
+    'mode-anim--fade-out', 'mode-anim--fade-in',
+  ];
+  const MODE_PHASE = 200; // matches --mode-anim-dur (0.2s)
+  const MODE_GAP = 40;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function clearAnim(el) { if (el) el.classList.remove(...ALL_MODE_ANIM); }
+  function addAnim(el, cls) {
+    if (!el) return;
+    el.classList.remove(...ALL_MODE_ANIM);
+    void el.offsetWidth;            // restart the animation
+    el.classList.add(cls);
+  }
+
+  async function animateModeSwitch(newMode) {
+    if (modeTransitioning) return;
+    modeTransitioning = true;
+    window._modeTransitioning = true;
+    if (btnToggleMode) btnToggleMode.disabled = true;
+    const toEdit = newMode === 'edit';
+    const useLayer = document.getElementById('sidebar-layer-use');
+    const editLayer = document.getElementById('sidebar-layer-edit');
+    const viewSelector = document.getElementById('view-selector');
+    const viewEditor = document.getElementById('view-editor');
+
+    // Layer transition via keyframe animation classes (reliable start state,
+    // unlike transitions). enterAnim plays the enter keyframe and ends with the
+    // --active class so the layer stays visible.
+    const LAYER_ANIM = ['sidebar__layer--enter-right', 'sidebar__layer--enter-left',
+      'sidebar__layer--exit-left', 'sidebar__layer--exit-right'];
+    function clearLayerAnim(el) { if (el) el.classList.remove(...LAYER_ANIM); }
+    function layerAnim(el, cls) {
+      if (!el) return;
+      el.classList.remove(...LAYER_ANIM);
+      void el.offsetWidth;
+      el.classList.add(cls);
+    }
+    function enterLayer(el, cls) {
+      if (!el) return;
+      layerAnim(el, cls);
+      setTimeout(() => { el.classList.add('sidebar__layer--active'); }, MODE_PHASE);
+    }
+    function exitLayer(el, cls) {
+      if (!el) return;
+      layerAnim(el, cls);
+      // After the exit animation, hide via removing --active (the keyframe's
+      // `both` fill holds opacity:0 until then).
+      setTimeout(() => { el.classList.remove('sidebar__layer--active'); }, MODE_PHASE);
+    }
+
+    try {
+      if (toEdit) {
+        // use → edit: use-layer exits left + selector fades out (parallel);
+        // AFTER they're gone, flip the mode (which fills the edit-layer + editor),
+        // then animate the edit-layer in from the right + tabs down + content in.
+        addAnim(viewSelector, 'mode-anim--fade-out');
+        exitLayer(useLayer, 'sidebar__layer--exit-left');
+        await sleep(MODE_PHASE);
+        state.set('appMode', 'edit');   // fills edit-layer content + rebuilds editor
+        enterLayer(editLayer, 'sidebar__layer--enter-right');
+        const editorTabs = viewEditor?.querySelector('.tabs');
+        const activeContent = viewEditor?.querySelector('.tab-content--active');
+        addAnim(editorTabs, 'mode-anim--enter-down');
+        addAnim(activeContent, 'mode-anim--fade-in');
+        await sleep(MODE_PHASE);
+      } else {
+        // edit → use: edit-layer exits right + tabs up + content fades (parallel);
+        // AFTER they're gone, flip the mode (fills the use-layer skin list),
+        // then animate the use-layer in from the left + selector fades in.
+        const editorTabs = viewEditor?.querySelector('.tabs');
+        const activeContent = viewEditor?.querySelector('.tab-content--active');
+        addAnim(editorTabs, 'mode-anim--exit-up');
+        addAnim(activeContent, 'mode-anim--fade-out');
+        exitLayer(editLayer, 'sidebar__layer--exit-right');
+        await sleep(MODE_PHASE);
+        state.set('appMode', 'use');    // fills use-layer skin list
+        enterLayer(useLayer, 'sidebar__layer--enter-left');
+        addAnim(viewSelector, 'mode-anim--fade-in');
+        await sleep(MODE_PHASE);
+      }
+      // Cleanup animation classes.
+      [viewSelector,
+       viewEditor?.querySelector('.tabs'),
+       viewEditor?.querySelector('.tab-content--active')].forEach(clearAnim);
+      [useLayer, editLayer].forEach(clearLayerAnim);
+    } finally {
+      modeTransitioning = false;
+      window._modeTransitioning = false;
+      if (btnToggleMode) btnToggleMode.disabled = false;
+    }
+  }
+
+  // Set which sidebar layer is active for a mode (called on init + appMode change).
+  function setSidebarLayer(mode) {
+    const useLayer = document.getElementById('sidebar-layer-use');
+    const editLayer = document.getElementById('sidebar-layer-edit');
+    const edit = mode === 'edit';
+    if (useLayer) useLayer.classList.toggle('sidebar__layer--active', !edit);
+    if (editLayer) editLayer.classList.toggle('sidebar__layer--active', edit);
+  }
+
   // ── Init sequence ──
 
   async function init() {
     state.set('_initializing', true);
+
+    // Disable the browser/webview native input-history autofill for every text
+    // input/textarea (existing + dynamically created).
+    const disableAutofill = (root) => {
+      root.querySelectorAll('input[type="text"], input:not([type]), textarea, input[type="search"]').forEach(el => {
+        el.setAttribute('autocomplete', 'off');
+        el.setAttribute('spellcheck', 'false');
+      });
+    };
+    disableAutofill(document);
+    if (typeof MutationObserver !== 'undefined') {
+      new MutationObserver(muts => {
+        for (const m of muts) m.addedNodes.forEach(n => {
+          if (n.nodeType !== 1) return;
+          if (n.matches && n.matches('input,textarea')) disableAutofill(n.parentElement || document);
+          else if (n.querySelectorAll) disableAutofill(n);
+        });
+      }).observe(document.body, { childList: true, subtree: true });
+    }
 
     // Reveal the window now that the webview has loaded (window starts hidden
     // in tauri.conf.json to avoid a white frame before WebView2 paints).
@@ -134,8 +261,9 @@
           state.setMultiple({
             presets: presetsResult.data.presets,
             groups: presetsResult.data.groups,
-            rootGroupIds: presetsResult.data.rootGroupIds,
-            rootPresetIds: presetsResult.data.rootPresetIds,
+            rootChildren: presetsResult.data.rootChildren || [],
+            tableExpandedChildren: presetsResult.data.tableExpandedChildren || {},
+            tableRowSelection: presetsResult.data.tableRowSelection || {},
           });
         }
       }
@@ -146,6 +274,7 @@
     } finally {
       state.set('_initializing', false);
       renderCurrentView();
+      setSidebarLayer(state.get('appMode'));
       // Defer the fade-in to the next frame so renderCurrentView's layout
       // settles before transitioning opacity (avoids a flash of reflowed content).
       requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -155,6 +284,14 @@
         // INI / file-move editors applies column widths correctly on the very
         // first view — no need to resize/switch presets first.
         rerenderAll();
+        // Now that the body is visible, replay the skin-list staggered enter
+        // (the initial render happened while body was opacity:0, masked by
+        // the body fade-in). Defer one frame so rerenderAll's DOM settles first.
+        requestAnimationFrame(() => {
+          if (window.SkinList && typeof window.SkinList.replayEnter === 'function') {
+            window.SkinList.replayEnter();
+          }
+        });
 
         // First-launch warning: INI editing removes comments.
         if (typeof localStorage !== 'undefined') {
@@ -189,8 +326,8 @@
   // re-translate) and re-fire only display-only keys.
   function rerenderAll() {
     i18n.applyStatic();
-    const keys = ['skins', 'osuPath', 'presetDirty', 'activePresets',
-                  'presets', 'groups', 'rootGroupIds'];
+    const keys = ['skins', 'osuPath', 'presetDirty', 'activePresets', 'activeTableGroups',
+                  'presets', 'groups', 'rootChildren'];
     const updates = {};
     for (const k of keys) {
       const v = state.get(k);
@@ -304,6 +441,32 @@
     renderCurrentView();
   });
 
+  // Play a one-shot enter animation (e.g. main-content--enter) on an element,
+  // removing the class on animationend so it doesn't replay when the element
+  // later toggles display:none → flex (which restarts lingering animations).
+  function playEnterAnim(el, cls) {
+    if (!el) return;
+    el.classList.remove(cls);
+    void el.offsetWidth;
+    el.classList.add(cls);
+    el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
+  }
+
+  // Scale-fade an element out, resolving on animationend. The exit class is
+  // KEPT (animation fill: both) so the element stays at opacity:0 until the
+  // caller swaps content and triggers the enter animation.
+  function playExitAnim(el, cls) {
+    return new Promise(resolve => {
+      if (!el) { resolve(); return; }
+      el.classList.remove(cls);
+      void el.offsetWidth;
+      el.classList.add(cls);
+      const done = () => resolve();
+      el.addEventListener('animationend', done, { once: true });
+      setTimeout(done, 400);   // safety timeout
+    });
+  }
+
   state.on('selectedSkin', async (skinName) => {
     // Different skins can share the same relative image paths (e.g. cursor.png)
     // with different contents — drop all cached images so the new skin reads fresh.
@@ -311,8 +474,11 @@
     if (!skinName) {
       state.set('presets', []);
       state.set('groups', []);
-      state.set('rootGroupIds', []);
+      state.set('rootChildren', []);
       state.set('activePresets', {});
+    state.set('activeTableGroups', {});
+    state.set('tableExpandedChildren', {});
+    state.set('tableRowSelection', {});
       updateToolbarButtons();
       renderCurrentView();
       return;
@@ -322,18 +488,28 @@
     api.setLastSkin(skinName);
     // Clear any preset selection from the previous skin (ids are skin-specific)
     state.set('activePresets', {});
+    state.set('activeTableGroups', {});
+    state.set('tableExpandedChildren', {});
+    state.set('tableRowSelection', {});
     // Re-register global shortcuts for the new skin
     api.reloadGlobalShortcuts(skinName);
     if (!state.get('_initializing')) {
+      const main = document.querySelector('.main-content');
+      // Fade the old content out while the new skin's data loads (parallel).
+      const exitPromise = playExitAnim(main, 'main-content--exit');
       const result = await api.scanPresets(skinName);
+      await exitPromise;   // make sure the fade-out finished before swapping
       if (result.success) {
         state.setMultiple({
           presets: result.data.presets,
           groups: result.data.groups,
-          rootGroupIds: result.data.rootGroupIds,
-            rootPresetIds: result.data.rootPresetIds,
+          rootChildren: result.data.rootChildren || [],
+          tableExpandedChildren: result.data.tableExpandedChildren || {},
+          tableRowSelection: result.data.tableRowSelection || {},
         });
       }
+      if (main) main.classList.remove('main-content--exit');
+      playEnterAnim(main, 'main-content--enter');
     }
     updateToolbarButtons();
   });
@@ -346,6 +522,7 @@
     if (mode === 'edit') {
       // Clear use-mode state to avoid stale IDs after editing
       state.set('activePresets', {});
+    state.set('activeTableGroups', {});
     }
     updateModeButton();
     updateSkinHeader();
@@ -372,6 +549,9 @@
   });
 
   state.on('activePresets', () => {
+    updateToolbarButtons();
+  });
+  state.on('activeTableGroups', () => {
     updateToolbarButtons();
   });
 
@@ -448,7 +628,7 @@
         state.set('presetDirty', false);
       }
     }
-    state.set('appMode', newMode);
+    await animateModeSwitch(newMode);
   });
 
   btnApplyPreset.addEventListener('click', () => { actionApply(); });
@@ -458,6 +638,8 @@
   // and its keyboard shortcut call these so behavior never diverges.
 
   async function actionRefresh() {
+    // Disabled in edit mode (editing assumes a stable skin on disk).
+    if (state.get('appMode') === 'edit') return;
     // Drop all cached images — skin files may have changed on disk since the
     // last scan (e.g. user replaced an image externally), so re-read fresh.
     if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
@@ -469,33 +651,61 @@
         state.setMultiple({
           presets: result.data.presets,
           groups: result.data.groups,
-          rootGroupIds: result.data.rootGroupIds,
-            rootPresetIds: result.data.rootPresetIds,
+          rootChildren: result.data.rootChildren || [],
+          tableExpandedChildren: result.data.tableExpandedChildren || {},
+          tableRowSelection: result.data.tableRowSelection || {},
         });
       }
     }
     Toast.info(i18n.t('toast.skinsRefreshed'));
+    // Refreshing re-selects the current skin → replay the preset selector's
+    // load animation (use mode only).
+    const viewSelector = document.getElementById('view-selector');
+    if (viewSelector && state.get('appMode') === 'use') {
+      playEnterAnim(viewSelector, 'main-content--enter');
+    }
+  }
+
+  // Collect every preset id under a group's subtree (mirrors the backend recursion).
+  function collectDescendantPresetIdsFrontend(gid, groups) {
+    const out = [];
+    const rec = (id) => {
+      const g = groups.find(x => x.id === id);
+      if (!g || !g.children) return;
+      for (const c of g.children) {
+        if (c.type === 'preset') out.push(c.id);
+        else if (c.type === 'group') rec(c.id);
+      }
+    };
+    rec(gid);
+    return out;
   }
 
   function actionApply() {
     const mode = state.get('appMode');
     if (mode === 'use') {
       const active = state.get('activePresets') || {};
-      const ids = [].concat(...Object.values(active).filter(a => Array.isArray(a)));
-      if (ids.length === 0) {
+      const atg = state.get('activeTableGroups') || {};
+      const groups = state.get('groups') || [];
+      const activeGroupIds = Object.keys(atg).filter(k => atg[k]).map(Number);
+      // Presets under an active table group are already covered by apply_group —
+      // exclude them from the loose-preset list to avoid double application.
+      const covered = new Set(activeGroupIds.flatMap(gid => collectDescendantPresetIdsFrontend(gid, groups)));
+      const loosePresetIds = [].concat(...Object.values(active).filter(a => Array.isArray(a)))
+        .filter(id => !covered.has(id));
+      if (loosePresetIds.length === 0 && activeGroupIds.length === 0) {
         Toast.warning(i18n.t('toast.selectPresetFirst'));
         return;
       }
-      ApplyDialog.showMulti(ids);
+      ApplyDialog.showMulti({ presetIds: loosePresetIds, groupIds: activeGroupIds });
     } else {
-      // Edit mode: apply the currently selected (saved) preset, same dialog as
-      // use mode. A brand-new unsaved preset can't be applied yet.
+      // Edit mode: apply the currently selected (saved) preset.
       const preset = state.get('selectedPreset');
       if (!preset || preset === '__new__') {
         Toast.warning(i18n.t('toast.selectPresetFirst'));
         return;
       }
-      ApplyDialog.showMulti([preset]);
+      ApplyDialog.showMulti({ presetIds: [preset] });
     }
   }
 
@@ -547,11 +757,16 @@
       btnApplyPreset.textContent = i18n.t('toolbar.apply');
     } else {
       const active = state.get('activePresets') || {};
+      const atg = state.get('activeTableGroups') || {};
       const ids = [].concat(...Object.values(active).filter(a => Array.isArray(a)));
-      btnApplyPreset.disabled = !skin || ids.length === 0;
-      btnApplyPreset.textContent = ids.length > 0 ? i18n.t('toolbar.applyCount', { count: ids.length }) : i18n.t('toolbar.apply');
+      const groupCount = Object.values(atg).filter(Boolean).length;
+      const total = ids.length + groupCount;
+      btnApplyPreset.disabled = !skin || total === 0;
+      btnApplyPreset.textContent = total > 0 ? i18n.t('toolbar.applyCount', { count: total }) : i18n.t('toolbar.apply');
     }
     btnToggleMode.disabled = !skin;
+    // Rescan is use-mode only (editing assumes a stable skin on disk).
+    if (btnRescan) btnRescan.disabled = (mode === 'edit' || !skin);
   }
 
   function updateSkinHeader() {
@@ -763,6 +978,11 @@
     }
   }, { passive: false });
 
+  // Suppress WebView2/Edge built-in shortcuts that conflict with app shortcuts.
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'g') { e.preventDefault(); }
+  }, true);
+
   // ── Esc key: blur focused element in edit mode ──
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
@@ -872,6 +1092,13 @@
     }
 
     if (e.key >= '1' && e.key <= '4' && !isInput && !isModal && state.get('appMode') === 'edit') {
+      // Plain groups (non-table) have no actions — tabs are disabled, so don't
+      // let number keys switch away from basic. Table groups + presets allow it.
+      const sg = state.get('selectedGroup');
+      if (sg != null) {
+        const g = (state.get('groups') || []).find(x => x.id === sg);
+        if (g && g.type !== 'table') return;
+      }
       const tabs = ['basic', 'ini', 'files', 'tint'];
       const idx = parseInt(e.key) - 1;
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab--active'));
@@ -879,13 +1106,35 @@
       const targetTab = document.querySelector(`.tab[data-tab="${tabs[idx]}"]`);
       const targetEl = document.getElementById(`tab-${tabs[idx]}`);
       if (targetTab) targetTab.classList.add('tab--active');
-      if (targetEl) targetEl.classList.add('tab-content--active');
+      if (targetEl) {
+        targetEl.classList.add('tab-content--active');
+        // Scale-fade the newly shown content in + move the sliding underline.
+        targetEl.classList.remove('main-content--enter');
+        void targetEl.offsetWidth;
+        targetEl.classList.add('main-content--enter');
+        targetEl.addEventListener('animationend', () => targetEl.classList.remove('main-content--enter'), { once: true });
+      }
+      if (window.PresetEditor && typeof window.PresetEditor.moveTabIndicator === 'function') {
+        window.PresetEditor.moveTabIndicator(targetTab);
+      }
       if (tabs[idx] === 'tint' && window.TintEditor && window.TintEditor.layoutColumns) {
         window.TintEditor.layoutColumns(targetEl);
       }
     }
 
     const action = Shortcuts.matchAction(e);
+    // While the shortcut recorder is open, suppress ALL program shortcuts so
+    // the recorded combo can't accidentally trigger one (e.g. Ctrl+E toggle).
+    // Exception: Space/Enter on a focused button must still activate it.
+    if (action) {
+      const _recEl = document.getElementById('shortcut-recorder');
+      const recorderOpen = _recEl && _recEl.style.display !== 'none';
+      const activatingButton = isButton && (e.key === ' ' || e.key === 'Enter');
+      if (recorderOpen && !activatingButton) {
+        e.preventDefault();
+        return;
+      }
+    }
     if (!action) return;
     // Disable custom shortcuts while any modal/dialog overlay is open
     if (isModal) return;
@@ -902,6 +1151,7 @@
         if (!state.get('presetDirty') && state.get('selectedPreset') !== '__new__') break;
         e.preventDefault();
         if (window.PresetEditor && typeof window.PresetEditor.doSave === 'function') {
+          // doSave() branches internally: group → doSaveGroup, else preset save.
           window.PresetEditor.doSave();
         }
         break;
@@ -921,6 +1171,14 @@
           if (window.PresetList && typeof window.PresetList.createGroupWithSelected === 'function') {
             window.PresetList.createGroupWithSelected();
           }
+        }
+        break;
+
+      case 'new-table-group':
+        if (state.get('appMode') !== 'edit') break;
+        e.preventDefault();
+        {
+          document.getElementById('btn-new-table-group')?.click();
         }
         break;
 

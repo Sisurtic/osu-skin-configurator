@@ -42,7 +42,7 @@
 
     container.innerHTML = `
       <div style="margin-bottom:8px">
-        <h3 style="margin-bottom:2px;font-size:13px">${i18n.t('preview.heading')}</h3>
+        <h3 style="margin-bottom:2px;font-size:13px;color:var(--text-secondary)">${i18n.t('preview.heading')}</h3>
       </div>
       <div id="preview-content">
         ${renderContent(meta)}
@@ -97,7 +97,7 @@
     return `
       <div class="upload-zone" id="upload-zone" tabindex="0" style="padding:12px">
         <div style="font-size:24px;margin-bottom:4px">🖼</div>
-        <div style="font-size:12px">${i18n.t('preview.pick')}</div>
+        <div style="font-size:12px;color:var(--text-secondary)">${i18n.t('preview.pick')}</div>
       </div>
     `;
   }
@@ -280,7 +280,7 @@
           <div class="modal__title">${i18n.t('preview.fpsTitle')}</div>
           <div class="modal__body">
             <div style="display:flex;align-items:center;gap:8px">
-              <span style="font-size:12px">${i18n.t('preview.fpsLabel')}</span>
+              <span style="font-size:12px;color:var(--text-secondary)">${i18n.t('preview.fpsLabel')}</span>
               <input type="number" min="-1" step="1" value="${initial || 12}" data-forbidden="0" class="form-input" id="fps-input" style="width:80px">
             </div>
           </div>

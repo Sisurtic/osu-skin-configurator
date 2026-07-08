@@ -53,6 +53,7 @@
   },
   "dialog": {
     "unsavedSwitch": "현재 프리셋이 저장되지 않았습니다. 저장 후 전환할까요?",
+    "unsavedSwitchGroup": "현재 그룹이 저장되지 않았습니다. 저장 후 전환할까요?",
     "saveAndSwitch": "저장 후 전환",
     "discard": "저장 안 함",
     "cancel": "취소",
@@ -162,14 +163,27 @@
     "renameFailed": "이름 변경 실패: {msg}",
     "newPreset": "+ 새 프리셋",
     "newGroup": "+ 새 그룹",
-    "savePreset": "💾 프리셋 저장",
+    "savePreset": "💾 저장",
     "deleteZone": "그룹 또는 프리셋을 여기로 드래그하여 삭제",
     "created": "그룹 \"{name}\" 생성됨",
     "createFailed": "그룹 생성 실패: {msg}",
     "createTitle": "새 그룹",
     "namePlaceholder": "그룹 이름 입력…",
     "createdWithPresets": "그룹 \"{name}\" 생성 후 프리셋 {count}개 이동",
-    "createdEmpty": "빈 그룹 \"{name}\" 생성됨"
+    "createdEmpty": "빈 그룹 \"{name}\" 생성됨",
+    "newTableGroup": "+ 새 테이블 그룹",
+    "tableGroup": "테이블 그룹",
+    "createdTable": "테이블 그룹 \"{name}\" 생성됨",
+    "createTableTitle": "새 테이블 그룹",
+    "nameLabel": "그룹 이름 *",
+    "descLabel": "설명",
+    "descPlaceholder": "메모…",
+    "nameRequired": "그룹 이름은 필수입니다",
+    "saveFailed": "그룹 저장 실패: {msg}",
+    "saved": "그룹이 저장되었습니다",
+    "flattenConfirm": "이 그룹에 중첩된 하위 그룹이 있습니다. 테이블 그룹은 한 수준만 허용합니다. 강제 병합하시겠습니까? 모든 하위 그룹의 프리셋이 이 그룹의 최상위로 펼쳐집니다.",
+    "flattenForce": "강제 병합",
+    "cannotNestInTableRow": "테이블 그룹 내의 행에는 일반 그룹을 중첩할 수 없습니다"
   },
   "ini": {
     "heading": "skin.ini 편집",
@@ -292,7 +306,8 @@
     "cleared": "단축키 해제됨",
     "clearFailed": "해제 실패",
     "noPreview": "미리보기 이미지 없음",
-    "previewMissing": "미리보기 파일 없음"
+    "previewMissing": "미리보기 파일 없음",
+    "shortcutConflict": "이 키는 프로그램 단축키에서 이미 사용 중입니다"
   },
   "shortcutsDesc": {
     "refresh": "스킨 목록 새로고침",
@@ -301,7 +316,8 @@
     "newPreset": "새 프리셋",
     "newGroup": "새 그룹",
     "copyPreset": "선택한 프리셋 복제",
-    "apply": "현재 프리셋 적용"
+    "apply": "현재 프리셋 적용",
+    "newTableGroup": "새 테이블 그룹"
   },
   "easterEggs": [
     {

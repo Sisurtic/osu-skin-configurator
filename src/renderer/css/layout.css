@@ -176,12 +176,47 @@ button#decorum-tb-close:hover {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 .sidebar__section {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
+/* Two overlapping sidebar layers — each is an independent flex column filling
+   the sidebar. They share NO layout flow, so cross-fading never reflows.
+   Visibility is driven by opacity + pointer-events (not display), so both
+   layers can stay in the box tree and animate independently. */
+.sidebar__layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+  opacity: 0;
+}
+.sidebar__layer--active {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Mode-switch enter/exit for sidebar layers (keyframe-based so the start state
+   is always applied, unlike transitions which need a painted frame between). */
+.sidebar__layer--enter-right { animation: layer-enter-right var(--mode-anim-dur, 0.2s) var(--mode-anim-ease, cubic-bezier(0.22,0.61,0.36,1)) both; }
+.sidebar__layer--enter-left  { animation: layer-enter-left  var(--mode-anim-dur, 0.2s) var(--mode-anim-ease, cubic-bezier(0.22,0.61,0.36,1)) both; }
+.sidebar__layer--exit-left   { animation: layer-exit-left   var(--mode-anim-dur, 0.2s) var(--mode-anim-ease, cubic-bezier(0.22,0.61,0.36,1)) both; }
+.sidebar__layer--exit-right  { animation: layer-exit-right  var(--mode-anim-dur, 0.2s) var(--mode-anim-ease, cubic-bezier(0.22,0.61,0.36,1)) both; }
+@keyframes layer-enter-right { 0% { opacity: 0.35; transform: translateX(24px); } 35% { opacity: 1; } 100% { opacity: 1; transform: translateX(0); } }
+@keyframes layer-enter-left  { 0% { opacity: 0.35; transform: translateX(-24px); } 35% { opacity: 1; } 100% { opacity: 1; transform: translateX(0); } }
+@keyframes layer-exit-left   { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-24px); } }
+@keyframes layer-exit-right  { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(24px); } }
+.sidebar__layer--active {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Edit-mode layer: preset section fills; use-mode layer: skins fill. */
+.sidebar__layer--use .sidebar__section--skins { flex: 1; overflow: hidden; }
+.sidebar__layer--edit .sidebar__section--presets { flex: 1; max-height: none; overflow: hidden; }
+.sidebar__layer--edit .sidebar__section--skin-header { flex: 0 0 auto; border-bottom: 1px solid var(--border); }
 .sidebar__section--skins {
   flex: 1;
   overflow: hidden;
@@ -239,6 +274,22 @@ button#decorum-tb-close:hover {
   flex: 1;
   overflow-y: auto;
   background: var(--bg-primary);
+}
+/* Skin switch → scale-fade the right main area back in. */
+.main-content--enter {
+  animation: main-content-enter 0.2s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+@keyframes main-content-enter {
+  from { opacity: 0; transform: scale(0.985); }
+  to   { opacity: 1; transform: scale(1); }
+}
+/* Scale-fade the main area out (e.g. before loading a new skin's data). */
+.main-content--exit {
+  animation: main-content-exit 0.12s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes main-content-exit {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.985); }
 }
 
 /* ── Views ── */

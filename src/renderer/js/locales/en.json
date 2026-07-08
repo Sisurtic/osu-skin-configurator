@@ -53,6 +53,7 @@
   },
   "dialog": {
     "unsavedSwitch": "The current preset is unsaved. Save before switching?",
+    "unsavedSwitchGroup": "The current group is unsaved. Save before switching?",
     "saveAndSwitch": "Save & switch",
     "discard": "Don't save",
     "cancel": "Cancel",
@@ -162,14 +163,27 @@
     "renameFailed": "Rename failed: {msg}",
     "newPreset": "+ New preset",
     "newGroup": "+ New group",
-    "savePreset": "💾 Save preset",
+    "savePreset": "💾 Save",
     "deleteZone": "Drag a group or preset here to delete",
     "created": "Created group \"{name}\"",
     "createFailed": "Create group failed: {msg}",
     "createTitle": "New group",
     "namePlaceholder": "Enter a group name…",
     "createdWithPresets": "Created group \"{name}\" and moved {count} preset(s) in",
-    "createdEmpty": "Created empty group \"{name}\""
+    "createdEmpty": "Created empty group \"{name}\"",
+    "newTableGroup": "+ New table group",
+    "tableGroup": "Table group",
+    "createdTable": "Created table group \"{name}\"",
+    "createTableTitle": "New table group",
+    "nameLabel": "Group name *",
+    "descLabel": "Description",
+    "descPlaceholder": "Notes…",
+    "nameRequired": "Group name is required",
+    "saveFailed": "Failed to save group: {msg}",
+    "saved": "Group saved",
+    "flattenConfirm": "This group has nested sub-groups, but table groups only allow one level. Force-merge? All presets from sub-groups will be flattened to the top level of this group.",
+    "flattenForce": "Force merge",
+    "cannotNestInTableRow": "Rows inside a table group can't contain plain sub-groups"
   },
   "ini": {
     "heading": "skin.ini edits",
@@ -315,7 +329,8 @@
     "cleared": "Shortcut cleared",
     "clearFailed": "Clear failed",
     "noPreview": "No preview image",
-    "previewMissing": "Preview file missing"
+    "previewMissing": "Preview file missing",
+    "shortcutConflict": "This key is already used by a program shortcut"
   },
   "shortcutsDesc": {
     "refresh": "Refresh skin list",
@@ -324,7 +339,8 @@
     "newPreset": "New preset",
     "newGroup": "New group",
     "copyPreset": "Duplicate selected preset(s)",
-    "apply": "Apply current preset"
+    "apply": "Apply current preset",
+    "newTableGroup": "New table group"
   },
   "easterEggs": [
     {

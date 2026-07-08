@@ -118,14 +118,29 @@
     return div.innerHTML;
   }
 
+  // Collect every preset id under a group's subtree (for apply summaries).
+  function collectDescendantPresetIdsLocal(gid, groups) {
+    const out = [];
+    const rec = (id) => {
+      const g = groups.find(x => x.id === id);
+      if (!g || !g.children) return;
+      for (const c of g.children) {
+        if (c.type === 'preset') out.push(c.id);
+        else if (c.type === 'group') rec(c.id);
+      }
+    };
+    rec(gid);
+    return out;
+  }
+
   /**
    * Show multi-preset apply dialog from use mode.
-   * @param {number[]} presetIds - selected preset ids to apply
+   * @param {{presetIds?: number[], groupIds?: number[]}} args
    */
-  async function showMulti(presetIds) {
+  async function showMulti({ presetIds = [], groupIds = [] } = {}) {
     if (document.querySelector('.modal-overlay')) return;
     const skin = state.get('selectedSkin');
-    if (!skin || !presetIds || presetIds.length === 0) {
+    if (!skin || (presetIds.length === 0 && groupIds.length === 0)) {
       Toast.error(i18n.t('apply.noSkinOrPreset'));
       return;
     }
@@ -142,6 +157,14 @@
         });
       }
     }
+    // Group apply units: read meta + actions from state.groups (already loaded).
+    const groups = state.get('groups') || [];
+    const groupDataList = groupIds.map(gid => {
+      const g = groups.find(x => x.id === gid) || {};
+      const a = g.actions || { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] };
+      const meta = { name: g.name || i18n.t('group.tableGroup') };
+      return { id: gid, meta, actions: a, isGroup: true, descendantPresetIds: collectDescendantPresetIdsLocal(gid, groups) };
+    });
 
     if (presetDataList.length === 0) {
       Toast.error(i18n.t('apply.loadPresetFailed'));
@@ -151,19 +174,34 @@
     // Combine actions
     let totalIniMod = 0, totalIniDel = 0, totalCopy = 0, totalDelete = 0, totalColor = 0, totalCrop = 0;
     const presetSummaries = [];
+    const countActions = (a) => {
+      const ini = a.skinIni || [];
+      return {
+        iniMod: ini.filter(e => !e._delete).length,
+        iniDel: ini.filter(e => e._delete).length,
+        copyCount: a.fileCopies?.length || 0,
+        deleteCount: a.fileDeletes?.length || 0,
+        colorCount: (a.fileTints || []).filter(t => t.tintEnabled).length,
+        cropCount: (a.fileTints || []).filter(t => t.cropEnabled || t.darkenEnabled).length,
+      };
+    };
     for (const pd of presetDataList) {
-      const ini = pd.actions.skinIni || [];
-      const iniMod = ini.filter(e => !e._delete).length;
-      const iniDel = ini.filter(e => e._delete).length;
-      const copyCount = pd.actions.fileCopies?.length || 0;
-      const deleteCount = pd.actions.fileDeletes?.length || 0;
-      const ts = pd.actions.fileTints || [];
-      const colorCount = ts.filter(t => t.tintEnabled).length;
-      const cropCount = ts.filter(t => t.cropEnabled || t.darkenEnabled).length;
-      totalIniMod += iniMod; totalIniDel += iniDel;
-      totalCopy += copyCount; totalDelete += deleteCount;
-      totalColor += colorCount; totalCrop += cropCount;
-      presetSummaries.push({ name: pd.meta.name || i18n.t('preset.fallbackName', { id: pd.id }), iniMod, iniDel, copyCount, deleteCount, colorCount, cropCount });
+      const c = countActions(pd.actions);
+      totalIniMod += c.iniMod; totalIniDel += c.iniDel;
+      totalCopy += c.copyCount; totalDelete += c.deleteCount;
+      totalColor += c.colorCount; totalCrop += c.cropCount;
+      presetSummaries.push({ name: pd.meta.name || i18n.t('preset.fallbackName', { id: pd.id }), ...c });
+    }
+    // Group apply units: own actions count (+ descendant preset count for display).
+    for (const gd of groupDataList) {
+      const c = countActions(gd.actions);
+      totalIniMod += c.iniMod; totalIniDel += c.iniDel;
+      totalCopy += c.copyCount; totalDelete += c.deleteCount;
+      totalColor += c.colorCount; totalCrop += c.cropCount;
+      presetSummaries.push({
+        name: gd.meta.name + (gd.descendantPresetIds.length ? ` (+${gd.descendantPresetIds.length})` : ''),
+        ...c,
+      });
     }
     const hasAny = totalIniMod > 0 || totalIniDel > 0 || totalCopy > 0 || totalDelete > 0 || totalColor > 0 || totalCrop > 0;
 
@@ -220,17 +258,42 @@
       btn.textContent = i18n.t('apply.applying');
       btn.disabled = true;
 
-      const result = await api.applyMultiplePresets(skin, presetIds);
+      // Apply loose presets first, then each active table group (group's own
+      // actions + its subtree, applied once by the backend). The two sets are
+      // disjoint by construction (loose excludes presets under active groups).
+      let combined = null;
+      let failed = null;
+      if (presetIds.length > 0) {
+        const r = await api.applyMultiplePresets(skin, presetIds);
+        if (r.success) combined = r.data; else failed = r;
+      }
+      if (!failed) {
+        for (const gid of groupIds) {
+          const rg = await api.applyGroup(skin, gid);
+          if (rg.success) {
+            const d = rg.data;
+            if (!combined) combined = d;
+            else {
+              // Merge counts + warnings.
+              combined.skinIniChanges = (combined.skinIniChanges || 0) + (d.skinIniChanges || 0);
+              combined.filesCopied = (combined.filesCopied || 0) + (d.filesCopied || 0);
+              combined.filesDeleted = (combined.filesDeleted || 0) + (d.filesDeleted || 0);
+              combined.filesTinted = (combined.filesTinted || 0) + (d.filesTinted || 0);
+            }
+          } else { failed = rg; break; }
+        }
+      }
       close();
 
-      if (result.success) {
-        const d = result.data;
+      if (failed) {
+        Toast.error(i18n.t('apply.applyFailed', { msg: failed.error || i18n.t('app.unknownError') }));
+      } else {
+        const d = combined || {};
         state.set('activePresets', {});
+        state.set('activeTableGroups', {});
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
         const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0);
         Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
-      } else {
-        Toast.error(i18n.t('apply.applyFailed', { msg: result.error || i18n.t('app.unknownError') }));
       }
     });
   }

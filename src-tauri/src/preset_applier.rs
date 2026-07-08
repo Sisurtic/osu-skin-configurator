@@ -577,3 +577,69 @@ pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
     }
     result
 }
+
+/// Apply a table group's OWN actions + all its descendant presets' actions.
+/// The subtree is applied exactly once (each preset id visited once — the group
+/// tree is a tree, not a graph). INI edits are deduped by section+maniaKeys+key.
+pub fn apply_group(skin_path: &str, group_id: i64) -> Result<Value, String> {
+    let cfg = crate::preset_manager::load_config(skin_path);
+    let g = cfg.groups.iter().find(|g| g.id == group_id)
+        .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
+
+    let mut all_ini: Vec<Value> = Vec::new();
+    let mut all_copies: Vec<Value> = Vec::new();
+    let mut all_deletes: Vec<Value> = Vec::new();
+    let mut all_tints: Vec<Value> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+
+    let push_actions = |target: &mut Vec<Value>, a: &Value, key: &str| {
+        if let Some(arr) = a.get(key).and_then(|v| v.as_array()) {
+            target.extend(arr.iter().cloned());
+        }
+    };
+
+    // Group's own actions first.
+    if let Some(ga) = &g.actions {
+        push_actions(&mut all_ini, ga, "skinIni");
+        push_actions(&mut all_copies, ga, "fileCopies");
+        push_actions(&mut all_deletes, ga, "fileDeletes");
+        push_actions(&mut all_tints, ga, "fileTints");
+    }
+
+    // Descendant presets (each id once).
+    let preset_ids = crate::preset_manager::collect_descendant_preset_ids(&cfg, group_id);
+    for id in &preset_ids {
+        match cfg.presets.iter().find(|p| p.get("id").and_then(|v| v.as_i64()) == Some(*id)) {
+            Some(preset) => {
+                if let Some(a) = preset.get("actions") {
+                    push_actions(&mut all_ini, a, "skinIni");
+                    push_actions(&mut all_copies, a, "fileCopies");
+                    push_actions(&mut all_deletes, a, "fileDeletes");
+                    push_actions(&mut all_tints, a, "fileTints");
+                }
+            }
+            None => warnings.push(crate::i18n::t("err.preset_not_found", &[("id", &id.to_string())])),
+        }
+    }
+
+    // Dedup INI edits (same as apply_multiple_presets).
+    let mut merged_map: IndexMap<String, Value> = IndexMap::new();
+    for edit in &all_ini {
+        let section = edit.get("section").and_then(|v| v.as_str()).unwrap_or("");
+        let mania_keys = edit.get("maniaKeys").map(|v| v.to_string()).unwrap_or_default();
+        let key = edit.get("key").and_then(|v| v.as_str()).unwrap_or("");
+        let k = format!("{}◆{}◆{}", section, mania_keys, key);
+        merged_map.insert(k, edit.clone());
+    }
+    let merged_ini: Vec<Value> = merged_map.values().cloned().collect();
+
+    let mut result = apply_one_set(skin_path, &merged_ini, &all_copies, &all_deletes, &all_tints);
+    if let Some(obj) = result.as_object_mut() {
+        if let Some(w) = obj.get_mut("warnings").and_then(|v| v.as_array_mut()) {
+            let mut combined: Vec<Value> = warnings.into_iter().map(Value::from).collect();
+            combined.append(w);
+            obj.insert("warnings".to_string(), Value::Array(combined));
+        }
+    }
+    Ok(result)
+}

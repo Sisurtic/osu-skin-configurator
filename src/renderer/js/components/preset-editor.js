@@ -2,8 +2,12 @@
 (function () {
   const viewEl = document.getElementById('view-editor');
 
-  // Editor state for the currently editing preset
+  // Editor state for the currently editing target (preset OR group).
+  // kind: 'preset' | 'group'. Group reuses meta.name/description + _preview*;
+  // actions stay empty (group has no ini/files/tint). _groupId/_originalName
+  // are group-only (rename detection).
   let editData = {
+    kind: 'preset',
     meta: { name: '', description: '' },
     actions: { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] },
     _previewPath: null,
@@ -11,6 +15,9 @@
     _previewFrames: null,      // string[] (sequence only)
     _previewFps: 12,           // sequence frame rate
     _isNew: true,
+    _groupId: null,
+    _isTableGroup: false,
+    _originalName: '',
   };
 
   // Fill in default fields for a tint op loaded from config.osp (compact storage
@@ -48,6 +55,8 @@
   function getPreviewDataUrl() { return editData._previewPath; }
   function setPreviewDataUrl(v) { editData._previewPath = v; state.set('presetDirty', true); }
   // Full preview meta getter/setter (kind/frames/fps). preview-upload writes via this.
+  // Single source: editData holds preview for both preset and group modes.
+  function editingGroup() { return editData.kind === 'group'; }
   function getPreviewMeta() {
     return {
       path: editData._previewPath,
@@ -87,7 +96,7 @@
     const r = await api.getSkinPath(sn);
     return r.success ? r.data : null;
   });
-  PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => state.get('selectedPreset'));
+  PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => editData._groupId ?? state.get('selectedPreset'));
   TintEditor.init(getFileTints, setFileTints, skinName, () => state.get('selectedPreset'), async () => {
     const sn = skinName();
     if (!sn) return null;
@@ -96,6 +105,7 @@
   });
 
   function render() {
+    const editingGroup = editData.kind === 'group';
     const prevActiveTab = viewEl.querySelector('.tab--active');
     const savedTabName = prevActiveTab ? prevActiveTab.dataset.tab : 'basic';
 
@@ -105,6 +115,7 @@
         <div class="tab" data-tab="ini" tabindex="0">${i18n.t('preset.tabIni')}</div>
         <div class="tab" data-tab="files" tabindex="0">${i18n.t('preset.tabFiles')}</div>
         <div class="tab" data-tab="tint" tabindex="0">${i18n.t('preset.tabTint')}</div>
+        <div class="tabs__indicator" id="tabs-indicator"></div>
       </div>
 
       <div class="tab-content tab-content--active" id="tab-basic"></div>
@@ -112,6 +123,18 @@
       <div class="tab-content" id="tab-files"></div>
       <div class="tab-content" id="tab-tint"></div>
     `;
+
+    // A NON-table group has no actions — disable ini/files/tint tabs (basic only).
+    // A table group (or preset) uses the full 4-tab editor.
+    const isPlainGroup = editingGroup && !editData._isTableGroup;
+    viewEl.classList.toggle('editor--group-mode', isPlainGroup);
+    viewEl.querySelector('.tabs').classList.toggle('tabs--disabled', isPlainGroup);
+    if (isPlainGroup) {
+      bindTabs();
+      renderBasicTab();
+      requestAnimationFrame(() => moveTabIndicator(viewEl.querySelector('.tab--active')));
+      return;
+    }
 
     if (savedTabName !== 'basic') {
       const targetTab = viewEl.querySelector(`.tab[data-tab="${savedTabName}"]`);
@@ -124,6 +147,34 @@
       }
     }
 
+    bindTabs();
+    renderBasicTab();
+    IniEditor.render(document.getElementById('tab-ini'));
+    FileCopyEditor.render(document.getElementById('tab-files'));
+    if (window.TintEditor) TintEditor.render(document.getElementById('tab-tint'));
+    // Position the sliding underline under the active tab (next frame, once
+    // layout is measurable).
+    requestAnimationFrame(() => moveTabIndicator(viewEl.querySelector('.tab--active')));
+  }
+
+  // Move the sliding underline indicator to a tab (animated via CSS transition).
+  function moveTabIndicator(tab) {
+    if (!tab) return;
+    const indicator = document.getElementById('tabs-indicator');
+    if (!indicator) return;
+    indicator.style.width = tab.offsetWidth + 'px';
+    indicator.style.transform = `translateX(${tab.offsetLeft}px)`;
+  }
+  // Scale-fade the active tab-content IN (after the new content is rendered).
+  function playEditorEnter() {
+    const content = viewEl.querySelector('.tab-content--active');
+    if (!content) return;
+    content.classList.remove('main-content--enter');
+    void content.offsetWidth;
+    content.classList.add('main-content--enter');
+    content.addEventListener('animationend', () => content.classList.remove('main-content--enter'), { once: true });
+  }
+  function bindTabs() {
     viewEl.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
         viewEl.querySelectorAll('.tab').forEach(t => t.classList.remove('tab--active'));
@@ -132,6 +183,13 @@
         const targetId = `tab-${tab.dataset.tab}`;
         const targetEl = document.getElementById(targetId);
         targetEl.classList.add('tab-content--active');
+        // Scale-fade the newly shown content in (same feel as the preset selector).
+        targetEl.classList.remove('main-content--enter');
+        void targetEl.offsetWidth;
+        targetEl.classList.add('main-content--enter');
+        targetEl.addEventListener('animationend', () => targetEl.classList.remove('main-content--enter'), { once: true });
+        // Move the sliding underline to the clicked tab.
+        moveTabIndicator(tab);
         // Switching to the ini/files tab makes it visible (clientWidth > 0);
         // apply column widths + re-trigger edge-fade now that the container
         // has a real size.
@@ -164,24 +222,25 @@
         }
       });
     });
-
-    renderBasicTab();
-    IniEditor.render(document.getElementById('tab-ini'));
-    FileCopyEditor.render(document.getElementById('tab-files'));
-    if (window.TintEditor) TintEditor.render(document.getElementById('tab-tint'));
   }
 
   function renderBasicTab() {
     const meta = editData.meta;
+    const isGroup = editingGroup();
+    // Labels/placeholders differ between preset and group; field shape is identical.
+    const nameLabel = isGroup ? i18n.t('group.nameLabel') : i18n.t('preset.nameLabel');
+    const namePlaceholder = isGroup ? i18n.t('group.namePlaceholder') : i18n.t('preset.namePlaceholder');
+    const descLabel = isGroup ? i18n.t('group.descLabel') : i18n.t('preset.descLabel');
+    const descPlaceholder = isGroup ? i18n.t('group.descPlaceholder') : i18n.t('preset.descPlaceholder');
     const tab = document.getElementById('tab-basic');
     tab.innerHTML = `
       <div class="form-group">
-        <label class="form-label">${i18n.t('preset.nameLabel')}</label>
-        <input type="text" class="form-input" id="preset-name" value="${escapeHtml(meta.name)}" placeholder="${i18n.t('preset.namePlaceholder')}" autocomplete="off" spellcheck="false">
+        <label class="form-label" style="font-weight:600">${nameLabel}</label>
+        <input type="text" class="form-input" id="preset-name" value="${escapeHtml(meta.name)}" placeholder="${namePlaceholder}" autocomplete="off" spellcheck="false">
       </div>
       <div class="form-group">
-        <label class="form-label">${i18n.t('preset.descLabel')}</label>
-        <textarea class="form-input" id="preset-desc" placeholder="${i18n.t('preset.descPlaceholder')}">${escapeHtml(meta.description || '')}</textarea>
+        <label class="form-label" style="font-weight:600">${descLabel}</label>
+        <textarea class="form-input" id="preset-desc" placeholder="${descPlaceholder}">${escapeHtml(meta.description || '')}</textarea>
       </div>
       <div id="preview-slot"></div>
     `;
@@ -225,9 +284,99 @@
     try { PreviewUpload.render(document.getElementById('preview-slot')); } catch (_) { /* ignore */ }
   }
 
+  // ── Group loading (writes into the shared editData with kind:'group') ──
+  function loadGroupIntoEditor(groupId) {
+    const groups = state.get('groups') || [];
+    const g = groups.find(x => x.id === groupId);
+    if (!g) return;
+    editData = {
+      kind: 'group',
+      _isTableGroup: g.type === 'table',
+      meta: { name: g.name || '', description: g.description || '' },
+      actions: normalizeActions(g.type === 'table' ? g.actions : null),
+      _previewPath: g.previewPath || null,
+      _previewKind: g.previewKind || 'image',
+      _previewFrames: Array.isArray(g.previewFrames) ? g.previewFrames : null,
+      _previewFps: g.previewFps || 12,
+      _isNew: false,
+      _groupId: groupId,
+      _originalName: g.name || '',
+    };
+    state.set('presetDirty', false);
+  }
+
+  async function doSaveGroup() {
+    const sk = skinName();
+    if (!sk) { Toast.error(i18n.t('toast.selectSkinFirst')); return false; }
+    const gid = editData._groupId;
+    if (gid == null || editData.kind !== 'group') return false;
+    const name = (editData.meta.name || '').trim();
+    if (!name) { Toast.error(i18n.t('group.nameRequired')); return false; }
+    // Rename only if the name actually changed.
+    if (name !== editData._originalName) {
+      const r = await api.renameGroup(sk, gid, name);
+      if (!r.success) { Toast.error(i18n.t('group.saveFailed', { msg: r.error || '' })); return false; }
+      editData._originalName = name;
+    }
+    // Description.
+    const r2 = await api.setGroupDescription(sk, gid, editData.meta.description || '');
+    if (!r2.success) { Toast.error(i18n.t('group.saveFailed', { msg: r2.error || '' })); return false; }
+    // Preview media (path/kind/frames/fps).
+    const r3 = await api.setGroupPreview(sk, gid, {
+      path: editData._previewPath || '',
+      kind: editData._previewKind || 'image',
+      frames: editData._previewKind === 'sequence' ? (editData._previewFrames || []) : [],
+      fps: editData._previewFps || 12,
+    });
+    if (!r3.success) { Toast.error(i18n.t('group.saveFailed', { msg: r3.error || '' })); return false; }
+    // Own actions (INI/file/tint) — table groups only; plain groups have none.
+    if (editData._isTableGroup) {
+    const actionsToSave = {
+      skinIni: [...editData.actions.skinIni],
+      fileCopies: (editData.actions.fileCopies || []).map(c => ({
+        source: c.source, destination: c.destination || '', exact: !!c.exact,
+      })),
+      fileDeletes: (editData.actions.fileDeletes || []).map(d => ({
+        path: d.path, exact: !!d.exact,
+      })),
+      fileTints: (editData.actions.fileTints || []).map(t => {
+        const o = { source: t.source, destination: t.destination || '' };
+        if (t.tintEnabled) {
+          o.tintEnabled = true;
+          o.color = t.color || '255,255,255,255';
+          o.mode = t.mode || 'multiply';
+        }
+        if (t.cropEnabled) {
+          o.cropEnabled = true;
+          o.cropA = +t.cropA || 0;
+          o.cropB = +t.cropB || 0;
+          o.cropC = +t.cropC || 32768;
+          o.cropTile = !!t.cropTile;
+          o.cropTileDir = t.cropTileDir === 'up' ? 'up' : 'down';
+          o.darkenD = +t.darkenD || 0;
+          o.darkenOpacity = +t.darkenOpacity || 0;
+        }
+        return o;
+      }),
+    };
+    const r4 = await api.setGroupActions(sk, gid, actionsToSave);
+    if (!r4.success) { Toast.error(i18n.t('group.saveFailed', { msg: r4.error || '' })); return false; }
+    } // end if (editData._isTableGroup)
+    Toast.success(i18n.t('group.saved'));
+    state.set('presetDirty', false);
+    // Refresh groups in state so the tree + use mode reflect the new name/desc/preview.
+    if (window.PresetList && typeof window.PresetList.refreshSkinData === 'function') {
+      await window.PresetList.refreshSkinData(sk);
+    }
+    return true;
+  }
+
+
   async function doSave() {
     const sk = skinName();
     if (!sk) { Toast.error(i18n.t('toast.selectSkinFirst')); return false; }
+    // Unified entry: dispatch to the group save path when a group is loaded.
+    if (editData.kind === 'group') return doSaveGroup();
 
     const name = editData.meta.name.trim();
     if (!name) { Toast.error(i18n.t('preset.nameRequired')); return false; }
@@ -316,8 +465,7 @@
         state.setMultiple({
           presets: scanResult.data.presets,
           groups: scanResult.data.groups,
-          rootGroupIds: scanResult.data.rootGroupIds,
-            rootPresetIds: scanResult.data.rootPresetIds,
+          rootChildren: scanResult.data.rootChildren || [],
         });
       }
     } else {
@@ -350,8 +498,7 @@
         state.setMultiple({
           presets: scanResult.data.presets,
           groups: scanResult.data.groups,
-          rootGroupIds: scanResult.data.rootGroupIds,
-            rootPresetIds: scanResult.data.rootPresetIds,
+          rootChildren: scanResult.data.rootChildren || [],
         });
       }
     } else {
@@ -366,6 +513,29 @@
   }
 
   // Load preset data when selection changes
+  // Selecting a group switches the editor to the group basic-info panel.
+  // When deselected (back to a preset), the selectedPreset listener re-renders.
+  state.on('selectedGroup', async (groupId) => {
+    if (groupId == null) return;
+    loadGroupIntoEditor(groupId);
+    // Re-init sub-editors so their getter closures capture the freshly-rebuilt
+    // editData, and the id closure keys on the group id (cache isolation from
+    // any same-id preset).
+    const idFn = () => editData._groupId ?? state.get('selectedPreset');
+    const pathFn = async () => {
+      const sn = skinName();
+      if (!sn) return null;
+      const r = await api.getSkinPath(sn);
+      return r.success ? r.data : null;
+    };
+    IniEditor.init(getSkinIniActions, setSkinIniActions, pathFn);
+    FileCopyEditor.init(getFileCopies, setFileCopies, getFileDeletes, setFileDeletes, skinName, idFn, pathFn);
+    PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, idFn);
+    TintEditor.init(getFileTints, setFileTints, skinName, idFn, pathFn);
+    render();
+    playEditorEnter();
+  });
+
   state.on('selectedPreset', async (preset, prev) => {
     const sk = skinName();
     if (!preset || preset === '__new__') {
@@ -375,6 +545,7 @@
       }
       // Switching to new-preset mode from elsewhere — reset the form
       resetNew();
+      playEditorEnter();
       return;
     }
     if (!sk) return;
@@ -382,6 +553,7 @@
     const result = await api.loadPreset(sk, preset);
     if (result.success && result.data) {
       editData = {
+        kind: 'preset',
         meta: result.data.meta || { name: i18n.t('preset.fallbackName', { id: preset }), description: '' },
         actions: normalizeActions(result.data.actions),
         _previewPath: result.data.meta?.previewPath || null,
@@ -389,6 +561,9 @@
         _previewFrames: result.data.meta?.previewFrames || null,
         _previewFps: result.data.meta?.previewFps || 12,
         _isNew: false,
+        _groupId: null,
+    _isTableGroup: false,
+        _originalName: '',
       };
       state.set('presetDirty', false);
       IniEditor.init(getSkinIniActions, setSkinIniActions, async () => {
@@ -403,7 +578,7 @@
         const r = await api.getSkinPath(sn);
         return r.success ? r.data : null;
       });
-      PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => state.get('selectedPreset'));
+      PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => editData._groupId ?? state.get('selectedPreset'));
       TintEditor.init(getFileTints, setFileTints, skinName, () => state.get('selectedPreset'), async () => {
         const sn = skinName();
         if (!sn) return null;
@@ -411,10 +586,9 @@
         return r.success ? r.data : null;
       });
       render();
+      playEditorEnter();
     }
   });
-
-  // Reload preset from disk when re-entering edit mode
   state.on('appMode', async (mode) => {
     if (mode !== 'edit') return;
     const preset = state.get('selectedPreset');
@@ -424,6 +598,7 @@
     const result = await api.loadPreset(sk, preset);
     if (result.success && result.data) {
       editData = {
+        kind: 'preset',
         meta: result.data.meta || { name: i18n.t('preset.fallbackName', { id: preset }), description: '' },
         actions: normalizeActions(result.data.actions),
         _previewPath: result.data.meta?.previewPath || null,
@@ -431,6 +606,9 @@
         _previewFrames: result.data.meta?.previewFrames || null,
         _previewFps: result.data.meta?.previewFps || 12,
         _isNew: false,
+        _groupId: null,
+    _isTableGroup: false,
+        _originalName: '',
       };
       state.set('presetDirty', false);
       IniEditor.init(getSkinIniActions, setSkinIniActions, async () => {
@@ -445,7 +623,7 @@
         const r = await api.getSkinPath(sn);
         return r.success ? r.data : null;
       });
-      PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => state.get('selectedPreset'));
+      PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => editData._groupId ?? state.get('selectedPreset'));
       TintEditor.init(getFileTints, setFileTints, skinName, () => state.get('selectedPreset'), async () => {
         const sn = skinName();
         if (!sn) return null;
@@ -463,6 +641,7 @@
   // Reset the form to a fresh "new preset" state (used when the user re-clicks New Preset).
   function resetNew() {
     editData = {
+      kind: 'preset',
       meta: { name: '', description: '' },
       actions: { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] },
       _previewPath: null,
@@ -470,6 +649,9 @@
       _previewFrames: null,
       _previewFps: 12,
       _isNew: true,
+      _groupId: null,
+    _isTableGroup: false,
+      _originalName: '',
     };
     state.set('presetDirty', false);
     IniEditor.init(getSkinIniActions, setSkinIniActions, async () => {
@@ -484,7 +666,7 @@
       const r = await api.getSkinPath(sn);
       return r.success ? r.data : null;
     });
-    PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => state.get('selectedPreset'));
+    PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => editData._groupId ?? state.get('selectedPreset'));
     TintEditor.init(getFileTints, setFileTints, skinName, () => state.get('selectedPreset'), async () => {
       const sn = skinName();
       if (!sn) return null;
@@ -494,5 +676,5 @@
     render();
   }
 
-  window.PresetEditor = { render, getCurrentEditData, doSave, doDelete, resetNew };
+  window.PresetEditor = { render, getCurrentEditData, doSave, doSaveGroup, doDelete, resetNew, moveTabIndicator };
 })();

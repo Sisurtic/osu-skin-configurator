@@ -53,6 +53,7 @@
   },
   "dialog": {
     "unsavedSwitch": "現在のプリセットは未保存です。保存して切り替えますか?",
+    "unsavedSwitchGroup": "現在のグループは未保存です。保存して切り替えますか?",
     "saveAndSwitch": "保存して切替",
     "discard": "保存しない",
     "cancel": "キャンセル",
@@ -162,14 +163,27 @@
     "renameFailed": "名前変更に失敗しました: {msg}",
     "newPreset": "+ 新規プリセット",
     "newGroup": "+ 新規グループ",
-    "savePreset": "💾 プリセットを保存",
+    "savePreset": "💾 保存",
     "deleteZone": "グループまたはプリセットをここにドラッグして削除",
     "created": "グループ \"{name}\" を作成しました",
     "createFailed": "グループの作成に失敗しました: {msg}",
     "createTitle": "新規グループ",
     "namePlaceholder": "新しいグループ名を入力…",
     "createdWithPresets": "グループ \"{name}\" を作成し {count} 個のプリセットを移動しました",
-    "createdEmpty": "空のグループ \"{name}\" を作成しました"
+    "createdEmpty": "空のグループ \"{name}\" を作成しました",
+    "newTableGroup": "+ 新規テーブルグループ",
+    "tableGroup": "テーブルグループ",
+    "createdTable": "テーブルグループ \"{name}\" を作成しました",
+    "createTableTitle": "新規テーブルグループ",
+    "nameLabel": "グループ名 *",
+    "descLabel": "説明",
+    "descPlaceholder": "メモ…",
+    "nameRequired": "グループ名は必須です",
+    "saveFailed": "グループの保存に失敗しました：{msg}",
+    "saved": "グループを保存しました",
+    "flattenConfirm": "このグループにはネストされたサブグループがあります。テーブルグループは1レベルのみ許可します。強制マージしますか？すべてのサブグループのプリセットがこのグループの最上位に展開されます。",
+    "flattenForce": "強制マージ",
+    "cannotNestInTableRow": "テーブルグループ内の行に普通グループをネストできません"
   },
   "ini": {
     "heading": "skin.ini 編集",
@@ -292,7 +306,8 @@
     "cleared": "ショートカットを消去しました",
     "clearFailed": "消去失敗",
     "noPreview": "プレビュー画像がありません",
-    "previewMissing": "プレビューファイルが見つかりません"
+    "previewMissing": "プレビューファイルが見つかりません",
+    "shortcutConflict": "このキーはプログラムのショートカットで使用中です"
   },
   "shortcutsDesc": {
     "refresh": "スキン一覧を更新",
@@ -301,7 +316,8 @@
     "newPreset": "新規プリセット",
     "newGroup": "新規グループ",
     "copyPreset": "選択したプリセットを複製",
-    "apply": "現在のプリセットを適用"
+    "apply": "現在のプリセットを適用",
+    "newTableGroup": "新規テーブルグループ"
   },
   "easterEggs": [
     {

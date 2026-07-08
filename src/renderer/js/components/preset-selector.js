@@ -5,7 +5,7 @@
   let hoverTimer = null;
   let resetTimer = null;
   let previewCache = {};   // previewPath → dataURL (loaded on skin select)
-  let shortcutSelected = new Set();   // preset ids collected via right-click / Ctrl+right-click
+  let shortcutSelected = new Set();   // selection keys ("group:<id>" / "preset:<id>")
   let recorderActive = false;          // true while waiting for the next keypress to bind
 
   // Shared empty-state markup for the preview panel. MUST be a function (not a
@@ -16,11 +16,14 @@
     return `<div class="preset-preview-panel__empty">${i18n.t('selector.hoverHint')}<br>${i18n.t('selector.hoverHint2')}<br><br>${i18n.t('selector.clickSelect')}<br>${i18n.t('selector.rightClickShortcut')}<br>${i18n.t('selector.ctrlMulti')}</div>`;
   }
 
+  let _suppressRender = false;
+
   function render() {
+    if (_suppressRender) return;
     const skin = state.get('selectedSkin');
     const presets = state.get('presets') || [];
     const groups = state.get('groups') || [];
-    const rootGroupIds = state.get('rootGroupIds') || [];
+    const rootChildren = state.get('rootChildren') || [];
     const activePresets = state.get('activePresets') || {};
 
     if (!skin) {
@@ -61,6 +64,42 @@
     }
     if (cleaned) state.set('activePresets', { ...activePresets });
 
+    // Drop stale table expansion/selection state (ids no longer valid).
+    const groupIds = new Set(groups.map(g => g.id));
+    let tableCleaned = false;
+    const atg = state.get('activeTableGroups') || {};
+    for (const gid of Object.keys(atg)) {
+      if (!groupIds.has(Number(gid))) { delete atg[gid]; tableCleaned = true; }
+    }
+    const expanded = state.get('tableExpandedChildren') || {};
+    const rowSel = state.get('tableRowSelection') || {};
+    for (const gid of Object.keys(expanded)) {
+      if (!groupIds.has(Number(gid))) { delete expanded[gid]; delete rowSel[gid]; tableCleaned = true; continue; }
+      // Ensure Set (config.osp deserializes to array; empty {} = no expansions).
+      if (Array.isArray(expanded[gid])) expanded[gid] = new Set(expanded[gid]);
+      else if (expanded[gid] && typeof expanded[gid] === 'object' && !(expanded[gid] instanceof Set)) {
+        expanded[gid] = new Set(Array.isArray(expanded[gid]) ? expanded[gid] : []);
+      }
+      const set = expanded[gid];
+      const live = new Set([...set].filter(id => groupIds.has(id)));
+      if (live.size !== set.size) { expanded[gid] = live; tableCleaned = true; }
+    }
+    for (const gid of Object.keys(rowSel)) {
+      const sel = rowSel[gid];
+      const live = {};
+      for (const [k, v] of Object.entries(sel)) {
+        // Keep preset ids that still exist, and group-selection markers ('group:<id>').
+        if (typeof v === 'string' || presetMap.has(v)) live[k] = v;
+        else tableCleaned = true;
+      }
+      if (Object.keys(live).length !== Object.keys(sel).length) rowSel[gid] = live;
+    }
+    if (tableCleaned) {
+      state.set('tableExpandedChildren', { ...expanded });
+      state.set('tableRowSelection', { ...rowSel });
+      state.set('activeTableGroups', { ...atg });
+    }
+
     // Collect all selected ids (arrays → flattened)
     const selectedIds = [].concat(...Object.values(activePresets).filter(a => Array.isArray(a)));
     const hasSelection = selectedIds.length > 0;
@@ -70,7 +109,25 @@
     html += '</div>';
     html += '<div class="preset-selector__body"><div class="preset-selector__list">';
 
-    // Find orphan presets (not in any group)
+    // Unified root: presets + groups interleaved per rootChildren order.
+    const seenPreset = new Set();
+    const seenGroup = new Set();
+    for (const c of rootChildren) {
+      if (c.type === 'preset') {
+        const p = presetMap.get(c.id);
+        if (p) { html += renderPresetRow(p, activePresets, '__root__'); seenPreset.add(c.id); }
+      } else if (c.type === 'group') {
+        const g = groupMap.get(c.id);
+        if (!g) continue;
+        seenGroup.add(c.id);
+        if (g.type === 'table') {
+          html += renderTableGroup(g, groups, presetMap, activePresets, 0);
+        } else {
+          html += renderGroupTree(g, groups, presetMap, activePresets, 0);
+        }
+      }
+    }
+    // Orphan presets not in any group and not in rootChildren.
     const presetsInTree = new Set();
     function collectPresets(children) {
       if (!children) return;
@@ -83,40 +140,19 @@
       }
     }
     for (const g of groups) collectPresets(g.children);
-    const orphanPresets = presets.filter(p => !presetsInTree.has(p.id));
-
-    if (orphanPresets.length > 0) {
-      for (const p of orphanPresets) {
+    for (const p of presets) {
+      if (!presetsInTree.has(p.id) && !seenPreset.has(p.id)) {
         html += renderPresetRow(p, activePresets, '__root__');
       }
-      // Separator between orphan presets and grouped presets
-      if (groups.length > 0) {
-        html += '<div class="preset-selector__sep"></div>';
-      }
     }
-
-    // Render root groups
-    for (const childId of rootGroupIds) {
-      const group = groupMap.get(childId);
-      if (!group) continue;
-      html += renderGroupTree(group, groups, presetMap, activePresets, 0);
-    }
-
-    // Any groups not in rootGroupIds
-    const inRoot = new Set(rootGroupIds);
+    // Orphan root groups not in rootChildren and not a child of another group.
     for (const g of groups) {
-      if (!inRoot.has(g.id)) {
-        let isChild = false;
-        for (const pg of groups) {
-          if (pg.children && pg.children.some(c => c.type === 'group' && c.id === g.id)) {
-            isChild = true;
-            break;
-          }
-        }
-        if (!isChild) {
-          html += renderGroupTree(g, groups, presetMap, activePresets, 0);
-        }
+      if (seenGroup.has(g.id)) continue;
+      let isChild = false;
+      for (const pg of groups) {
+        if (pg.children && pg.children.some(c => c.type === 'group' && c.id === g.id)) { isChild = true; break; }
       }
+      if (!isChild) html += renderGroupTree(g, groups, presetMap, activePresets, 0);
     }
 
     html += '</div>';
@@ -137,8 +173,44 @@
     // Preserve list scroll position across re-renders
     const prevList = viewEl.querySelector('.preset-selector__list');
     const savedScroll = prevList ? prevList.scrollTop : 0;
+    // Preserve the preview panel content so a re-render (e.g. toggling a table
+    // group) doesn't flash it empty → refilled.
+    const prevPreview = viewEl.querySelector('#preset-preview-panel');
+    const savedPreviewHtml = prevPreview ? prevPreview.innerHTML : null;
 
     viewEl.innerHTML = html;
+
+    if (savedPreviewHtml) {
+      const newPreview = viewEl.querySelector('#preset-preview-panel');
+      if (newPreview) newPreview.innerHTML = savedPreviewHtml;
+    }
+
+    // Suppress the hover flash: after a DOM rebuild the element under the
+    // cursor instantly matches :hover, and ANY transition (item background,
+    // label color, etc.) plays = visible flash. Disable transitions on every
+    // element for one frame so the :hover state applies instantly.
+    viewEl.querySelectorAll('*').forEach(el => {
+      el.style.transition = 'none';
+    });
+    requestAnimationFrame(() => {
+      viewEl.querySelectorAll('*').forEach(el => {
+        el.style.transition = '';
+      });
+    });
+
+    // After rebuild, mark ONLY newly-selected rows (not in the previous render's
+    // selection set) so their gradient animation plays. Already-selected rows
+    // that were carried over don't replay.
+    const prevSel = window._lastShortcutSel || new Set();
+    const currSel = new Set(shortcutSelected);
+    viewEl.querySelectorAll('.preset-group__item--shortcut-sel').forEach(el => {
+      const eid = parseInt(el.dataset.id, 10);
+      const key = Number.isNaN(eid) ? null : (el.dataset.tableToggle ? 'group:' : 'preset:') + eid;
+      if (key && !prevSel.has(key)) {
+        el.classList.add('preset-group__item--shortcut-anim');
+      }
+    });
+    window._lastShortcutSel = currSel;
 
     const newList = viewEl.querySelector('.preset-selector__list');
     if (newList && savedScroll) newList.scrollTop = savedScroll;
@@ -147,19 +219,156 @@
     // Shift+click the header = toggle recursively. The arrow is visual only.
     viewEl.querySelectorAll('.preset-group__header').forEach(header => {
       header.addEventListener('click', (e) => {
+        // Table group headers have their own click handler (activate/deactivate);
+        // skip here so toggleCollapse doesn't also flip `collapsed`.
+        if (header.dataset.tableToggle) return;
         const groupId = header.dataset.groupId;
         if (!groupId) return;
         if (e.shiftKey) toggleCollapseRecursive(groupId);
         else toggleCollapse(groupId);
+      });
+      // Hover a group → show its basic info (name/description/preview) in the
+      // right preview panel, mirroring how preset rows behave.
+      header.addEventListener('mouseenter', () => {
+        const gid = parseInt(header.dataset.groupId, 10);
+        if (Number.isNaN(gid)) return;
+        clearTimeout(resetTimer);
+        const groups = state.get('groups') || [];
+        const g = groups.find(x => x.id === gid);
+        if (!g) return;
+        showPreview(
+          g.name || '',
+          g.description || '',
+          g.previewPath || null,
+          g.previewKind || 'image',
+          g.previewFrames || null,
+          g.previewFps || 12,
+          'group:' + gid
+        );
+      });
+      header.addEventListener('mouseleave', () => {
+        clearTimeout(hoverTimer);
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(() => resetPreview(), 3000);
+      });
+    });
+
+    // Table group header click → toggle expand/collapse.
+    viewEl.querySelectorAll('.preset-group__header[data-table-toggle]').forEach(hdr => {
+      hdr.addEventListener('click', (e) => {
+        const gid = parseInt(hdr.dataset.tableToggle, 10);
+        const groups = state.get('groups') || [];
+        const g = groups.find(gr => gr.id === gid);
+        if (!g) return;
+        const current = { ...(state.get('activePresets') || {}) };
+        const atg = { ...(state.get('activeTableGroups') || {}) };
+        const wasActive = !!atg[gid] || (current[gid] && current[gid].length > 0);
+        const expanded = { ...(state.get('tableExpandedChildren') || {}) };
+        const allSel = { ...(state.get('tableRowSelection') || {}) };
+
+        // Restore expanded + seed defaults: every row must have a selection.
+        // 1. Seed unselected rows with their leftmost option.
+        // 2. Expand rows that selected a child table group.
+        // Loop until stable.
+        const restoreExpanded = () => {
+          let changed = true;
+          while (changed) {
+            changed = false;
+            const rows = collectTableRows(g, groups, expanded, 0, null);
+            for (const row of rows) {
+              // Seed unselected row → leftmost option.
+              if (allSel[gid][row.rowKey] == null) {
+                const first = row.options[0];
+                if (first) {
+                  allSel[gid][row.rowKey] = first.kind === 'group' ? 'group:' + first.id : first.id;
+                  changed = true;
+                }
+              }
+              // Expand child table groups that are selected.
+              const val = allSel[gid][row.rowKey];
+              if (typeof val === 'string' && val.startsWith('group:')) {
+                const childId = parseInt(val.slice(6), 10);
+                const owner = parseOwnerGid(row.rowKey, groups, gid);
+                if (!expanded[owner]) expanded[owner] = new Set();
+                if (!expanded[owner].has(childId)) {
+                  expanded[owner].add(childId);
+                  changed = true;
+                }
+              }
+            }
+          }
+        };
+
+        // Derive activePresets[gid] from current rows + selection.
+        const deriveActivePresets = () => {
+          const rows = collectTableRows(g, groups, expanded, 0, null);
+          const sel = allSel[gid] || {};
+          const ids = [];
+          for (const row of rows) {
+            const chosen = sel[row.rowKey];
+            const presetOpts = row.options.filter(o => o.kind === 'preset').map(o => o.id);
+            if (typeof chosen === 'number' && presetOpts.includes(chosen)) ids.push(chosen);
+            else if (typeof chosen !== 'string' && presetOpts.length > 0) ids.push(presetOpts[0]);
+          }
+          if (ids.length > 0) current[gid] = ids; else delete current[gid];
+        };
+
+        const activate = () => {
+          if (!expanded[gid] || !(expanded[gid] instanceof Set)) expanded[gid] = new Set();
+          if (!allSel[gid]) allSel[gid] = {};
+          restoreExpanded();
+          deriveActivePresets();
+          atg[gid] = true;
+        };
+
+        const deactivate = () => {
+          delete current[gid];
+          delete atg[gid];
+          // Clear ALL expanded state for this table group + its nested sub-tables.
+          // allSel (row selections) is PRESERVED (persisted).
+          const clearExp = (grp) => {
+            delete expanded[grp.id];
+            for (const c of (grp.children || [])) {
+              if (c.type === 'group') {
+                const sub = groups.find(x => x.id === c.id);
+                if (sub && sub.type === 'table') clearExp(sub);
+              }
+            }
+          };
+          clearExp(g);
+        };
+
+        if (e.ctrlKey || e.metaKey) {
+          if (wasActive) deactivate();
+          else activate();
+        } else {
+          const activeGids = new Set([...Object.keys(current), ...Object.keys(atg)].map(Number));
+          const soleActive = wasActive && activeGids.size === 1 && activeGids.has(gid);
+          if (soleActive) {
+            deactivate();
+          } else {
+            for (const k of Object.keys(current)) delete current[k];
+            for (const k of Object.keys(atg)) delete atg[k];
+            activate();
+          }
+        }
+        state.setMultiple({
+          tableExpandedChildren: expanded,
+          tableRowSelection: allSel,
+          activePresets: current,
+          activeTableGroups: atg,
+        });
       });
     });
 
     // Bind row clicks
     viewEl.querySelectorAll('.preset-group__item').forEach(item => {
       item.addEventListener('click', (e) => {
+        if (item.dataset.tableToggle) return; // table header has its own handler
         const groupId = item.dataset.groupId;
         const presetId = parseInt(item.dataset.id, 10);
         const current = state.get('activePresets') || {};
+        const atg = state.get('activeTableGroups') || {};
         if (e.ctrlKey || e.metaKey) {
           // Ctrl+click: toggle this preset within the group (multi-select)
           const arr = Array.isArray(current[groupId]) ? current[groupId].slice() : [];
@@ -169,19 +378,26 @@
           if (arr.length > 0) current[groupId] = arr;
           else delete current[groupId];
         } else {
-          // Plain click: global single-select, or deselect if clicking the sole selection
-          const sole = Object.keys(current).length === 1
+          // Plain click: global single-select (clears other presets AND table
+          // groups), or deselect if clicking the sole selection.
+          const sole = Object.keys(current).length === 0
+            && Object.keys(atg).length === 0;
+          const isOnlyThis = sole === false
+            && Object.keys(current).length === 1
             && Array.isArray(current[groupId])
             && current[groupId].length === 1
-            && current[groupId][0] === presetId;
-          if (sole) {
+            && current[groupId][0] === presetId
+            && Object.keys(atg).length === 0;
+          if (isOnlyThis) {
             delete current[groupId];
           } else {
             for (const k of Object.keys(current)) delete current[k];
+            for (const k of Object.keys(atg)) delete atg[k];
             current[groupId] = [presetId];
           }
         }
         state.set('activePresets', { ...current });
+        state.set('activeTableGroups', { ...atg });
         const panel = document.getElementById('preset-preview-panel');
         const savedWidth = panel ? panel.style.width : null;
         render();
@@ -195,6 +411,10 @@
 
       // Hover preview
       item.addEventListener('mouseenter', () => {
+        // Table-group headers have their own hover handler (showPreview of the
+        // group). Skip here so this preset-row handler doesn't look up a preset
+        // by the group's id (ids can overlap) and show the wrong preview.
+        if (item.dataset.tableToggle) return;
         clearTimeout(resetTimer);
         const presetId = parseInt(item.dataset.id, 10);
         const preset = presets.find(p => p.id === presetId);
@@ -216,24 +436,51 @@
       // Right-click → bind global shortcut
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        const presetId = parseInt(item.dataset.id, 10);
+        const id = parseInt(item.dataset.id, 10);
+        const isGroup = !!item.dataset.tableToggle;
+        // Key by type+id so a preset and a group sharing the same numeric id
+        // don't get selected together.
+        const key = (isGroup ? 'group:' : 'preset:') + id;
         if (e.ctrlKey || e.metaKey) {
-          // Ctrl+right-click: add to (or remove from) multi-select, start recording now
-          if (shortcutSelected.has(presetId)) shortcutSelected.delete(presetId);
-          else shortcutSelected.add(presetId);
+          if (shortcutSelected.has(key)) shortcutSelected.delete(key);
+          else shortcutSelected.add(key);
         } else {
-          // Plain right-click: single-select this preset, or deselect if it's the sole selection
-          if (shortcutSelected.size === 1 && shortcutSelected.has(presetId)) {
+          if (shortcutSelected.size === 1 && shortcutSelected.has(key)) {
             shortcutSelected = new Set();
           } else {
-            shortcutSelected = new Set([presetId]);
+            shortcutSelected = new Set([key]);
           }
         }
+        // Helper: compute an element's selection key from its dataset.
+        const elKey = (el) => {
+          const eid = parseInt(el.dataset.id, 10);
+          if (Number.isNaN(eid)) return null;
+          return (el.dataset.tableToggle ? 'group:' : 'preset:') + eid;
+        };
         if (shortcutSelected.size === 0) {
-          cancelRecording();   // selection emptied → close recorder (also re-renders)
+          // Selection emptied: remove --shortcut-sel in-place, close recorder
+          // WITHOUT render (avoids hover flash from DOM rebuild).
+          viewEl.querySelectorAll('.preset-group__item--shortcut-sel').forEach(el => {
+            el.classList.remove('preset-group__item--shortcut-sel', 'preset-group__item--shortcut-anim');
+          });
+          recorderActive = false;
+          shortcutSelected = new Set();
+          hideShortcutRecorder();
         } else {
           startRecording();
-          render();            // refresh row highlight for the new selection
+          // Toggle the --shortcut-sel class in-place (no re-render) so the CSS
+          // animation only plays on the newly selected row, not on already-
+          // selected rows that would be re-created by render().
+          viewEl.querySelectorAll('.preset-group__item--shortcut-sel').forEach(el => {
+            if (!shortcutSelected.has(elKey(el))) {
+              el.classList.remove('preset-group__item--shortcut-sel', 'preset-group__item--shortcut-anim');
+            }
+          });
+          viewEl.querySelectorAll('.preset-group__item').forEach(el => {
+            if (shortcutSelected.has(elKey(el)) && !el.classList.contains('preset-group__item--shortcut-sel')) {
+              el.classList.add('preset-group__item--shortcut-sel', 'preset-group__item--shortcut-anim');
+            }
+          });
         }
       });
     });
@@ -253,7 +500,174 @@
       });
     }
 
+    // ── Table group radio: switching a row's preset updates activePresets ──
+    // Two option kinds: 'preset' (select for this row) and 'group' (toggle a
+    // nested table group's expansion into a row).
+    viewEl.querySelectorAll('.preset-group__table-option[data-table-row]').forEach(opt => {
+      opt.addEventListener('click', () => {
+        const gid = parseInt(opt.dataset.tableRow, 10);
+        const kind = opt.dataset.kind;
+        const rowKey = opt.dataset.rowKey;
+        const groups = state.get('groups') || [];
+        const g = groups.find(x => x.id === gid);
+        if (!g) return;
+        const ownerGid = parseOwnerGid(rowKey, groups, gid);
+        const expanded = { ...(state.get('tableExpandedChildren') || {}) };
+        const allSel = { ...(state.get('tableRowSelection') || {}) };
+        const current = { ...(state.get('activePresets') || {}) };
+        if (!allSel[gid]) allSel[gid] = {};
+        const sel = allSel[gid];
+        if (!expanded[ownerGid]) expanded[ownerGid] = new Set();
+
+        if (kind === 'preset') {
+          const pid = parseInt(opt.dataset.presetId, 10);
+          // Mutex: collapse any group tags in this row.
+          const row = collectTableRows(g, groups, expanded, 0, null).find(r => r.rowKey === rowKey);
+          if (row) {
+            for (const o of row.options) {
+              if (o.kind === 'group' && expanded[ownerGid].has(o.id)) {
+                expanded[ownerGid].delete(o.id);
+              }
+            }
+          }
+          sel[rowKey] = pid;
+        } else if (kind === 'group') {
+          const childGid = parseInt(opt.dataset.childGroupId, 10);
+          const groupKey = 'group:' + childGid;
+          if (sel[rowKey] === groupKey) return; // already selected
+          // Mutex: collapse other group tags in this row.
+          const row = collectTableRows(g, groups, expanded, 0, null).find(r => r.rowKey === rowKey);
+          if (row) {
+            for (const o of row.options) {
+              if (o.kind === 'group' && o.id !== childGid && expanded[ownerGid].has(o.id)) {
+                expanded[ownerGid].delete(o.id);
+              }
+            }
+          }
+          sel[rowKey] = groupKey;
+          if (!expanded[ownerGid].has(childGid)) expanded[ownerGid].add(childGid);
+        }
+
+        // Restore expanded + seed defaults for newly appeared rows.
+        let changed = true;
+        while (changed) {
+          changed = false;
+          const rows = collectTableRows(g, groups, expanded, 0, null);
+          for (const row of rows) {
+            // Seed unselected row → leftmost option.
+            if (sel[row.rowKey] == null) {
+              const first = row.options[0];
+              if (first) {
+                sel[row.rowKey] = first.kind === 'group' ? 'group:' + first.id : first.id;
+                changed = true;
+              }
+            }
+            // Expand child table groups that are selected.
+            const val = sel[row.rowKey];
+            if (typeof val === 'string' && val.startsWith('group:')) {
+              const childId = parseInt(val.slice(6), 10);
+              const rowOwner = parseOwnerGid(row.rowKey, groups, gid);
+              if (!expanded[rowOwner]) expanded[rowOwner] = new Set();
+              if (!expanded[rowOwner].has(childId)) {
+                expanded[rowOwner].add(childId);
+                changed = true;
+              }
+            }
+          }
+        }
+
+        // Derive activePresets.
+        const deriveRows = collectTableRows(g, groups, expanded, 0, null);
+        const ids = [];
+        for (const row of deriveRows) {
+          const chosen = sel[row.rowKey];
+          const presetOpts = row.options.filter(o => o.kind === 'preset').map(o => o.id);
+          if (typeof chosen === 'number' && presetOpts.includes(chosen)) ids.push(chosen);
+          else if (typeof chosen !== 'string' && presetOpts.length > 0) ids.push(presetOpts[0]);
+        }
+        if (ids.length > 0) current[gid] = ids; else delete current[gid];
+
+        state.setMultiple({
+          tableExpandedChildren: expanded,
+          tableRowSelection: allSel,
+          activePresets: current,
+        });
+      });
+
+      // Hover an option → show its preview (preset option → that preset's
+      // preview; group tag → that child table group's preview).
+      opt.addEventListener('mouseenter', () => {
+        clearTimeout(resetTimer);
+        const presets = state.get('presets') || [];
+        const groups = state.get('groups') || [];
+        if (opt.dataset.kind === 'preset') {
+          const pid = parseInt(opt.dataset.presetId, 10);
+          const p = presets.find(x => x.id === pid);
+          if (!p) return;
+          const name = p.meta?.name || i18n.t('preset.fallbackName', { id: pid });
+          showPreview(name, p.meta?.description || '', p.meta?.previewPath || null,
+            p.meta?.previewKind || 'image', p.meta?.previewFrames || null, p.meta?.previewFps || 12, pid);
+        } else if (opt.dataset.kind === 'group') {
+          const childGid = parseInt(opt.dataset.childGroupId, 10);
+          const g = groups.find(x => x.id === childGid);
+          if (!g) return;
+          showPreview(g.name || '', g.description || '', g.previewPath || null,
+            g.previewKind || 'image', g.previewFrames || null, g.previewFps || 12, 'group:' + childGid);
+        }
+      });
+      opt.addEventListener('mouseleave', () => {
+        clearTimeout(hoverTimer);
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(() => resetPreview(), 3000);
+      });
+    });
+
     initDividerDrag();
+    updateUnderlineOverlays();
+    // Re-position underline overlays on scroll / resize (they're fixed-position).
+    const list2 = viewEl.querySelector('.preset-selector__list');
+    if (list2 && !list2._underlineScrollBound) {
+      list2._underlineScrollBound = true;
+      list2.addEventListener('scroll', updateUnderlineOverlays, { passive: true });
+    }
+  }
+
+  if (!window._underlineResizeBound) {
+    window._underlineResizeBound = true;
+    window.addEventListener('resize', () => updateUnderlineOverlays(), { passive: true });
+  }
+
+  // Draw independent underline overlays under every expanded group header.
+  // Uses absolute positioning inside the scroll container so overflow:hidden
+  // clips them (they won't escape the window). Doesn't push content and isn't
+  // covered by pseudo-elements.
+  function updateUnderlineOverlays() {
+    const list = viewEl.querySelector('.preset-selector__list');
+    if (!list) return;
+    if (!list._underlineContainer) {
+      const container = document.createElement('div');
+      container.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:50;overflow:hidden';
+      list.style.position = 'relative';
+      list.appendChild(container);
+      list._underlineContainer = container;
+    }
+    const container = list._underlineContainer;
+    container.innerHTML = '';
+    const headers = viewEl.querySelectorAll('.preset-group__header:not(.preset-group__header--collapsed):not(.preset-group__item--shortcut-sel)');
+    for (const header of headers) {
+      // Position relative to the list container.
+      const hr = header.getBoundingClientRect();
+      const lr = list.getBoundingClientRect();
+      const left = hr.left - lr.left + list.scrollLeft;
+      const top = hr.bottom - lr.top + list.scrollTop - 1;
+      if (hr.width === 0) continue;
+      const depth = parseInt(header.closest('.preset-group')?.style.getPropertyValue('--depth') || '0', 10);
+      const hue = 140 + depth * 25;
+      const line = document.createElement('div');
+      line.className = 'preset-group__underline-overlay';
+      line.style.cssText = `position:absolute;left:${left}px;width:${hr.width}px;top:${top}px;height:2px;background:linear-gradient(90deg, hsl(${hue}deg,60%,65%), hsl(${hue + 20}deg,60%,45%))`;
+      container.appendChild(line);
+    }
   }
 
   // ── Recursive group rendering ──
@@ -269,6 +683,139 @@
       }
     }
     return n;
+  }
+
+  // Table group: header uses the SAME normal group header style; expanded
+  // content is a table (rows = sub-groups, click to select preset per row).
+
+  // Collect the flat list of rows for a table group, expansion-aware.
+  // Each row: { rowKey, label, depth, options: [{kind:'preset',id} | {kind:'group',id,name}] }
+  // When a row has an expanded child-table-group option, that child's rows are
+  // spliced in right after (depth+1).
+  function collectTableRows(group, allGroups, expandedChildren, depth, pathPrefix) {
+    const gid = group.id;
+    const prefix = pathPrefix || (gid + ':');
+    const expanded = expandedChildren[gid] || new Set();
+    const rows = [];
+    // Collect direct presets + nested table groups into ONE __direct__ row at the
+    // TOP, then emit labeled rows for plain sub-groups (in original order).
+    const allDirectOpts = [];
+    for (const c of (group.children || [])) {
+      if (c.type === 'preset') {
+        allDirectOpts.push({ kind: 'preset', id: c.id });
+      } else if (c.type === 'group') {
+        const g = allGroups.find(x => x.id === c.id);
+        if (g && g.type === 'table') {
+          allDirectOpts.push({ kind: 'group', id: g.id, name: g.name || '' });
+        }
+      }
+    }
+    if (allDirectOpts.length > 0) {
+      rows.push({ rowKey: prefix + '__direct__', label: '', depth, options: allDirectOpts });
+    }
+    // Plain sub-groups → one labeled row each.
+    for (const c of (group.children || [])) {
+      if (c.type !== 'group') continue;
+      const g = allGroups.find(x => x.id === c.id);
+      if (!g || g.type === 'table') continue;
+      const subOpts = [];
+      for (const sc of (g.children || [])) {
+        if (sc.type === 'preset') subOpts.push({ kind: 'preset', id: sc.id });
+        else if (sc.type === 'group') {
+          const sg = allGroups.find(x => x.id === sc.id);
+          if (sg && sg.type === 'table') subOpts.push({ kind: 'group', id: sg.id, name: sg.name || '' });
+        }
+      }
+      if (subOpts.length > 0) {
+        rows.push({ rowKey: prefix + c.id, label: g.name || '', depth, options: subOpts });
+      }
+    }
+    const out = [];
+    for (const row of rows) {
+      out.push(row);
+      for (const opt of row.options) {
+        if (opt.kind === 'group' && expanded.has(opt.id)) {
+          const childGroup = allGroups.find(g => g.id === opt.id);
+          if (childGroup) {
+            const childRows = collectTableRows(childGroup, allGroups, expandedChildren, depth + 1, prefix + opt.id + ':');
+            for (const cr of childRows) out.push(cr);
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  // Parse owner table group id from a rowKey path.
+  function parseOwnerGid(rowKey, allGroups, defaultGid) {
+    const parts = rowKey.split(':');
+    for (let i = parts.length - 2; i >= 0; i--) {
+      if (parts[i] !== '__direct__' && /^\d+$/.test(parts[i])) {
+        const candidate = parseInt(parts[i], 10);
+        const cg = allGroups.find(x => x.id === candidate);
+        if (cg && cg.type === 'table') return candidate;
+      }
+    }
+    return defaultGid;
+  }
+
+  function renderTableGroup(group, allGroups, presetMap, activePresets, depth) {
+    const gid = group.id;
+    const atg = state.get('activeTableGroups') || {};
+    const isActive = !!atg[gid] || (activePresets[gid] && activePresets[gid].length > 0);
+    // Selected = expanded, deselected = collapsed.
+    const isCollapsed = !isActive;
+    const shortcut = group.shortcut || '';
+    const inSelect = shortcutSelected.has('group:' + gid);
+    const count = countAllPresets(group, allGroups);
+    let html = `<div class="preset-group preset-group--table" style="--depth:${depth}">`;
+    html += `<div class="preset-group__header preset-group__item ${isCollapsed ? 'preset-group__header--collapsed' : ''} ${depth > 0 ? 'preset-group__header--nested' : ''} ${isActive ? 'preset-group__item--editing' : ''} ${shortcut ? 'preset-group__item--has-shortcut' : ''} ${inSelect ? 'preset-group__item--shortcut-sel' : ''}"
+             data-group-id="${gid}" data-table-toggle="${gid}" data-id="${gid}" data-sel-key="group:${gid}">
+      <span class="preset-radio ${isActive ? 'preset-radio--selected' : ''}" data-group-id="${gid}"></span>
+      <span class="preset-group__label">${escapeHtml(group.name)}</span>
+      ${count > 0 ? `<span class="preset-group__count">[${count}]</span>` : ''}
+      ${shortcut ? `<span class="preset-group__shortcut">${escapeHtml(shortcut)}</span>` : ''}
+    </div>`;
+
+    if (!isCollapsed) {
+      // Build the flat, expansion-aware row list for this table group.
+      const expanded = state.get('tableExpandedChildren') || {};
+      const allRowSel = state.get('tableRowSelection') || {};
+      const rowSel = { ...(allRowSel[gid] || {}) };
+      const rows = collectTableRows(group, allGroups, expanded, 0, null);
+      // An empty table group (no presets, no rows) draws no table body.
+      if (rows.length === 0) { html += '</div>'; return html; }
+      html += '<div class="preset-group__children">';
+      html += '<div class="preset-group__table-rows">';
+      for (const row of rows) {
+        html += `<div class="preset-group__table-row" data-row-key="${escapeHtml(row.rowKey)}" style="margin-left:0">
+          <span class="preset-group__table-label">${escapeHtml(row.label)}</span>
+          <div class="preset-group__table-options">`;
+        for (const opt of row.options) {
+          if (opt.kind === 'preset') {
+            const p = presetMap.get(opt.id);
+            if (!p) continue;
+            const name = p.meta?.name || i18n.t('preset.fallbackName', { id: opt.id });
+            const isSelected = rowSel[row.rowKey] === opt.id;
+            html += `<span class="preset-group__table-option${isSelected ? ' preset-group__table-option--selected' : ''}"
+              data-table-row="${gid}" data-row-key="${escapeHtml(row.rowKey)}" data-kind="preset" data-preset-id="${opt.id}">${escapeHtml(name)}</span>`;
+          } else {
+            // group-tag option: a nested table group.
+            const groupKey = 'group:' + opt.id;
+            const ownerGid2 = parseOwnerGid(row.rowKey, allGroups, gid);
+            const isExpanded = (expanded[ownerGid2] || new Set()).has(opt.id);
+            const isRowSelected = rowSel[row.rowKey] === groupKey;
+            html += `<span class="preset-group__table-option preset-group__table-option--group-tag${(isExpanded && isRowSelected) ? ' preset-group__table-option--group-tag--expanded' : ''}"
+              data-table-row="${gid}" data-row-key="${escapeHtml(row.rowKey)}" data-kind="group" data-child-group-id="${opt.id}">${escapeHtml(opt.name)}</span>`;
+          }
+        }
+        html += `</div></div>`;
+      }
+      html += '</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
   }
 
   function renderGroupTree(group, allGroups, presetMap, activePresets, depth) {
@@ -297,7 +844,11 @@
         if (child.type === 'group') {
           const subGroup = allGroups.find(g => g.id === child.id);
           if (subGroup) {
-            html += renderGroupTree(subGroup, allGroups, presetMap, activePresets, depth + 1);
+            if (subGroup.type === 'table') {
+              html += renderTableGroup(subGroup, allGroups, presetMap, activePresets, depth + 1);
+            } else {
+              html += renderGroupTree(subGroup, allGroups, presetMap, activePresets, depth + 1);
+            }
           }
         }
       }
@@ -313,10 +864,11 @@
     const isActive = activeArr.includes(preset.id);
     const name = preset.meta?.name || i18n.t('preset.fallbackName', { id: preset.id });
     const shortcut = preset.meta?.shortcut || '';
-    const inSelect = shortcutSelected.has(preset.id);
+    const inSelect = shortcutSelected.has('preset:' + preset.id);
     return `
       <div class="preset-group__item ${isActive ? 'preset-group__item--editing' : ''} ${shortcut ? 'preset-group__item--has-shortcut' : ''} ${inSelect ? 'preset-group__item--shortcut-sel' : ''}"
            data-id="${preset.id}"
+           data-sel-key="preset:${preset.id}"
            data-group-id="${groupId}">
         <span class="preset-radio ${isActive ? 'preset-radio--selected' : ''}"
               data-group-id="${groupId}" data-id="${preset.id}"></span>
@@ -332,12 +884,16 @@
 
   // Keys that must not be bound as a standalone global shortcut (no modifier).
   const FORBIDDEN_BARE_KEYS = new Set(['Escape', ' ', 'Tab', 'Backspace', 'Delete', 'Enter']);
+  // Letters, digits, punctuation — too disruptive if bound WITHOUT a modifier
+  // (would block them system-wide). Allowed WITH Ctrl/Alt/Shift.
+  const COMMON_KEYS = /^[a-zA-Z0-9`~!@#$%^&*()\-_=+\[\]{}\\|;:'",<.>\/?]$/;
 
   function keyToAccelerator(e) {
     if (e.key === 'Control' || e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta') return null;
     const hasModifier = e.ctrlKey || e.altKey;
-    // Block bare common keys (Esc/Space/Tab/etc.) — combos with Ctrl/Alt are allowed
     if (!hasModifier && FORBIDDEN_BARE_KEYS.has(e.key)) return null;
+    // Block bare letters/digits/punctuation (no modifier) — they'd be swallowed system-wide.
+    if (!hasModifier && COMMON_KEYS.test(e.key)) return null;
     const parts = [];
     if (e.ctrlKey) parts.push('Ctrl');
     if (e.altKey) parts.push('Alt');
@@ -361,9 +917,21 @@
       document.body.appendChild(rec);
     }
     const count = shortcutSelected.size;
-    const single = count === 1 ? [...shortcutSelected][0] : null;
+    const singleKey = count === 1 ? [...shortcutSelected][0] : null;
     const presets = state.get('presets') || [];
-    const existing = single ? (presets.find(p => p.id === single)?.meta?.shortcut || '') : '';
+    const groups = state.get('groups') || [];
+    let existing = '';
+    if (singleKey != null) {
+      const [type, idStr] = singleKey.split(':');
+      const id = parseInt(idStr, 10);
+      if (type === 'group') {
+        const g = groups.find(g => g.id === id);
+        if (g) existing = g.shortcut || '';
+      } else {
+        const p = presets.find(p => p.id === id);
+        if (p) existing = p.meta?.shortcut || '';
+      }
+    }
     rec.innerHTML = `
       <div class="shortcut-recorder__title">${i18n.t('selector.selectedCount', { count })}</div>
       <div class="shortcut-recorder__hint">${recorderActive ? i18n.t('selector.recordHint') : i18n.t('selector.recordTitle')}</div>
@@ -387,11 +955,19 @@
 
   function startRecording() {
     recorderActive = true;
+    // Temporarily unregister Tauri global shortcuts so the recorded combo
+    // isn't swallowed at the OS layer before the frontend keydown sees it.
+    // (Program shortcuts are suppressed separately, in app.js, while the
+    // recorder DOM element is visible.)
+    try { api.reloadGlobalShortcuts(null); } catch (e) { /* best-effort */ }
     showShortcutRecorder();
   }
 
   function cancelRecording() {
     recorderActive = false;
+    // Re-register Tauri global shortcuts for the current skin.
+    const skin = state.get('selectedSkin');
+    if (skin) { try { api.reloadGlobalShortcuts(skin); } catch (e) { /* best-effort */ } }
     shortcutSelected = new Set();
     hideShortcutRecorder();
     render();
@@ -399,39 +975,113 @@
 
   async function bindShortcut(accelerator) {
     const skin = state.get('selectedSkin');
-    if (!skin) return;
+    if (!skin) { cancelRecording(); return; }
     const ids = [...shortcutSelected];
-    try {
-      const r = await api.bindGlobalShortcut(skin, ids, accelerator);
-      if (r.success) {
-        Toast.success(i18n.t('selector.bound', { acc: accelerator, count: ids.length }));
-        // Refresh presets so badges update
-        const scan = await api.scanPresets(skin);
-        if (scan.success) state.set('presets', scan.data.presets);
-        await api.reloadGlobalShortcuts(skin);
-      } else {
-        Toast.error(r.error || i18n.t('selector.bindFailed'));
-      }
-    } catch (e) {
-      Toast.error(e.message || i18n.t('selector.bindFailed'));
+    // Pre-check: conflict with custom program shortcuts → don't bind, just warn.
+    const appShortcuts = (window.Shortcuts && window.Shortcuts.getAll) ? window.Shortcuts.getAll() : [];
+    const appKeys = new Set(appShortcuts.map(s => s.key).filter(Boolean));
+    if (appKeys.has(accelerator)) {
+      // Conflict with a program shortcut: warn but KEEP recording so the user
+      // can try a different combo. Do NOT cancelRecording (that would close
+      // the recorder and re-enable program shortcuts mid-press).
+      Toast.warning(i18n.t('selector.shortcutConflict'));
+      return;
     }
-    cancelRecording();
+    recorderActive = false;
+    // Suppress render so the fadeout animation isn't interrupted by a DOM rebuild.
+    _suppressRender = true;
+    // Locate the target rows by selection key (type+id) so a preset and a
+    // group sharing the same numeric id don't both match.
+    const selEls = ids.map(k => viewEl.querySelector(`.preset-group__item[data-sel-key="${CSS.escape(k)}"]`)).filter(Boolean);
+    // Hide the recorder + add badge + start the gradient fadeout IMMEDIATELY, in
+    // sync with the animation — don't wait for the async bind IPC to complete.
+    hideShortcutRecorder();
+    selEls.forEach(el => {
+      el.classList.add('preset-group__item--gradient-out', 'preset-group__item--has-shortcut');
+      // Remove any stale badge text first, then (re)create it with the new accel.
+      const old = el.querySelector('.preset-group__shortcut');
+      if (old) old.remove();
+      const badge = document.createElement('span');
+      badge.className = 'preset-group__shortcut';
+      badge.textContent = accelerator;
+      el.appendChild(badge);
+    });
+    // Run the bind + persistence + reload in the background.
+    const presetIds = ids.filter(k => k.startsWith('preset:')).map(k => parseInt(k.split(':')[1], 10));
+    const groupIds = ids.filter(k => k.startsWith('group:')).map(k => parseInt(k.split(':')[1], 10));
+    (async () => {
+      try {
+        if (presetIds.length > 0) {
+          const bindResult = await api.bindGlobalShortcut(skin, presetIds, accelerator);
+          if (!bindResult.success) { Toast.error(bindResult.error || i18n.t('selector.bindFailed')); }
+        }
+        if (groupIds.length > 0) {
+          for (const gid of groupIds) {
+            await window.__TAURI__.core.invoke('groups_set_shortcut', { skinName: skin, groupId: gid, shortcut: accelerator });
+          }
+        }
+        Toast.success(i18n.t('selector.bound', { acc: accelerator, count: ids.length }));
+        const scan = await api.scanPresets(skin);
+        if (scan.success) {
+          state.set('presets', scan.data.presets);
+          state.set('groups', scan.data.groups);
+        }
+        await api.reloadGlobalShortcuts(skin);
+      } catch (e) {
+        Toast.error(e.message || i18n.t('selector.bindFailed'));
+      }
+    })();
+    // Let the fadeout animation finish, then re-enable render and clean up.
+    setTimeout(() => { _suppressRender = false; cancelRecording(); }, 400);
   }
 
   async function clearShortcuts() {
     const skin = state.get('selectedSkin');
     if (!skin) return;
     const ids = [...shortcutSelected];
+    // Suppress render during fadeout so DOM isn't replaced mid-animation.
+    _suppressRender = true;
+    // Hide the recorder immediately, in sync with the fadeout below.
+    hideShortcutRecorder();
+    // Visually fade out badge + bar immediately (before the async IPC + render).
+    ids.forEach(pid => {
+      const el = viewEl.querySelector(`.preset-group__item[data-sel-key="${CSS.escape(pid)}"]`);
+      if (el) {
+        el.classList.add('preset-group__item--shortcut-fadeout');
+        const badge = el.querySelector('.preset-group__shortcut');
+        if (badge) badge.style.transition = 'opacity 0.4s ease';
+      }
+    });
     try {
-      await api.unbindGlobalShortcut(skin, ids);
+      const presetIds = ids.filter(k => k.startsWith('preset:')).map(k => parseInt(k.split(':')[1], 10));
+      const groupIds = ids.filter(k => k.startsWith('group:')).map(k => parseInt(k.split(':')[1], 10));
+      if (presetIds.length > 0) await api.unbindGlobalShortcut(skin, presetIds);
+      for (const gid of groupIds) {
+        await window.__TAURI__.core.invoke('groups_set_shortcut', { skinName: skin, groupId: gid, shortcut: '' });
+      }
       Toast.success(i18n.t('selector.cleared'));
       const scan = await api.scanPresets(skin);
-      if (scan.success) state.set('presets', scan.data.presets);
+      if (scan.success) {
+          state.set('presets', scan.data.presets);
+          state.set('groups', scan.data.groups);
+        }
       await api.reloadGlobalShortcuts(skin);
     } catch (e) {
       Toast.error(e.message || i18n.t('selector.clearFailed'));
     }
-    cancelRecording();
+    // Clear: fade out gradient + bar + badge, then re-render.
+    setTimeout(() => { _suppressRender = false; cancelRecording(); }, 400);
+  }
+
+  // Fade out the gradient on selected items before re-render removes them.
+  function fadeOutAndCancel() {
+    const items = document.querySelectorAll('.preset-group__item--shortcut-sel:not(.preset-group__item--shortcut-fadeout)');
+    if (items.length > 0) {
+      items.forEach(el => el.classList.add('preset-group__item--shortcut-fadeout'));
+      setTimeout(() => { _suppressRender = false; cancelRecording(); }, 400);
+    } else {
+      cancelRecording();
+    }
   }
 
   // Global keydown: capture the combo while recording; Esc cancels; Tab/Space/Enter pass through for buttons
@@ -463,22 +1113,17 @@
         e.preventDefault();
         bindShortcut(acc);
       } else {
-        // Bare modifier / forbidden key — tell the user it's invalid
+        // Bare modifier / forbidden key — swallow silently (Ctrl/Shift/Alt
+        // alone are used to multi-select while the recorder is open).
         e.preventDefault();
-        Toast.warning(i18n.t('selector.shortcutInvalid'));
       }
     });
   }
 
-  // Click outside the recorder while recording → cancel (same as clicking Cancel)
+  // Click outside the recorder while recording → only right-click is handled
+  // (for multi-select). Left-click outside does NOT cancel — use Esc or Cancel.
   if (!window._shortcutOutsideBound) {
     window._shortcutOutsideBound = true;
-    document.addEventListener('mousedown', (e) => {
-      if (!recorderActive) return;
-      if (e.button === 2) return;   // right-click — let contextmenu handle it (add to selection)
-      const rec = document.getElementById('shortcut-recorder');
-      if (rec && !rec.contains(e.target)) cancelRecording();
-    }, true);
   }
 
   // Preload all preset preview images into the cache (fire-and-forget).
@@ -489,14 +1134,12 @@
     // Invalidate cache when skin changes
     if (previewCache.__skin !== skin) {
       previewCache = { __skin: skin };
+      lastPreviewId = null;
     }
     // Resolve skin path once for resolving relative preview paths.
     api.getSkinPath(skin).then(spResult => {
       const skPath = spResult.success ? spResult.data.replace(/\\/g, '/') : '';
-      for (const p of presets) {
-        const relPath = p.meta?.previewPath;
-        // Key by relPath (not p.id): ids get compacted on delete, but the
-        // preview path travels with the preset, so the cache stays correct.
+      const loadRel = (relPath) => {
         if (relPath && previewCache[relPath] === undefined) {
           previewCache[relPath] = null; // mark as loading
           const absPath = skPath ? skPath + '/' + relPath : relPath;
@@ -504,6 +1147,16 @@
             previewCache[relPath] = result?.success ? result.data : false;
           });
         }
+      };
+      for (const p of presets) {
+        const relPath = p.meta?.previewPath;
+        // Key by relPath (not p.id): ids get compacted on delete, but the
+        // preview path travels with the preset, so the cache stays correct.
+        loadRel(relPath);
+      }
+      // Also preload group previews (table/normal groups can have previewPath).
+      for (const g of (state.get('groups') || [])) {
+        loadRel(g.previewPath);
       }
     });
   }
@@ -531,7 +1184,12 @@
     if (panelSeqTimer) { clearInterval(panelSeqTimer); panelSeqTimer = null; }
   }
 
+  let lastPreviewId = null;
   function showPreview(presetName, description, previewPath, previewKind, previewFrames, previewFps, presetId) {
+    // Skip if the same target is already shown — avoids replaying the fade-in
+    // when a re-render re-triggers mouseenter on the still-hovered element.
+    if (lastPreviewId === presetId) return;
+    lastPreviewId = presetId;
     stopPanelSequence();
     const myToken = ++hoverToken;
     const kind = previewKind || 'image';
@@ -591,11 +1249,13 @@
     renderPreviewContent(presetName, description, null);
     clearTimeout(hoverTimer);
     hoverTimer = setTimeout(async () => {
+      if (myToken !== hoverToken) return;   // superseded by a newer hover
       const skin = state.get('selectedSkin');
       const spResult = skin ? await api.getSkinPath(skin) : null;
       const skPath = spResult && spResult.success ? spResult.data.replace(/\\/g, '/') : '';
       const absPath = skPath ? skPath + '/' + previewPath : previewPath;
       const result = await api.getPreviewDataUrl(absPath);
+      if (myToken !== hoverToken) return;   // check again after the await
       if (result?.success && result.data) {
         previewCache[previewPath] = result.data;
         if (!document.getElementById('preset-preview-panel')) return;
@@ -612,6 +1272,7 @@
 
   function resetPreview() {
     stopPanelSequence();
+    lastPreviewId = null;
     const panel = document.getElementById('preset-preview-panel');
     if (panel) {
       panel.innerHTML = emptyPreviewHtml();
@@ -670,10 +1331,34 @@
 
   state.on('presets', () => render());
   state.on('groups', () => render());
-  state.on('rootGroupIds', () => render());
+  state.on('rootChildren', () => render());
   state.on('selectedSkin', () => render());
   state.on('appMode', (mode) => { if (mode === 'use') render(); });
   state.on('activePresets', () => render());
+
+  // Persist table UI state to config.osp (debounced).
+  let _tableStateSaveTimer = null;
+  function saveTableState() {
+    if (_tableStateSaveTimer) clearTimeout(_tableStateSaveTimer);
+    _tableStateSaveTimer = setTimeout(() => {
+      const skin = state.get('selectedSkin');
+      if (!skin) return;
+      const expanded = state.get('tableExpandedChildren') || {};
+      const expandedPlain = {};
+      for (const [k, v] of Object.entries(expanded)) {
+        if (v instanceof Set) expandedPlain[k] = [...v];
+        else if (Array.isArray(v)) expandedPlain[k] = v;
+        else expandedPlain[k] = [];
+      }
+      const rowSel = state.get('tableRowSelection') || {};
+      api.setTableState(skin, expandedPlain, rowSel).catch(() => {});
+    }, 500);
+  }
+  state.on('tableExpandedChildren', saveTableState);
+  state.on('tableRowSelection', saveTableState);
+  // tableExpandedChildren / tableRowSelection changes are always followed by an
+  // explicit render() (or an activePresets change which re-renders), so they
+  // don't need their own listeners — that would only multiply renders.
   state.on('groups', () => { if (state.get('appMode') === 'use') render(); });
 
   async function toggleCollapse(groupId) {

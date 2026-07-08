@@ -53,6 +53,7 @@
   },
   "dialog": {
     "unsavedSwitch": "当前预设尚未保存，是否保存后切换？",
+    "unsavedSwitchGroup": "当前分组尚未保存，是否保存后切换？",
     "saveAndSwitch": "保存并切换",
     "discard": "不保存",
     "cancel": "取消",
@@ -162,14 +163,27 @@
     "renameFailed": "重命名失败: {msg}",
     "newPreset": "+ 新建预设",
     "newGroup": "+ 新建分组",
-    "savePreset": "💾 保存预设",
+    "savePreset": "💾 保存",
     "deleteZone": "拖拽分组或预设到此处删除",
     "created": "已创建分组 \"{name}\"",
     "createFailed": "创建分组失败: {msg}",
     "createTitle": "新建分组",
     "namePlaceholder": "输入新分组名称…",
     "createdWithPresets": "已创建分组 \"{name}\" 并移入 {count} 个预设",
-    "createdEmpty": "已创建空分组 \"{name}\""
+    "createdEmpty": "已创建空分组 \"{name}\"",
+    "newTableGroup": "+ 新建表格分组",
+    "tableGroup": "表格分组",
+    "createdTable": "已创建表格分组 \"{name}\"",
+    "createTableTitle": "新建表格分组",
+    "nameLabel": "分组名称 *",
+    "descLabel": "描述",
+    "descPlaceholder": "备注…",
+    "nameRequired": "分组名称不能为空",
+    "saveFailed": "保存分组失败：{msg}",
+    "saved": "分组已保存",
+    "flattenConfirm": "该分组含嵌套子分组，表格分组只允许一层。是否强制合并？\n合并后所有子分组中的预设将拆到该分组顶层。",
+    "flattenForce": "强制合并",
+    "cannotNestInTableRow": "表格分组内的行不允许再嵌套普通分组"
   },
   "ini": {
     "heading": "skin.ini 修改",
@@ -315,7 +329,8 @@
     "cleared": "已清除快捷键",
     "clearFailed": "清除失败",
     "noPreview": "暂无预览图",
-    "previewMissing": "预览文件缺失"
+    "previewMissing": "预览文件缺失",
+    "shortcutConflict": "此快捷键已被程序快捷键占用"
   },
   "shortcutsDesc": {
     "refresh": "刷新皮肤列表",
@@ -324,7 +339,8 @@
     "newPreset": "新建预设",
     "newGroup": "新建分组",
     "copyPreset": "复制选中预设",
-    "apply": "应用当前预设"
+    "apply": "应用当前预设",
+    "newTableGroup": "新建表格分组"
   },
   "easterEggs": [
     {

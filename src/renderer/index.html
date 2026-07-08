@@ -63,33 +63,39 @@
 
       <!-- Sidebar -->
       <aside class="sidebar">
-        <div class="sidebar__section sidebar__section--skins">
-          <div class="sidebar__header">
-            <span data-i18n="sidebar.skins">📁 皮肤列表</span>
-            <span id="skin-count"></span>
-          </div>
-          <div class="search-input">
-            <input type="text" id="skin-search" placeholder="搜索皮肤..." data-i18n-placeholder="sidebar.searchSkin">
-          </div>
-          <div class="sidebar__list" id="skin-list">
-            <!-- populated by skin-list.js -->
+        <!-- Two overlapping layers; only one is visible per mode. They don't
+             share layout flow, so cross-fading them never causes reflow jitter. -->
+        <div class="sidebar__layer sidebar__layer--use" id="sidebar-layer-use">
+          <div class="sidebar__section sidebar__section--skins">
+            <div class="sidebar__header">
+              <span data-i18n="sidebar.skins">📁 皮肤列表</span>
+              <span id="skin-count"></span>
+            </div>
+            <div class="search-input">
+              <input type="text" id="skin-search" placeholder="搜索皮肤..." data-i18n-placeholder="sidebar.searchSkin">
+            </div>
+            <div class="sidebar__list" id="skin-list">
+              <!-- populated by skin-list.js -->
+            </div>
           </div>
         </div>
-        <div class="sidebar__section sidebar__section--skin-header" id="skin-header-section" style="display:none">
-          <div class="sidebar__header">
-            <span data-i18n="sidebar.currentSkin">🎨 当前皮肤</span>
+        <div class="sidebar__layer sidebar__layer--edit" id="sidebar-layer-edit">
+          <div class="sidebar__section sidebar__section--skin-header" id="skin-header-section">
+            <div class="sidebar__header">
+              <span data-i18n="sidebar.currentSkin">🎨 当前皮肤</span>
+            </div>
+            <div style="padding:8px 14px;font-size:13px;font-weight:500;color:var(--accent)" id="skin-header-name"></div>
           </div>
-          <div style="padding:8px 14px;font-size:13px;font-weight:500;color:var(--accent)" id="skin-header-name"></div>
-        </div>
-        <div class="sidebar__section sidebar__section--presets" id="preset-section">
-          <div class="sidebar__header">
-            <span data-i18n="sidebar.presets">📄 预设</span>
-            <span id="preset-count"></span>
+          <div class="sidebar__section sidebar__section--presets" id="preset-section">
+            <div class="sidebar__header">
+              <span data-i18n="sidebar.presets">📄 预设</span>
+              <span id="preset-count"></span>
+            </div>
+            <div class="sidebar__list" id="preset-list">
+              <!-- populated by preset-list.js -->
+            </div>
+            <div id="preset-bottom-actions" style="display:none"></div>
           </div>
-          <div class="sidebar__list" id="preset-list">
-            <!-- populated by preset-list.js -->
-          </div>
-          <div id="preset-bottom-actions" style="display:none"></div>
         </div>
       </aside>
 

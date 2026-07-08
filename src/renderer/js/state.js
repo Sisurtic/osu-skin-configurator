@@ -55,10 +55,13 @@ state.set('skins', []);
 state.set('selectedSkin', null);
 state.set('presets', []);           // preset summary list from scan
 state.set('groups', []);           // full group tree from scan
-state.set('rootGroupIds', []);     // root-level child order
+state.set('rootChildren', []);     // root-level children: [{type:'preset'|'group', id}]
 state.set('selectedPreset', null); // number | '__new__' | null
 state.set('currentView', 'welcome');
-state.set('activePresets', {});    // { [groupId: number]: presetId }
+state.set('activePresets', {});    // { [groupId: number]: presetId[] }
+state.set('activeTableGroups', {}); // { [gid]: true } table groups selected as self-apply units
+state.set('tableExpandedChildren', {}); // { [parentGid]: Set<childGid> } expanded nested table groups
+state.set('tableRowSelection', {});     // { [gid]: { [rowKey]: presetId } }
 state.set('appMode', 'use');
 state.set('presetDirty', false);
 state.set('_welcomeDismissed', false);

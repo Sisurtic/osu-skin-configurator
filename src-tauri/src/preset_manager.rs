@@ -30,6 +30,25 @@ pub struct Group {
     /// "" = normal group, "table" = table group (sub-groups are table rows).
     #[serde(default, rename = "type")]
     pub kind: String,
+    /// Global shortcut bound to this group (table groups can have shortcuts).
+    #[serde(default)]
+    pub shortcut: Option<String>,
+    /// Optional user description shown read-only in use mode.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Optional preview media (same fields as preset meta.preview*).
+    #[serde(default, rename = "previewPath")]
+    pub preview_path: Option<String>,
+    #[serde(default, rename = "previewKind")]
+    pub preview_kind: Option<String>,
+    #[serde(default, rename = "previewFrames")]
+    pub preview_frames: Option<Vec<String>>,
+    #[serde(default, rename = "previewFps")]
+    pub preview_fps: Option<i32>,
+    /// Optional own actions (INI/file/tint) — a table group can be an
+    /// applicable unit itself, independent of its child presets.
+    #[serde(default)]
+    pub actions: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,21 +57,27 @@ pub struct Config {
     pub next_preset_id: i64,
     #[serde(rename = "nextGroupId", default = "d1")]
     pub next_group_id: i64,
-    #[serde(rename = "rootGroupIds", default)]
-    pub root_group_ids: Vec<i64>,
-    #[serde(rename = "rootPresetIds", default)]
-    pub root_preset_ids: Vec<i64>,
+    /// Unified root-level children (presets + groups interleaved). Replaces the
+    /// older separate rootGroupIds + rootPresetIds arrays; load_config migrates.
+    #[serde(rename = "rootChildren", default)]
+    pub root_children: Vec<ChildRef>,
     #[serde(default)]
     pub groups: Vec<Group>,
     #[serde(default)]
     pub presets: Vec<Value>,
+    /// Persisted table-group UI state. tableExpandedChildren: {gid: [childGid]},
+    /// tableRowSelection: {gid: {rowKey: presetId}}.
+    #[serde(rename = "tableExpandedChildren", default)]
+    pub table_expanded_children: Value,
+    #[serde(rename = "tableRowSelection", default)]
+    pub table_row_selection: Value,
 }
 
 fn d1() -> i64 { 1 }
 
 impl Config {
     fn empty() -> Self {
-        Config { next_preset_id: 1, next_group_id: 1, root_group_ids: vec![], root_preset_ids: vec![], groups: vec![], presets: vec![] }
+        Config { next_preset_id: 1, next_group_id: 1, root_children: vec![], groups: vec![], presets: vec![], table_expanded_children: json!({}), table_row_selection: json!({}) }
     }
 }
 
@@ -60,7 +85,7 @@ fn config_path(skin_path: &str) -> std::path::PathBuf {
     Path::new(skin_path).join(CONFIG_FILENAME)
 }
 
-fn load_config(skin_path: &str) -> Config {
+pub fn load_config(skin_path: &str) -> Config {
     let p = config_path(skin_path);
     if !p.exists() { return Config::empty(); }
     let raw = match fs::read_to_string(&p) { Ok(s) => s, Err(_) => return Config::empty() };
@@ -88,26 +113,43 @@ fn load_config(skin_path: &str) -> Config {
             json!({"id": id, "meta": meta, "actions": actions})
         }).collect::<Vec<_>>())
         .unwrap_or_default();
-    let root_group_ids: Vec<i64> = v.get("rootGroupIds").and_then(|x| x.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_i64()).collect()).unwrap_or_default();
     let groups: Vec<Group> = v.get("groups").and_then(|x| x.as_array())
         .map(|a| a.iter().filter_map(|g| serde_json::from_value(g.clone()).ok()).collect()).unwrap_or_default();
-    let mut root_preset_ids: Vec<i64> = v.get("rootPresetIds").and_then(|x| x.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_i64()).collect()).unwrap_or_default();
-    // Migrate orphans: presets not referenced by any group's children (and not
-    // already in root_preset_ids) → append to root_preset_ids in presets order.
-    // This backfills rootPresetIds for configs saved before root presets existed.
+    // Root children: prefer the unified `rootChildren` field. Migrate from the
+    // legacy separate arrays (rootPresetIds then rootGroupIds — preserving the
+    // previous visual order: all root presets first, then root groups).
+    let mut root_children: Vec<ChildRef> = if v.get("rootChildren").is_some() {
+        v.get("rootChildren").and_then(|x| x.as_array())
+            .map(|a| a.iter().filter_map(|c| serde_json::from_value(c.clone()).ok()).collect())
+            .unwrap_or_default()
+    } else {
+        let mut rc = Vec::new();
+        if let Some(arr) = v.get("rootPresetIds").and_then(|x| x.as_array()) {
+            for x in arr {
+                if let Some(id) = x.as_i64() { rc.push(ChildRef { kind: "preset".to_string(), id }); }
+            }
+        }
+        if let Some(arr) = v.get("rootGroupIds").and_then(|x| x.as_array()) {
+            for x in arr {
+                if let Some(id) = x.as_i64() { rc.push(ChildRef { kind: "group".to_string(), id }); }
+            }
+        }
+        rc
+    };
+    // Migrate orphans: presets not referenced by any group's children and not
+    // already at root → append to root_children in presets order.
     {
         let mut in_a_group: Vec<i64> = Vec::new();
         for g in &groups {
             collect_preset_ids(&g.children, &groups, &mut in_a_group);
         }
         let in_a_group_set: std::collections::HashSet<i64> = in_a_group.into_iter().collect();
-        let already_root: std::collections::HashSet<i64> = root_preset_ids.iter().copied().collect();
+        let already_root: std::collections::HashSet<i64> = root_children.iter()
+            .filter(|c| c.kind == "preset").map(|c| c.id).collect();
         for p in &presets {
             if let Some(id) = p.get("id").and_then(|x| x.as_i64()) {
                 if !in_a_group_set.contains(&id) && !already_root.contains(&id) {
-                    root_preset_ids.push(id);
+                    root_children.push(ChildRef { kind: "preset".to_string(), id });
                 }
             }
         }
@@ -115,10 +157,11 @@ fn load_config(skin_path: &str) -> Config {
     Config {
         next_preset_id: v.get("nextPresetId").and_then(|x| x.as_i64()).unwrap_or(1),
         next_group_id: v.get("nextGroupId").and_then(|x| x.as_i64()).unwrap_or(1),
-        root_group_ids,
-        root_preset_ids,
+        root_children,
         groups,
         presets,
+        table_expanded_children: v.get("tableExpandedChildren").cloned().unwrap_or_else(|| json!({})),
+        table_row_selection: v.get("tableRowSelection").cloned().unwrap_or_else(|| json!({})),
     }
 }
 
@@ -138,22 +181,35 @@ fn collect_preset_ids(children: &[ChildRef], groups: &[Group], out: &mut Vec<i64
     }
 }
 
+/// Collect every preset id under a group's subtree (recursive). Each id is
+/// visited exactly once — the group tree is a tree, not a graph.
+pub fn collect_descendant_preset_ids(cfg: &Config, group_id: i64) -> Vec<i64> {
+    let mut out = Vec::new();
+    if let Some(g) = cfg.groups.iter().find(|g| g.id == group_id) {
+        collect_preset_ids(&g.children, &cfg.groups, &mut out);
+    }
+    out
+}
+
 fn save_config(skin_path: &str, cfg: &Config) -> Result<(), String> {
     let p = config_path(skin_path);
     let mut v = serde_json::Map::new();
     v.insert("nextPresetId".into(), json!(cfg.next_preset_id));
     v.insert("nextGroupId".into(), json!(cfg.next_group_id));
-    if !cfg.root_group_ids.is_empty() {
-        v.insert("rootGroupIds".into(), json!(cfg.root_group_ids));
-    }
-    if !cfg.root_preset_ids.is_empty() {
-        v.insert("rootPresetIds".into(), json!(cfg.root_preset_ids));
+    if !cfg.root_children.is_empty() {
+        v.insert("rootChildren".into(), json!(cfg.root_children));
     }
     if !cfg.groups.is_empty() {
         v.insert("groups".into(), json!(cfg.groups));
     }
     if !cfg.presets.is_empty() {
         v.insert("presets".into(), json!(cfg.presets));
+    }
+    if !cfg.table_expanded_children.is_null() && cfg.table_expanded_children.as_object().map_or(false, |o| !o.is_empty()) {
+        v.insert("tableExpandedChildren".into(), cfg.table_expanded_children.clone());
+    }
+    if !cfg.table_row_selection.is_null() && cfg.table_row_selection.as_object().map_or(false, |o| !o.is_empty()) {
+        v.insert("tableRowSelection".into(), cfg.table_row_selection.clone());
     }
     // Compact (non-pretty) serialization keeps config.osp small — the file is
     // machine-only; readers use unwrap_or defaults for any omitted keys.
@@ -170,10 +226,9 @@ fn find_group_mut<'a>(cfg: &'a mut Config, group_id: i64) -> Option<usize> {
 }
 
 fn remove_from_parent(cfg: &mut Config, child_id: i64, kind: &str) -> bool {
-    // Root-level: presets in root_preset_ids, groups in root_group_ids.
-    let root_arr = if kind == "preset" { &cfg.root_preset_ids } else { &cfg.root_group_ids };
-    if let Some(pos) = root_arr.iter().position(|x| *x == child_id) {
-        if kind == "preset" { cfg.root_preset_ids.remove(pos); } else { cfg.root_group_ids.remove(pos); }
+    // Root-level: unified root_children array.
+    if let Some(pos) = cfg.root_children.iter().position(|c| c.kind == kind && c.id == child_id) {
+        cfg.root_children.remove(pos);
         return true;
     }
     for g in &mut cfg.groups {
@@ -188,18 +243,10 @@ fn remove_from_parent(cfg: &mut Config, child_id: i64, kind: &str) -> bool {
 fn insert_into_parent(cfg: &mut Config, child_id: i64, kind: &str, parent_group_id: Option<i64>, index: Option<i64>) -> Result<(), String> {
     match parent_group_id {
         None => {
-            // Root: presets → root_preset_ids, groups → root_group_ids.
-            let len;
-            let i;
-            if kind == "preset" {
-                len = cfg.root_preset_ids.len() as i64;
-                i = index.filter(|x| *x >= 0).unwrap_or(len).min(len) as usize;
-                cfg.root_preset_ids.insert(i, child_id);
-            } else {
-                len = cfg.root_group_ids.len() as i64;
-                i = index.filter(|x| *x >= 0).unwrap_or(len).min(len) as usize;
-                cfg.root_group_ids.insert(i, child_id);
-            }
+            // Root: unified root_children. Default index = 0 (new items go to TOP).
+            let len = cfg.root_children.len() as i64;
+            let i = index.filter(|x| *x >= 0).unwrap_or(0).min(len) as usize;
+            cfg.root_children.insert(i, ChildRef { kind: kind.to_string(), id: child_id });
         }
         Some(pid) => {
             let gi = find_group_mut(cfg, pid).ok_or_else(|| crate::i18n::t("err.target_group_not_found", &[("id", &pid.to_string())]))?;
@@ -207,9 +254,34 @@ fn insert_into_parent(cfg: &mut Config, child_id: i64, kind: &str, parent_group_
             let i = index.filter(|x| *x >= 0).unwrap_or(len) as usize;
             let i = i.min(cfg.groups[gi].children.len());
             cfg.groups[gi].children.insert(i, ChildRef { kind: kind.to_string(), id: child_id });
+            // If the parent is a table group, enforce ordering: direct presets
+            // and table sub-groups before plain sub-groups (so the __direct__
+            // row is always at the top in use mode).
+            if cfg.groups[gi].kind == "table" {
+                let children = std::mem::take(&mut cfg.groups[gi].children);
+                cfg.groups[gi].children = reorder_children_stable(children, &cfg.groups);
+            }
         }
     }
     Ok(())
+}
+
+// Reorder children: presets + table sub-groups first (stable), plain sub-groups
+// after (stable). Keeps relative order within each partition.
+fn reorder_children_stable(children: Vec<ChildRef>, all_groups: &[Group]) -> Vec<ChildRef> {
+    let mut top = Vec::new();
+    let mut bottom = Vec::new();
+    for c in children {
+        let is_plain = c.kind == "group" && all_groups.iter().find(|g| g.id == c.id)
+            .map(|g| g.kind != "table").unwrap_or(false);
+        if is_plain {
+            bottom.push(c);
+        } else {
+            top.push(c);
+        }
+    }
+    top.append(&mut bottom);
+    top
 }
 
 // ── ID compaction ──
@@ -249,9 +321,14 @@ pub fn compact_ids(cfg: &mut Config) {
             }
         }
     }
-    cfg.root_group_ids = cfg.root_group_ids.iter()
-        .map(|id| *group_id_map.get(id).unwrap_or(id))
-        .collect();
+    // remap root children (unified: both preset and group ids)
+    for c in &mut cfg.root_children {
+        if c.kind == "preset" {
+            c.id = *preset_id_map.get(&c.id).unwrap_or(&c.id);
+        } else if c.kind == "group" {
+            c.id = *group_id_map.get(&c.id).unwrap_or(&c.id);
+        }
+    }
     cfg.next_preset_id = cfg.presets.len() as i64 + 1;
     cfg.next_group_id = cfg.groups.len() as i64 + 1;
 }
@@ -284,10 +361,11 @@ pub fn scan_skin(skin_path: &str) -> Value {
     json!({
         "presets": preset_summaries,
         "groups": cfg.groups,
-        "rootGroupIds": cfg.root_group_ids,
-        "rootPresetIds": cfg.root_preset_ids,
+        "rootChildren": cfg.root_children,
         "nextPresetId": cfg.next_preset_id,
         "nextGroupId": cfg.next_group_id,
+        "tableExpandedChildren": cfg.table_expanded_children,
+        "tableRowSelection": cfg.table_row_selection,
     })
 }
 
@@ -321,6 +399,8 @@ pub fn save_preset(skin_path: &str, preset_id: Option<i64>, data: &Value) -> Res
         if let Some(k) = m.get("previewKind") { meta.insert("previewKind".into(), k.clone()); }
         if let Some(f) = m.get("previewFrames") { meta.insert("previewFrames".into(), f.clone()); }
         if let Some(fp) = m.get("previewFps") { meta.insert("previewFps".into(), fp.clone()); }
+        // Carry over shortcut (global hotkey binding).
+        if let Some(s) = m.get("shortcut") { meta.insert("shortcut".into(), s.clone()); }
     } else {
         meta.insert("name".into(), json!(crate::i18n::t("preset.fallback_name", &[("id", &id.to_string())])));
         meta.insert("description".into(), json!(""));
@@ -329,10 +409,20 @@ pub fn save_preset(skin_path: &str, preset_id: Option<i64>, data: &Value) -> Res
     entry.insert("meta".into(), Value::Object(meta));
     entry.insert("actions".into(), data.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": [], "fileTints": []})));
     let entry = Value::Object(entry);
+    let is_new = preset_id.is_none();
     if let Some(pos) = cfg.presets.iter().position(|p| p.get("id").and_then(|v| v.as_i64()) == Some(id)) {
         cfg.presets[pos] = entry;
     } else {
         cfg.presets.push(entry);
+    }
+    // A brand-new preset (no id given) is placed at the TOP of root so it
+    // appears first in the tree, mirroring new groups. Existing presets keep
+    // their position (they're already in root_children via load/move).
+    if is_new {
+        let already_root = cfg.root_children.iter().any(|c| c.kind == "preset" && c.id == id);
+        if !already_root {
+            let _ = insert_into_parent(&mut cfg, id, "preset", None, Some(0));
+        }
     }
     save_config(skin_path, &cfg)?;
     Ok(id)
@@ -392,10 +482,141 @@ pub fn add_group(skin_path: &str, name: &str, parent_group_id: Option<i64>, kind
         collapsed: false,
         children: vec![],
         kind: kind.to_string(),
+        shortcut: None,
+        description: None,
+        preview_path: None,
+        preview_kind: None,
+        preview_frames: None,
+        preview_fps: None,
+        actions: None,
     });
     insert_into_parent(&mut cfg, id, "group", parent_group_id, None)?;
     save_config(skin_path, &cfg)?;
     Ok(id)
+}
+
+/// Set or clear the shortcut on a group (for table group hotkeys).
+pub fn set_group_shortcut(skin_path: &str, group_id: i64, accelerator: &str) -> Result<(), String> {
+    let mut cfg = load_config(skin_path);
+    let g = cfg.groups.iter_mut().find(|g| g.id == group_id)
+        .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
+    if accelerator.is_empty() {
+        g.shortcut = None;
+    } else {
+        g.shortcut = Some(accelerator.to_string());
+    }
+    save_config(skin_path, &cfg)
+}
+
+/// Set or clear the description on a group (shown read-only in use mode).
+pub fn set_group_description(skin_path: &str, group_id: i64, description: &str) -> Result<(), String> {
+    let mut cfg = load_config(skin_path);
+    let g = cfg.groups.iter_mut().find(|g| g.id == group_id)
+        .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
+    g.description = if description.is_empty() { None } else { Some(description.to_string()) };
+    save_config(skin_path, &cfg)
+}
+
+/// Set or clear the own actions on a group (a table group can be an applicable
+/// unit itself). Empty actions (all four arrays empty) are stored as None to
+/// keep config.osp compact.
+/// Persist the table-group UI state (expanded children + row selections).
+pub fn set_table_state(skin_path: &str, expanded: &Value, row_selection: &Value) -> Result<(), String> {
+    let mut cfg = load_config(skin_path);
+    cfg.table_expanded_children = expanded.clone();
+    cfg.table_row_selection = row_selection.clone();
+    save_config(skin_path, &cfg)
+}
+
+pub fn set_group_actions(skin_path: &str, group_id: i64, actions: &Value) -> Result<(), String> {
+    let mut cfg = load_config(skin_path);
+    let g = cfg.groups.iter_mut().find(|g| g.id == group_id)
+        .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
+    let empty = json!({"skinIni":[],"fileCopies":[],"fileDeletes":[],"fileTints":[]});
+    g.actions = if actions == &empty { None } else { Some(actions.clone()) };
+    save_config(skin_path, &cfg)
+}
+
+/// Persist the table-group UI state (expanded children + row selections).
+/// Flatten a group's nested sub-groups: move every preset from any depth in
+/// the group's subtree into the group's DIRECT children, then delete all
+/// intermediate sub-groups. Used when dragging a group with nested plain
+/// sub-groups into a table group (table groups only allow one level of rows).
+pub fn flatten_group_subgroups(skin_path: &str, group_id: i64) -> Result<(), String> {
+    let mut cfg = load_config(skin_path);
+    let gi = cfg.groups.iter().position(|g| g.id == group_id)
+        .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
+
+    // Collect presets + table sub-group refs from plain sub-groups (recursive).
+    // Plain sub-groups get deleted; table sub-groups are kept as children.
+    let mut new_children: Vec<ChildRef> = Vec::new();
+    let mut to_delete: Vec<i64> = Vec::new();
+
+    fn hoist_plain(cfg: &Config, gid: i64, out: &mut Vec<ChildRef>, to_delete: &mut Vec<i64>) {
+        if let Some(g) = cfg.groups.iter().find(|g| g.id == gid) {
+            for c in &g.children {
+                match c.kind.as_str() {
+                    "preset" => out.push(c.clone()),
+                    "group" => {
+                        if let Some(sub) = cfg.groups.iter().find(|x| x.id == c.id) {
+                            if sub.kind == "table" {
+                                // Keep table sub-group as a child.
+                                out.push(c.clone());
+                            } else {
+                                // Plain sub-group: recurse + mark for deletion.
+                                to_delete.push(c.id);
+                                hoist_plain(cfg, c.id, out, to_delete);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // Walk the group's direct children.
+    let old_children = cfg.groups[gi].children.clone();
+    for c in &old_children {
+        match c.kind.as_str() {
+            "preset" => new_children.push(c.clone()),
+            "group" => {
+                if let Some(sub) = cfg.groups.iter().find(|x| x.id == c.id) {
+                    if sub.kind == "table" {
+                        new_children.push(c.clone());
+                    } else {
+                        to_delete.push(c.id);
+                        hoist_plain(&cfg, c.id, &mut new_children, &mut to_delete);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    cfg.groups[gi].children = new_children;
+    let del_set: std::collections::HashSet<i64> = to_delete.into_iter().collect();
+    cfg.groups.retain(|g| !del_set.contains(&g.id));
+    save_config(skin_path, &cfg)
+}
+
+/// Set the preview media on a group (path/kind/frames/fps, same shape as preset meta).
+pub fn set_group_preview(
+    skin_path: &str,
+    group_id: i64,
+    path: Option<&str>,
+    kind: Option<&str>,
+    frames: Option<Vec<String>>,
+    fps: Option<i32>,
+) -> Result<(), String> {
+    let mut cfg = load_config(skin_path);
+    let g = cfg.groups.iter_mut().find(|g| g.id == group_id)
+        .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
+    g.preview_path = path.filter(|s| !s.is_empty()).map(|s| s.to_string());
+    g.preview_kind = kind.filter(|s| !s.is_empty()).map(|s| s.to_string());
+    g.preview_frames = frames.filter(|f| !f.is_empty());
+    g.preview_fps = fps;
+    save_config(skin_path, &cfg)
 }
 
 pub fn remove_group(skin_path: &str, group_id: i64) -> Result<(), String> {
@@ -430,11 +651,8 @@ pub fn move_preset(skin_path: &str, preset_id: i64, target_group_id: Option<i64>
         if find_group_mut(&mut cfg, tg).is_none() {
             return Err(crate::i18n::t("err.target_group_not_found", &[("id", &tg.to_string())]));
         }
-        // Presets can't be direct children of a table group — only sub-groups (rows) can.
-        let target_kind = cfg.groups.iter().find(|g| g.id == tg).map(|g| g.kind.as_str()).unwrap_or("");
-        if target_kind == "table" {
-            return Err(crate::i18n::t("err.table_group_no_preset", &[]));
-        }
+        // A single-level (top-level) table group may hold presets directly, as
+        // can table sub-groups (rows). No restriction here.
     }
     remove_from_parent(&mut cfg, preset_id, "preset");
     insert_into_parent(&mut cfg, preset_id, "preset", target_group_id, index)?;
@@ -452,27 +670,11 @@ pub fn move_group(skin_path: &str, group_id: i64, target_group_id: Option<i64>, 
         if is_descendant(&cfg, group_id, tg) {
             return Err(crate::i18n::t("err.group_move_into_child", &[]));
         }
-        // Table-group nesting guard: a group cannot be moved INTO a table sub-group
-        // (sub-groups are leaf rows — no nesting under them).
-        if parent_kind(&cfg, tg) == "table" {
-            return Err(crate::i18n::t("err.table_row_no_nest", &[]));
-        }
     }
     remove_from_parent(&mut cfg, group_id, "group");
     insert_into_parent(&mut cfg, group_id, "group", target_group_id, index)?;
     save_config(skin_path, &cfg)?;
     Ok(())
-}
-
-/// Returns the `kind` of the group that has `gid` in its children (the parent),
-/// or "" if `gid` is at root / not found.
-fn parent_kind(cfg: &Config, gid: i64) -> String {
-    for g in &cfg.groups {
-        if g.children.iter().any(|c| c.kind == "group" && c.id == gid) {
-            return g.kind.clone();
-        }
-    }
-    String::new()
 }
 
 fn is_descendant(cfg: &Config, ancestor_id: i64, group_id: i64) -> bool {
@@ -486,16 +688,18 @@ fn is_descendant(cfg: &Config, ancestor_id: i64, group_id: i64) -> bool {
     false
 }
 
-pub fn reorder_children(skin_path: &str, parent_group_id: Option<i64>, child_order: Vec<i64>) -> Result<(), String> {
+pub fn reorder_children(skin_path: &str, parent_group_id: Option<i64>, child_order: Vec<ChildRef>) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
     match parent_group_id {
-        None => { cfg.root_group_ids = child_order; }
+        None => { cfg.root_children = child_order; }
         Some(pid) => {
             let gi = find_group_mut(&mut cfg, pid).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &pid.to_string())]))?;
-            let order_map: HashMap<i64, usize> = child_order.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+            // Order map keyed by (kind, id) so preset/group ids can't collide.
+            let order_map: HashMap<(String, i64), usize> = child_order.iter().enumerate()
+                .map(|(i, c)| ((c.kind.clone(), c.id), i)).collect();
             cfg.groups[gi].children.sort_by(|a, b| {
-                let ai = order_map.get(&a.id).copied().unwrap_or(usize::MAX);
-                let bi = order_map.get(&b.id).copied().unwrap_or(usize::MAX);
+                let ai = order_map.get(&(a.kind.clone(), a.id)).copied().unwrap_or(usize::MAX);
+                let bi = order_map.get(&(b.kind.clone(), b.id)).copied().unwrap_or(usize::MAX);
                 ai.cmp(&bi)
             });
         }
@@ -549,7 +753,12 @@ pub fn delete_group_recursive(skin_path: &str, group_id: i64) -> Result<Value, S
     cfg.presets.retain(|p| p.get("id").and_then(|v| v.as_i64()).map_or(true, |id| !preset_ids.contains(&id)));
     cfg.groups.retain(|g| !group_ids.contains(&g.id));
     remove_from_parent(&mut cfg, group_id, "group");
-    cfg.root_group_ids.retain(|id| !group_ids.contains(id));
+    // Purge any deleted group/preset refs from the unified root children.
+    cfg.root_children.retain(|c| {
+        if c.kind == "group" { !group_ids.contains(&c.id) }
+        else if c.kind == "preset" { !preset_ids.contains(&c.id) }
+        else { true }
+    });
 
     compact_ids(&mut cfg);
     save_config(skin_path, &cfg)?;

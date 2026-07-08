@@ -135,6 +135,7 @@ select.form-input {
   border-bottom: 1px solid var(--border);
   padding: 0 16px;
   background: var(--bg-secondary);
+  position: relative;
 }
 .tab {
   padding: 10px 18px;
@@ -142,7 +143,7 @@ select.form-input {
   color: var(--text-muted);
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: all var(--transition-fast);
+  transition: color var(--transition-fast);
   outline: none;
 }
 .tab:hover {
@@ -150,7 +151,29 @@ select.form-input {
 }
 .tab--active {
   color: var(--accent);
-  border-bottom-color: var(--accent);
+}
+/* Sliding underline indicator — animated via JS-set width + translateX.
+   Fast start, long clean deceleration. */
+.tabs__indicator {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+  pointer-events: none;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), width 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* Tabs dimmed + non-interactive while editing a group (editor--group-mode). */
+.tabs--disabled .tab {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+.tabs--disabled .tab--active {
+  opacity: 1;
+  pointer-events: auto;
+  cursor: default;
 }
 .tab-content {
   display: none;
@@ -179,6 +202,14 @@ select.form-input {
 .skin-item--active {
   background: var(--accent-bg);
   color: var(--accent);
+}
+/* Staggered fade-in-up when the skin list refreshes (one per item, queued). */
+.skin-item--enter {
+  animation: skin-item-enter 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes skin-item-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .skin-item__icon {
   width: 20px;
@@ -693,19 +724,33 @@ select.form-input {
   padding: 8px 8px 6px;
   gap: 8px;
 }
-.preset-group__header::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: linear-gradient(160deg,
-    hsl(calc(140deg + var(--depth, 0) * 25deg), 60%, 55%),
-    hsl(calc(160deg + var(--depth, 0) * 25deg), 60%, 55%));
+/* Independent underline overlay (managed by JS). Position/size set inline. */
+.preset-group__underline-overlay {
+  pointer-events: none;
 }
-.preset-group__header--collapsed::after {
-  display: none;
+/* Table group header: green tint + radio when active (selected = expanded). */
+.preset-group__header[data-table-toggle] {
+  cursor: pointer;
+  position: relative;
+}
+.preset-group__header--table-active {
+  background: rgba(102, 204, 136, 0.06);
+}
+.preset-group__header--table-active .preset-group__label {
+  color: var(--accent);
+}
+/* Table header shortcut bar (child element — ::after is reserved for the
+   underline and is overridden by .preset-group__header::after above). */
+.preset-group__header-bar {
+  position: absolute;
+  right: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background: #ded77a;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 2;
 }
 .preset-group__label {
   flex: 1;
@@ -716,10 +761,19 @@ select.form-input {
   white-space: nowrap;
   font-weight: 500;
 }
+/* use-mode group: brighten the label on hover */
+.preset-group__header:hover .preset-group__label {
+  color: var(--text-primary);
+}
 .preset-group__count {
   font-size: 12px;
   color: var(--text-muted);
   flex-shrink: 0;
+}
+/* Tighten the gap between the count badge and the shortcut badge that follows
+   it in group headers (default .preset-group__shortcut margin-left is 8px). */
+.preset-group__count + .preset-group__shortcut {
+  margin-left: -3px;
 }
 .preset-group__children {
   padding-top: 4px;
@@ -777,10 +831,15 @@ select.form-input {
   /* extra room for shortcut badge — shifts ellipsis left */
   padding-right: 8px;
 }
-.preset-group__item--shortcut-sel {
+.preset-group__item--shortcut-sel,
+.preset-group__item--has-shortcut {
   position: relative;
 }
-.preset-group__item--shortcut-sel::after {
+/* Yellow vertical bar (right edge) — shown when selected via right-click OR
+   when a shortcut is bound. Excludes table group headers (they use a child
+   .preset-group__header-bar element instead, keeping ::after for the underline). */
+.preset-group__item--shortcut-sel::after,
+.preset-group__item--has-shortcut::after {
   content: '';
   position: absolute;
   right: 0;
@@ -790,6 +849,111 @@ select.form-input {
   background: #ded77a;
   border-radius: 2px;
   pointer-events: none;
+}
+/* Right-to-left fade gradient — shown while selected via right-click.
+   Always visible when selected, regardless of whether a shortcut is bound. */
+.preset-group__item--shortcut-sel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(270deg, rgba(222, 215, 122, 0.15), transparent 100%);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 0;
+}
+/* Animation only on newly-selected rows (marked by JS after render). */
+.preset-group__item--shortcut-anim::before {
+  animation: shortcut-fade-in 0.4s ease;
+}
+@keyframes shortcut-fade-in {
+  from { opacity: 0; transform: scaleX(0); transform-origin: right; }
+  to { opacity: 1; transform: scaleX(1); transform-origin: right; }
+}
+/* Bind shortcut: fade out ONLY the gradient (::before), keep bar + badge. */
+.preset-group__item--gradient-out::before {
+  animation: shortcut-fade-out 0.4s ease forwards;
+}
+/* Fade-out class applied before render removes the item. */
+.preset-group__item--shortcut-fadeout::before {
+  animation: shortcut-fade-out 0.4s ease forwards;
+}
+.preset-group__item--shortcut-fadeout::after,
+.preset-group__item--shortcut-fadeout .preset-group__shortcut {
+  animation: shortcut-bar-out 0.4s ease forwards;
+}
+@keyframes shortcut-fade-out {
+  from { opacity: 1; transform: scaleX(1); transform-origin: right; }
+  to { opacity: 0; transform: scaleX(0); transform-origin: right; }
+}
+@keyframes shortcut-bar-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.preset-group__item--shortcut-sel > * {
+  position: relative;
+  z-index: 1;
+}
+/* ── Table group (use mode) ── */
+.preset-group--table .preset-group__table-rows {
+  /* Left padding aligns the row labels with the group header's label text,
+     which sits after the radio (16px) + gap (8px) + header padding-left (8px). */
+  padding: 4px 0 8px 32px;
+}
+.preset-group__table-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.preset-group__table-row:last-child { border-bottom: none; }
+.preset-group__table-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 60px;
+  flex-shrink: 0;
+}
+.preset-group__table-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.preset-group__table-option {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.preset-group__table-option:hover {
+  background: rgba(255,255,255,0.06);
+}
+.preset-group__table-option--selected,
+.preset-group__table-option--selected:hover {
+  background: rgba(102, 204, 136, 0.15);
+  color: var(--accent);
+}
+/* Nested table group shown as an inline option tag (click to expand into a row). */
+.preset-group__table-option--group-tag {
+  background: rgba(255, 255, 255, 0.05);
+}
+.preset-group__table-option--group-tag--expanded,
+.preset-group__table-option--group-tag--expanded:hover {
+  background: rgba(102, 204, 136, 0.15);
+  color: var(--accent);
+}
+/* Edit-mode table group marker */
+.preset-tree__table-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(102, 153, 255, 0.15);
+  color: #69f;
+  margin-right: 4px;
+  flex-shrink: 0;
 }
 .shortcut-recorder {
   position: fixed;
@@ -1205,6 +1369,12 @@ select.form-input {
 .preset-list-fade--bottom {
   background: linear-gradient(to top, var(--bg-secondary) 0%, var(--bg-secondary) 0%, transparent 100%);
 }
+.preset-list-fade--right {
+  top: 0; bottom: 0;
+  left: auto; right: 0;
+  width: 24px; height: auto;
+  background: linear-gradient(to left, var(--bg-secondary) 0%, transparent 100%);
+}
 .preset-tree__group {
   margin-bottom: 2px;
 }
@@ -1224,6 +1394,12 @@ select.form-input {
 }
 .preset-tree__group-header:hover {
   background: var(--bg-hover);
+}
+/* Selected group (basic-info editing) — same tint as a selected preset.
+   Hover keeps the accent tint (don't let the white hover override it). */
+.preset-tree__group-header--selected,
+.preset-tree__group-header--selected:hover {
+  background: var(--accent-bg);
 }
 .preset-tree__group-header--dragging {
   opacity: 0.3;
@@ -1343,8 +1519,7 @@ select.form-input {
 .preset-tree__item--dragging {
   opacity: 0.3;
 }
-/* Drop-to-reorder indicator: fixed-position accent line overlay for the preset
-   tree (never inserted into the DOM tree → no reflow / no jitter). */
+/* Drop-to-reorder indicator: fixed-position accent line overlay. */
 .preset-drop-line-overlay {
   position: fixed;
   height: 0;
@@ -1908,3 +2083,25 @@ select.form-input {
   font-size: 11px;
 }
 
+
+/* ── Mode-switch animations (use ↔ edit) ── */
+:root {
+  --mode-anim-dur: 0.2s;
+  --mode-anim-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.mode-anim--exit-left   { animation: mode-exit-left   var(--mode-anim-dur) var(--mode-anim-ease) both; }
+.mode-anim--enter-right { animation: mode-enter-right var(--mode-anim-dur) var(--mode-anim-ease) both; }
+.mode-anim--exit-right  { animation: mode-exit-right  var(--mode-anim-dur) var(--mode-anim-ease) both; }
+.mode-anim--enter-left  { animation: mode-enter-left  var(--mode-anim-dur) var(--mode-anim-ease) both; }
+.mode-anim--exit-up     { animation: mode-exit-up     var(--mode-anim-dur) var(--mode-anim-ease) both; }
+.mode-anim--enter-down  { animation: mode-enter-down  var(--mode-anim-dur) var(--mode-anim-ease) both; }
+.mode-anim--fade-out    { animation: mode-fade-out    var(--mode-anim-dur) var(--mode-anim-ease) both; }
+.mode-anim--fade-in     { animation: mode-fade-in     var(--mode-anim-dur) var(--mode-anim-ease) both; }
+@keyframes mode-exit-left   { from { opacity: 1; transform: translateX(0); }     to { opacity: 0; transform: translateX(-24px); } }
+@keyframes mode-enter-right { from { opacity: 0; transform: translateX(24px); }  to { opacity: 1; transform: translateX(0); } }
+@keyframes mode-exit-right  { from { opacity: 1; transform: translateX(0); }     to { opacity: 0; transform: translateX(24px); } }
+@keyframes mode-enter-left  { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes mode-exit-up     { from { opacity: 1; transform: translateY(0); }     to { opacity: 0; transform: translateY(-16px); } }
+@keyframes mode-enter-down  { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes mode-fade-out    { from { opacity: 1; } to { opacity: 0; } }
+@keyframes mode-fade-in     { from { opacity: 0; } to { opacity: 1; } }

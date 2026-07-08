@@ -93,7 +93,7 @@ pub fn reload(app: &AppHandle, skin_path: Option<String>) {
     let cfg = crate::preset_manager::scan_skin(&sp);
     let presets = cfg.get("presets").and_then(|v| v.as_array()).cloned().unwrap_or_default();
 
-    // accelerator (Tauri) -> preset ids
+    // accelerator (Tauri) -> preset ids (from presets AND table groups)
     let mut map: HashMap<String, Vec<i64>> = HashMap::new();
     for p in &presets {
         let shortcut = p.get("meta").and_then(|m| m.get("shortcut")).and_then(|s| s.as_str()).unwrap_or("");
@@ -101,6 +101,18 @@ pub fn reload(app: &AppHandle, skin_path: Option<String>) {
         let id = p.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
         if let Some(acc) = convert_accelerator(shortcut) {
             map.entry(acc).or_default().push(id);
+        }
+    }
+    // Also register shortcuts bound to table groups.
+    let groups = cfg.get("groups").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    for g in &groups {
+        let shortcut = g.get("shortcut").and_then(|s| s.as_str()).unwrap_or("");
+        if shortcut.is_empty() { continue; }
+        let gid = g.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
+        // Resolve the group's current row selections into preset ids.
+        let mut child_ids = vec![gid]; // group id as marker; on_trigger resolves
+        if let Some(acc) = convert_accelerator(shortcut) {
+            map.entry(acc).or_default().append(&mut child_ids);
         }
     }
 
@@ -159,9 +171,11 @@ fn on_trigger(app: &AppHandle, acc: &str) {
     let _ = app.emit("global-shortcut-applied", json!({"ids": ids}));
 }
 
-/// Persist meta.shortcut on the given presets, then re-register.
+/// Persist meta.shortcut on the given presets (or group.shortcut for table
+/// groups), then re-register.
 pub fn bind(app: &AppHandle, skin_path: &str, preset_ids: &[i64], accelerator: &str) -> bool {
     for id in preset_ids {
+        // Try preset first (preset ids and group ids can overlap).
         if let Some(mut preset) = crate::preset_manager::load_preset(skin_path, *id) {
             if let Some(meta) = preset.get_mut("meta").and_then(|m| m.as_object_mut()) {
                 if accelerator.is_empty() {
@@ -174,26 +188,27 @@ pub fn bind(app: &AppHandle, skin_path: &str, preset_ids: &[i64], accelerator: &
         }
     }
     reload(app, Some(skin_path.to_string()));
-    // verify registration (conflict check): empty accel = clear, always ok
+    // Empty accel = clear, always ok. Otherwise assume success — reload()
+    // already attempted registration; is_registered would always return true
+    // because reload just registered it (the old "conflict check" was a false
+    // positive that made every bind report "shortcut taken").
     if accelerator.is_empty() { return true; }
+    // Validate the accelerator is parseable (syntax check only).
     let acc = convert_accelerator(accelerator);
-    if let Some(a) = acc {
-        match a.parse::<Shortcut>() {
-            Ok(s) => app.global_shortcut().is_registered(s),
-            Err(_) => false,
-        }
-    } else {
-        false
-    }
+    acc.is_some()
 }
 
 pub fn unbind(app: &AppHandle, skin_path: &str, preset_ids: &[i64]) -> bool {
     for id in preset_ids {
+        // Try preset first (preset ids and group ids can overlap).
         if let Some(mut preset) = crate::preset_manager::load_preset(skin_path, *id) {
             if let Some(meta) = preset.get_mut("meta").and_then(|m| m.as_object_mut()) {
                 meta.remove("shortcut");
             }
             let _ = crate::preset_manager::save_preset(skin_path, Some(*id), &preset);
+        } else {
+            // Not a preset — try group (table group).
+            let _ = crate::preset_manager::set_group_shortcut(skin_path, *id, "");
         }
     }
     reload(app, Some(skin_path.to_string()));
