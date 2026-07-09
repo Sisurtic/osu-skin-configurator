@@ -724,9 +724,26 @@ select.form-input {
   padding: 8px 8px 6px;
   gap: 8px;
 }
-/* Independent underline overlay (managed by JS). Position/size set inline. */
-.preset-group__underline-overlay {
+/* Normal group underline — real DOM child of the header. Static by default;
+   --anim class plays the left-to-right reveal (only on the just-toggled group). */
+.preset-group__header-underline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
   pointer-events: none;
+  transform: scaleX(1);
+  z-index: 3;
+}
+.preset-group__header-underline--anim {
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: group-underline-grow 0.25s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+@keyframes group-underline-grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
 }
 /* Table group header: green tint + radio when active (selected = expanded). */
 .preset-group__header[data-table-toggle] {

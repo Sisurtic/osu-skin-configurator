@@ -171,19 +171,19 @@
     "namePlaceholder": "그룹 이름 입력…",
     "createdWithPresets": "그룹 \"{name}\" 생성 후 프리셋 {count}개 이동",
     "createdEmpty": "빈 그룹 \"{name}\" 생성됨",
-    "newTableGroup": "+ 새 테이블 그룹",
-    "tableGroup": "테이블 그룹",
-    "createdTable": "테이블 그룹 \"{name}\" 생성됨",
-    "createTableTitle": "새 테이블 그룹",
+    "newTableGroup": "+ 새 멀티셀렉트 그룹",
+    "tableGroup": "멀티셀렉트 그룹",
+    "createdTable": "멀티셀렉트 그룹 \"{name}\" 생성됨",
+    "createTableTitle": "새 멀티셀렉트 그룹",
     "nameLabel": "그룹 이름 *",
     "descLabel": "설명",
     "descPlaceholder": "메모…",
     "nameRequired": "그룹 이름은 필수입니다",
     "saveFailed": "그룹 저장 실패: {msg}",
     "saved": "그룹이 저장되었습니다",
-    "flattenConfirm": "이 그룹에 중첩된 하위 그룹이 있습니다. 테이블 그룹은 한 수준만 허용합니다. 강제 병합하시겠습니까? 모든 하위 그룹의 프리셋이 이 그룹의 최상위로 펼쳐집니다.",
+    "flattenConfirm": "이 그룹에 중첩된 하위 그룹이 있습니다. 멀티셀렉트 그룹은 한 수준만 허용합니다. 강제 병합하시겠습니까? 모든 하위 그룹의 프리셋이 이 그룹의 최상위로 펼쳐집니다.",
     "flattenForce": "강제 병합",
-    "cannotNestInTableRow": "테이블 그룹 내의 행에는 일반 그룹을 중첩할 수 없습니다"
+    "cannotNestInTableRow": "멀티셀렉트 그룹 내의 행에는 일반 그룹을 중첩할 수 없습니다"
   },
   "ini": {
     "heading": "skin.ini 편집",
@@ -317,7 +317,7 @@
     "newGroup": "새 그룹",
     "copyPreset": "선택한 프리셋 복제",
     "apply": "현재 프리셋 적용",
-    "newTableGroup": "새 테이블 그룹"
+    "newTableGroup": "새 멀티셀렉트 그룹"
   },
   "easterEggs": [
     {

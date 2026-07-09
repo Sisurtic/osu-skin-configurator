@@ -171,19 +171,19 @@
     "namePlaceholder": "新しいグループ名を入力…",
     "createdWithPresets": "グループ \"{name}\" を作成し {count} 個のプリセットを移動しました",
     "createdEmpty": "空のグループ \"{name}\" を作成しました",
-    "newTableGroup": "+ 新規テーブルグループ",
-    "tableGroup": "テーブルグループ",
-    "createdTable": "テーブルグループ \"{name}\" を作成しました",
-    "createTableTitle": "新規テーブルグループ",
+    "newTableGroup": "+ 新規マルチセレクトグループ",
+    "tableGroup": "マルチセレクトグループ",
+    "createdTable": "マルチセレクトグループ \"{name}\" を作成しました",
+    "createTableTitle": "新規マルチセレクトグループ",
     "nameLabel": "グループ名 *",
     "descLabel": "説明",
     "descPlaceholder": "メモ…",
     "nameRequired": "グループ名は必須です",
     "saveFailed": "グループの保存に失敗しました：{msg}",
     "saved": "グループを保存しました",
-    "flattenConfirm": "このグループにはネストされたサブグループがあります。テーブルグループは1レベルのみ許可します。強制マージしますか？すべてのサブグループのプリセットがこのグループの最上位に展開されます。",
+    "flattenConfirm": "このグループにはネストされたサブグループがあります。マルチセレクトグループは1レベルのみ許可します。強制マージしますか？すべてのサブグループのプリセットがこのグループの最上位に展開されます。",
     "flattenForce": "強制マージ",
-    "cannotNestInTableRow": "テーブルグループ内の行に普通グループをネストできません"
+    "cannotNestInTableRow": "マルチセレクトグループ内の行に普通グループをネストできません"
   },
   "ini": {
     "heading": "skin.ini 編集",
@@ -317,7 +317,7 @@
     "newGroup": "新規グループ",
     "copyPreset": "選択したプリセットを複製",
     "apply": "現在のプリセットを適用",
-    "newTableGroup": "新規テーブルグループ"
+    "newTableGroup": "新規マルチセレクトグループ"
   },
   "easterEggs": [
     {

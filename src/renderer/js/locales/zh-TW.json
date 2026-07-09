@@ -171,19 +171,19 @@
     "namePlaceholder": "輸入新分組名稱…",
     "createdWithPresets": "已建立分組 \"{name}\" 並移入 {count} 個預設",
     "createdEmpty": "已建立空白分組 \"{name}\"",
-    "newTableGroup": "+ 新增表格分組",
-    "tableGroup": "表格分組",
-    "createdTable": "已建立表格分組 \"{name}\"",
-    "createTableTitle": "新增表格分組",
+    "newTableGroup": "+ 新增復選組",
+    "tableGroup": "復選組",
+    "createdTable": "已建立復選組 \"{name}\"",
+    "createTableTitle": "新增復選組",
     "nameLabel": "分組名稱 *",
     "descLabel": "描述",
     "descPlaceholder": "備註…",
     "nameRequired": "分組名稱不能為空",
     "saveFailed": "儲存分組失敗：{msg}",
     "saved": "分組已儲存",
-    "flattenConfirm": "該分組含巢狀子分組，表格分組只允許一層。是否強制合併？合併後所有子分組中的預設將拆到該分組頂層。",
+    "flattenConfirm": "該分組含巢狀子分組，復選組只允許一層。是否強制合併？合併後所有子分組中的預設將拆到該分組頂層。",
     "flattenForce": "強制合併",
-    "cannotNestInTableRow": "表格分組內的行不允許再巢狀普通分組"
+    "cannotNestInTableRow": "復選組內的行不允許再巢狀普通分組"
   },
   "ini": {
     "heading": "skin.ini 修改",
@@ -317,7 +317,7 @@
     "newGroup": "新增分組",
     "copyPreset": "複製選中預設",
     "apply": "套用目前預設",
-    "newTableGroup": "新增表格分組"
+    "newTableGroup": "新增復選組"
   },
   "easterEggs": [
     {

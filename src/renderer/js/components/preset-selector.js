@@ -17,6 +17,8 @@
   }
 
   let _suppressRender = false;
+  let _justToggledGid = null;  // group id whose underline should animate this render
+  let _animDepthBase = 0;     // depth of the toggled group (for relative delay)
 
   function render() {
     if (_suppressRender) return;
@@ -623,51 +625,9 @@
     });
 
     initDividerDrag();
-    updateUnderlineOverlays();
-    // Re-position underline overlays on scroll / resize (they're fixed-position).
-    const list2 = viewEl.querySelector('.preset-selector__list');
-    if (list2 && !list2._underlineScrollBound) {
-      list2._underlineScrollBound = true;
-      list2.addEventListener('scroll', updateUnderlineOverlays, { passive: true });
-    }
-  }
-
-  if (!window._underlineResizeBound) {
-    window._underlineResizeBound = true;
-    window.addEventListener('resize', () => updateUnderlineOverlays(), { passive: true });
-  }
-
-  // Draw independent underline overlays under every expanded group header.
-  // Uses absolute positioning inside the scroll container so overflow:hidden
-  // clips them (they won't escape the window). Doesn't push content and isn't
-  // covered by pseudo-elements.
-  function updateUnderlineOverlays() {
-    const list = viewEl.querySelector('.preset-selector__list');
-    if (!list) return;
-    if (!list._underlineContainer) {
-      const container = document.createElement('div');
-      container.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:50;overflow:hidden';
-      list.style.position = 'relative';
-      list.appendChild(container);
-      list._underlineContainer = container;
-    }
-    const container = list._underlineContainer;
-    container.innerHTML = '';
-    const headers = viewEl.querySelectorAll('.preset-group__header:not(.preset-group__header--collapsed):not(.preset-group__item--shortcut-sel)');
-    for (const header of headers) {
-      // Position relative to the list container.
-      const hr = header.getBoundingClientRect();
-      const lr = list.getBoundingClientRect();
-      const left = hr.left - lr.left + list.scrollLeft;
-      const top = hr.bottom - lr.top + list.scrollTop - 1;
-      if (hr.width === 0) continue;
-      const depth = parseInt(header.closest('.preset-group')?.style.getPropertyValue('--depth') || '0', 10);
-      const hue = 140 + depth * 25;
-      const line = document.createElement('div');
-      line.className = 'preset-group__underline-overlay';
-      line.style.cssText = `position:absolute;left:${left}px;width:${hr.width}px;top:${top}px;height:2px;background:linear-gradient(90deg, hsl(${hue}deg,60%,65%), hsl(${hue + 20}deg,60%,45%))`;
-      container.appendChild(line);
-    }
+    // Clear after all synchronous renders settle (multiple 'groups' listeners
+    // may trigger render in sequence; only clear after the last one).
+    setTimeout(() => { _justToggledGid = null; _animDepthBase = 0; }, 0);
   }
 
   // ── Recursive group rendering ──
@@ -818,11 +778,15 @@
     return html;
   }
 
-  function renderGroupTree(group, allGroups, presetMap, activePresets, depth) {
+  function renderGroupTree(group, allGroups, presetMap, activePresets, depth, inAnimSubtree) {
+    const isToggled = _justToggledGid === group.id;
+    const isAnim = isToggled || !!inAnimSubtree;
+    if (isToggled) _animDepthBase = depth;  // record depth when we hit the toggled group
     const isCollapsed = group.collapsed === true;
     const count = countAllPresets(group, allGroups);
     let html = `<div class="preset-group" style="--depth:${depth}">`;
     html += `<div class="preset-group__header ${isCollapsed ? 'preset-group__header--collapsed' : ''} ${depth > 0 ? 'preset-group__header--nested' : ''}" data-group-id="${group.id}">
+      ${(!isCollapsed) ? `<div class="preset-group__header-underline${isAnim ? ' preset-group__header-underline--anim' : ''}" style="${isAnim ? `animation-delay:${(depth - _animDepthBase) * 80}ms;` : ''}background:linear-gradient(90deg, hsl(${140 + depth * 25}deg,60%,65%), hsl(${160 + depth * 25}deg,60%,45%))"></div>` : ''}
       <span class="preset-tree__collapse-icon">${isCollapsed ? '▶' : '▼'}</span>
       <span class="preset-group__label">${escapeHtml(group.name)}</span>
       ${count > 0 ? `<span class="preset-group__count">[${count}]</span>` : ''}
@@ -839,7 +803,8 @@
           }
         }
       }
-      // Sub-groups after direct presets
+      // Sub-groups after direct presets — pass isAnim as inAnimSubtree so
+      // descendants of the toggled group also animate (staggered by depth).
       for (const child of group.children) {
         if (child.type === 'group') {
           const subGroup = allGroups.find(g => g.id === child.id);
@@ -847,7 +812,7 @@
             if (subGroup.type === 'table') {
               html += renderTableGroup(subGroup, allGroups, presetMap, activePresets, depth + 1);
             } else {
-              html += renderGroupTree(subGroup, allGroups, presetMap, activePresets, depth + 1);
+              html += renderGroupTree(subGroup, allGroups, presetMap, activePresets, depth + 1, isAnim);
             }
           }
         }
@@ -1370,6 +1335,8 @@
     if (!group) return;
     group.collapsed = !group.collapsed;
     await api.setGroupCollapsed(skin, numericId, group.collapsed);
+    _justToggledGid = numericId;
+    _animDepthBase = 0;  // top-level toggle; children will animate by their depth
     state.set('groups', [...groups]);
   }
 
@@ -1399,6 +1366,8 @@
     // Update local state first so the UI re-renders immediately, then persist
     // in one batched call (avoiding per-group IPC + file read/write stalls).
     for (const g of groups) if (idSet.has(g.id)) g.collapsed = target;
+    _justToggledGid = root.id;
+    _animDepthBase = 0;
     state.set('groups', [...groups]);
     await api.setGroupsCollapsedBatch(skin, ids, target);
   }

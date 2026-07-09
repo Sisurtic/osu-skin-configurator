@@ -171,19 +171,19 @@
     "namePlaceholder": "Enter a group name…",
     "createdWithPresets": "Created group \"{name}\" and moved {count} preset(s) in",
     "createdEmpty": "Created empty group \"{name}\"",
-    "newTableGroup": "+ New table group",
-    "tableGroup": "Table group",
-    "createdTable": "Created table group \"{name}\"",
-    "createTableTitle": "New table group",
+    "newTableGroup": "+ New multi-select group",
+    "tableGroup": "Multi-select group",
+    "createdTable": "Created multi-select group \"{name}\"",
+    "createTableTitle": "New multi-select group",
     "nameLabel": "Group name *",
     "descLabel": "Description",
     "descPlaceholder": "Notes…",
     "nameRequired": "Group name is required",
     "saveFailed": "Failed to save group: {msg}",
     "saved": "Group saved",
-    "flattenConfirm": "This group has nested sub-groups, but table groups only allow one level. Force-merge? All presets from sub-groups will be flattened to the top level of this group.",
+    "flattenConfirm": "This group has nested sub-groups, but multi-select groups only allow one level. Force-merge? All presets from sub-groups will be flattened to the top level of this group.",
     "flattenForce": "Force merge",
-    "cannotNestInTableRow": "Rows inside a table group can't contain plain sub-groups"
+    "cannotNestInTableRow": "Rows inside a multi-select group can't contain plain sub-groups"
   },
   "ini": {
     "heading": "skin.ini edits",
@@ -340,7 +340,7 @@
     "newGroup": "New group",
     "copyPreset": "Duplicate selected preset(s)",
     "apply": "Apply current preset",
-    "newTableGroup": "New table group"
+    "newTableGroup": "New multi-select group"
   },
   "easterEggs": [
     {

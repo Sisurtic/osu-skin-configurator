@@ -758,9 +758,24 @@
     } else {
       const active = state.get('activePresets') || {};
       const atg = state.get('activeTableGroups') || {};
-      const ids = [].concat(...Object.values(active).filter(a => Array.isArray(a)));
-      const groupCount = Object.values(atg).filter(Boolean).length;
-      const total = ids.length + groupCount;
+      const rowSel = state.get('tableRowSelection') || {};
+      const groups = state.get('groups') || [];
+      // Count: each activated table group = its row count + 1 (own actions).
+      // Other activePresets entries (plain preset selections) = their preset count.
+      const atgKeys = new Set(Object.keys(atg).filter(k => atg[k]));
+      let total = 0;
+      for (const k of Object.keys(active)) {
+        if (atgKeys.has(k)) {
+          // Table group: count rows (from tableRowSelection) + 1 (the group itself).
+          total += 1;
+          const sel = rowSel[k] || {};
+          total += Object.keys(sel).length;
+        } else {
+          // Plain preset group: count preset ids.
+          const arr = active[k];
+          if (Array.isArray(arr)) total += arr.length;
+        }
+      }
       btnApplyPreset.disabled = !skin || total === 0;
       btnApplyPreset.textContent = total > 0 ? i18n.t('toolbar.applyCount', { count: total }) : i18n.t('toolbar.apply');
     }

@@ -171,19 +171,19 @@
     "namePlaceholder": "输入新分组名称…",
     "createdWithPresets": "已创建分组 \"{name}\" 并移入 {count} 个预设",
     "createdEmpty": "已创建空分组 \"{name}\"",
-    "newTableGroup": "+ 新建表格分组",
-    "tableGroup": "表格分组",
-    "createdTable": "已创建表格分组 \"{name}\"",
-    "createTableTitle": "新建表格分组",
+    "newTableGroup": "+ 新建复选组",
+    "tableGroup": "复选组",
+    "createdTable": "已创建复选组 \"{name}\"",
+    "createTableTitle": "新建复选组",
     "nameLabel": "分组名称 *",
     "descLabel": "描述",
     "descPlaceholder": "备注…",
     "nameRequired": "分组名称不能为空",
     "saveFailed": "保存分组失败：{msg}",
     "saved": "分组已保存",
-    "flattenConfirm": "该分组含嵌套子分组，表格分组只允许一层。是否强制合并？\n合并后所有子分组中的预设将拆到该分组顶层。",
+    "flattenConfirm": "该分组含嵌套子分组，复选组只允许一层。是否强制合并？\n合并后所有子分组中的预设将拆到该分组顶层。",
     "flattenForce": "强制合并",
-    "cannotNestInTableRow": "表格分组内的行不允许再嵌套普通分组"
+    "cannotNestInTableRow": "复选组内的行不允许再嵌套普通分组"
   },
   "ini": {
     "heading": "skin.ini 修改",
@@ -340,7 +340,7 @@
     "newGroup": "新建分组",
     "copyPreset": "复制选中预设",
     "apply": "应用当前预设",
-    "newTableGroup": "新建表格分组"
+    "newTableGroup": "新建复选组"
   },
   "easterEggs": [
     {
