@@ -143,6 +143,12 @@
       });
     };
     disableAutofill(document);
+    // Remove ALL non-editor elements from the Tab sequence — only the editor
+    // (#view-editor), modal dialogs, and shortcut recorder retain Tab cycling.
+    document.querySelectorAll('button, a, input, select, textarea, [tabindex="0"]').forEach(el => {
+      if (el.closest('#view-editor') || el.closest('.modal-overlay') || el.closest('#shortcut-recorder')) return;
+      el.setAttribute('tabindex', '-1');
+    });
     if (typeof MutationObserver !== 'undefined') {
       new MutationObserver(muts => {
         for (const m of muts) m.addedNodes.forEach(n => {
@@ -1079,21 +1085,8 @@
             if (first) first.focus();
           }
         } else if (!editorVisible) {
-          // Use mode: cycle Tab through the focusable toolbar / sidebar /
-          // preset-grid controls (browser default would also work, but a scoped
-          // loop keeps focus inside the app instead of escaping to the body).
+          // Use mode: Tab is disabled (no cycling outside editor/modal).
           e.preventDefault();
-          const focusable = document.querySelectorAll(
-            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-          );
-          const els = Array.from(focusable).filter(el => el.offsetParent !== null);
-          if (els.length > 0) {
-            const current = els.indexOf(document.activeElement);
-            const next = e.shiftKey
-              ? (current <= 0 ? els.length - 1 : current - 1)
-              : (current >= els.length - 1 ? 0 : current + 1);
-            els[next].focus();
-          }
         }
       }
     }
