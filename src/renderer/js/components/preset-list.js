@@ -603,8 +603,15 @@
             ]
           );
           if (choice !== 'flatten') return;
-          await api.flattenGroupSubgroups(skin, dragGidSnapshot);
-          await api.moveGroup(skin, dragGidSnapshot, targetGroupId);
+          if (targetIsTable) {
+            // 普通A→复选a: flatten A first (remove its plain sub-groups), then move.
+            await api.flattenGroupSubgroups(skin, dragGidSnapshot);
+            await api.moveGroup(skin, dragGidSnapshot, targetGroupId);
+          } else {
+            // 普通A→行b: move A into b first, then flatten b (merge A's content into b).
+            await api.moveGroup(skin, dragGidSnapshot, targetGroupId);
+            await api.flattenGroupSubgroups(skin, targetGroupId);
+          }
           await refreshSkinData(skin);
           return;
         }
@@ -890,15 +897,16 @@
   // Selecting does NOT expand/collapse — use the collapse arrow for that.
   async function selectGroup(groupId) {
     if (!await confirmSwitchIfDirty()) return;
-    state.set('selectedPreset', null);
-    state.set('selectedGroup', groupId);
-    // Clear dirty NOW so the save button doesn't briefly light from the
-    // previously-edited preset's leftover dirty state. loadGroupIntoEditor
-    // (fires on the selectedGroup listener) re-loads the group's own data.
-    state.set('presetDirty', false);
+    // Set ALL three in one setMultiple so listeners fire after all three are set
+    // (no intermediate state where selectedPreset is stale → save button flashes).
+    state.setMultiple({
+      selectedPreset: null,
+      selectedGroup: groupId,
+      presetDirty: false,
+    });
     multiSelected.clear();
     lastClickedId = null;
-    updateMultiSelectHighlights();   // clear preset selection highlights
+    updateMultiSelectHighlights();
     updateGroupSelectionHighlights();
   }
 

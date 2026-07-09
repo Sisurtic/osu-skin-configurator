@@ -1161,12 +1161,15 @@
 
     switch (action) {
       case 'save':
-        // Skip when there's nothing to save, UNLESS it's a new preset (allow
-        // continuous saving of a new preset without editing between saves).
-        if (!state.get('presetDirty') && state.get('selectedPreset') !== '__new__') break;
+        // Skip when there's nothing to save. Group mode: only when dirty.
+        // Preset mode: dirty OR new preset (allow continuous saving).
+        if (state.get('selectedGroup') != null) {
+          if (!state.get('presetDirty')) break;
+        } else {
+          if (!state.get('presetDirty') && state.get('selectedPreset') !== '__new__') break;
+        }
         e.preventDefault();
         if (window.PresetEditor && typeof window.PresetEditor.doSave === 'function') {
-          // doSave() branches internally: group → doSaveGroup, else preset save.
           window.PresetEditor.doSave();
         }
         break;
