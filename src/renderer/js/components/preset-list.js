@@ -57,8 +57,42 @@
     presets = presets || [];
     const groups = state.get('groups') || [];
     const rootChildren = state.get('rootChildren') || [];
-    countEl.textContent = presets.length > 0 ? presets.length : '';
-    countEl.style.display = presets.length > 0 ? '' : 'none';
+    // Count ALL items: root presets + all groups recursively (each group's
+    // [N] already counts presets + multi-select groups as 1 each).
+    let totalCount = 0;
+    const cntGroupMap = new Map(groups.map(g => [g.id, g]));
+    for (const c of rootChildren) {
+      if (c.type === 'preset') {
+        totalCount++;
+      } else if (c.type === 'group') {
+        const g = cntGroupMap.get(c.id);
+        if (g) {
+          if (g.type === 'table') {
+            totalCount += 1 + countAllPresetsRecursive(g, groups);
+          } else {
+            totalCount += countAllPresetsRecursive(g, groups);
+          }
+        }
+      }
+    }
+    // Also count orphan presets not in rootChildren.
+    const presetsInTree = new Set();
+    function collectPresetIds(children) {
+      if (!children) return;
+      for (const c of children) {
+        if (c.type === 'preset') presetsInTree.add(c.id);
+        else if (c.type === 'group') {
+          const sub = cntGroupMap.get(c.id);
+          if (sub) collectPresetIds(sub.children);
+        }
+      }
+    }
+    for (const g of groups) collectPresetIds(g.children);
+    for (const p of presets) {
+      if (!presetsInTree.has(p.id)) totalCount++;
+    }
+    countEl.textContent = totalCount > 0 ? totalCount : '';
+    countEl.style.display = totalCount > 0 ? '' : 'none';
 
     if (presets.length === 0 && groups.length === 0) {
       const isCreatingNew = selectedPreset === '__new__';
@@ -81,20 +115,20 @@
     const groupMap = new Map(groups.map(g => [g.id, g]));
 
     // Collect presets recursively from all groups (including nested sub-groups)
-    const presetsInTree = new Set();
+    const treePresets = new Set();
     function collectPresets(children) {
       if (!children) return;
       for (const c of children) {
         if (c.type === 'preset') {
-          presetsInTree.add(c.id);
+          treePresets.add(c.id);
         } else if (c.type === 'group') {
-          const subGroup = groupMap.get(c.id);
+          const subGroup = cntGroupMap.get(c.id);
           if (subGroup) collectPresets(subGroup.children);
         }
       }
     }
     for (const g of groups) collectPresets(g.children);
-    const orphanPresets = presets.filter(p => !presetsInTree.has(p.id));
+    const orphanPresets = presets.filter(p => !treePresets.has(p.id));
 
     // Unified root: render presets + groups interleaved per rootChildren order.
     // Orphans (presets/groups at root but missing from rootChildren) are appended.
@@ -106,7 +140,7 @@
         const p = presetMap.get(c.id);
         if (p) { html += renderPresetNode(p, selectedPreset, 0); seenPreset.add(c.id); }
       } else if (c.type === 'group') {
-        const g = groupMap.get(c.id);
+        const g = cntGroupMap.get(c.id);
         if (g) { html += renderGroupNode(g, groups, presetMap, selectedPreset, 0); seenGroup.add(c.id); }
       }
     }
@@ -820,7 +854,9 @@
     const isTable = group.type === 'table';
     const indent = depth * 20; // 20px per nesting level (base 0)
     let html = `<div class="preset-tree__group${isTable ? ' preset-tree__group--table' : ''}" data-group-id="${group.id}">`;
-    const totalPresetCount = countAllPresetsRecursive(group, allGroups);
+    const totalPresetCount = isTable
+      ? 1 + countAllPresetsRecursive(group, allGroups)
+      : countAllPresetsRecursive(group, allGroups);
     html += `<div class="preset-tree__group-header" data-group-id="${group.id}" style="margin-left:${indent}px">
       <span class="preset-tree__collapse-icon">${isCollapsed ? '▶' : '▼'}</span>
       ${isTable ? '<span class="preset-tree__table-badge" title="' + escapeHtml(i18n.t('group.tableGroup')) + '">' + escapeHtml(i18n.t('group.tableGroup')) + '</span>' : ''}
@@ -1279,7 +1315,7 @@
         if (g.children) {
           const subGroups = g.children
             .filter(c => c.type === 'group')
-            .map(c => groupMap.get(c.id))
+            .map(c => cntGroupMap.get(c.id))
             .filter(Boolean);
           const found = findPath(subGroups, targetId, newPath);
           if (found) return found;
@@ -1293,7 +1329,7 @@
   function isDescendantOfGroup(groups, ancestorId, targetId) {
     const groupMap = new Map(groups.map(g => [g.id, g]));
     function check(groupId) {
-      const group = groupMap.get(groupId);
+      const group = cntGroupMap.get(groupId);
       if (!group || !group.children) return false;
       for (const child of group.children) {
         if (child.type === 'group') {
@@ -1314,7 +1350,14 @@
         count++;
       } else if (child.type === 'group') {
         const sub = allGroups.find(g => g.id === child.id);
-        if (sub) count += countAllPresetsRecursive(sub, allGroups);
+        if (!sub) continue;
+        // Multi-select group (table type) counts as 1; caller's top-level
+        // call adds the group's own 1. Nested ones are self-contained here.
+        if (sub.type === 'table') {
+          count += 1 + countAllPresetsRecursive(sub, allGroups);
+        } else {
+          count += countAllPresetsRecursive(sub, allGroups);
+        }
       }
     }
     return count;

@@ -77,8 +77,14 @@ pub fn count_presets(skin_dir: &Path) -> i64 {
     let cfg = skin_dir.join("config.osp");
     let Ok(txt) = std::fs::read_to_string(&cfg) else { return 0 };
     let v: serde_json::Value = match serde_json::from_str(&txt) { Ok(v) => v, Err(_) => return 0 };
-    v.get("presets")
+    let preset_count = v.get("presets")
         .and_then(|p| p.as_array())
         .map(|a| a.len() as i64)
-        .unwrap_or(0)
+        .unwrap_or(0);
+    // Count table-type (multi-select) groups as 1 each (they have own actions).
+    let group_count = v.get("groups")
+        .and_then(|g| g.as_array())
+        .map(|a| a.iter().filter(|g| g.get("type").and_then(|t| t.as_str()) == Some("table")).count() as i64)
+        .unwrap_or(0);
+    preset_count + group_count
 }

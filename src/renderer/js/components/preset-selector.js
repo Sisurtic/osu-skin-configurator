@@ -636,10 +636,17 @@
     let n = 0;
     if (!group.children) return 0;
     for (const c of group.children) {
-      if (c.type === 'preset') n++;
-      else if (c.type === 'group') {
+      if (c.type === 'preset') {
+        n++;
+      } else if (c.type === 'group') {
         const sub = allGroups.find(g => g.id === c.id);
-        if (sub) n += countAllPresets(sub, allGroups);
+        if (!sub) continue;
+        if (sub.type === 'table') {
+          // Multi-select group counts itself (1) + its children recursively.
+          n += 1 + countAllPresets(sub, allGroups);
+        } else {
+          n += countAllPresets(sub, allGroups);
+        }
       }
     }
     return n;
@@ -727,7 +734,7 @@
     const isCollapsed = !isActive;
     const shortcut = group.shortcut || '';
     const inSelect = shortcutSelected.has('group:' + gid);
-    const count = countAllPresets(group, allGroups);
+    const count = countAllPresets(group, allGroups) + 1; // +1 for the group itself
     let html = `<div class="preset-group preset-group--table" style="--depth:${depth}">`;
     html += `<div class="preset-group__header preset-group__item ${isCollapsed ? 'preset-group__header--collapsed' : ''} ${depth > 0 ? 'preset-group__header--nested' : ''} ${isActive ? 'preset-group__item--editing' : ''} ${shortcut ? 'preset-group__item--has-shortcut' : ''} ${inSelect ? 'preset-group__item--shortcut-sel' : ''}"
              data-group-id="${gid}" data-table-toggle="${gid}" data-id="${gid}" data-sel-key="group:${gid}">
