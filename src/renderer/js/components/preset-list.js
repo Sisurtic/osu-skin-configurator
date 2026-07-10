@@ -158,6 +158,7 @@
       if (!isChild) html += renderGroupNode(g, groups, presetMap, selectedPreset, 0);
     }
 
+    const savedScrollLeft = listEl.scrollLeft;
     listEl.innerHTML = `<div class="preset-tree">${html}</div>`;
 
     // Suppress hover flash: after a DOM rebuild the element under the cursor
@@ -169,9 +170,8 @@
       listEl.querySelectorAll('*').forEach(el => { el.style.transition = ''; });
     }));
 
-    // Horizontal scroll should stop exactly when the deepest row pins flush-left,
-    // i.e. at scrollLeft == deepest row's margin-left (maxIndent). Make the tree
-    // wide enough to scroll and CLAMP scrollLeft to maxIndent.
+    // Horizontal scroll: compute maxIndent first, set tree width, THEN clamp
+    // scrollLeft (order matters — width change can alter scrollLeft).
     const treeEl = listEl.querySelector('.preset-tree');
     let maxIndent = 0;
     listEl.querySelectorAll('.preset-tree__group-header, .preset-tree__item').forEach(el => {
@@ -181,6 +181,9 @@
     if (treeEl) {
       treeEl.style.width = (listEl.clientWidth + maxIndent) + 'px';
     }
+    // Restore scrollLeft AFTER width is set (width change may reset scrollLeft).
+    // Clamp to the new maxIndent in case the tree is narrower than before.
+    listEl.scrollLeft = Math.min(savedScrollLeft, maxIndent);
     if (listEl._ospClamp) listEl.removeEventListener('scroll', listEl._ospClamp);
     listEl._ospClamp = () => {
       if (listEl.scrollLeft > maxIndent) listEl.scrollLeft = maxIndent;
