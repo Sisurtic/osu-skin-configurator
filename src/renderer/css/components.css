@@ -71,12 +71,13 @@
 }
 
 .btn--warning {
-  background: transparent;
-  color: var(--warning);
-  border-color: var(--warning);
+  background: #e8c878;
+  color: #1a1a1a;
+  border-color: #e8c878;
+  font-weight: 600;
 }
 .btn--warning:hover {
-  background: rgba(224, 160, 64, 0.1);
+  filter: brightness(1.04);
 }
 .btn--warning:disabled {
   opacity: 0.4;
