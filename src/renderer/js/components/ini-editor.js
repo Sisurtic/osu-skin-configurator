@@ -1298,5 +1298,18 @@
     window.addEventListener('resize', () => layoutColumns(iniContainer));
   }
 
-  window.IniEditor = { init, render, deleteSelected, layoutColumns };
+  // Return the currently-selected INI rows as plain action objects (deep-
+  // cloned). Indices from sel.getSelected() map directly into getActions().
+  function getSelectedActions() {
+    const set = sel ? sel.getSelected() : new Set();
+    const actions = getActions ? getActions() : [];
+    if (set.size === 0 || actions.length === 0) return [];
+    const out = [];
+    for (const i of [...set].sort((a, b) => a - b)) {
+      if (i >= 0 && i < actions.length) out.push(actions[i]);
+    }
+    return JSON.parse(JSON.stringify(out));
+  }
+
+  window.IniEditor = { init, render, deleteSelected, layoutColumns, getSelectedActions };
 })();

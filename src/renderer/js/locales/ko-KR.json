@@ -135,6 +135,11 @@
     "none": "프리셋이 없습니다",
     "copySuffix": " - 사본",
     "copied": "프리셋 {count}개 복사됨",
+    "actionsCopied": "동작 {count}개 복사됨",
+    "actionsPasted": "동작 {count}개 붙여넣기됨",
+    "noActionsClipboard": "클립보드가 비어 있음 (편집 모드에서 Ctrl+C로 동작 복사)",
+    "noActionsToCopy": "복사할 동작이 없음",
+    "cannotPasteHere": "일반 그룹에는 동작을 붙여넣을 수 없음",
     "deleteConfirm": "프리셋 {count}개를 삭제하시겠습니까? 되돌릴 수 없습니다.",
     "deleteCountBtn": "삭제 ({count})",
     "deleted": "프리셋 {count}개 삭제됨",
@@ -183,7 +188,9 @@
     "saved": "그룹이 저장되었습니다",
     "flattenConfirm": "이 그룹에 중첩된 하위 그룹이 있습니다. 멀티셀렉트 그룹은 한 수준만 허용합니다. 강제 병합하시겠습니까? 모든 하위 그룹의 프리셋이 이 그룹의 최상위로 펼쳐집니다.",
     "flattenForce": "강제 병합",
-    "cannotNestInTableRow": "멀티셀렉트 그룹 내의 행에는 일반 그룹을 중첩할 수 없습니다"
+    "cannotNestInTableRow": "멀티셀렉트 그룹 내의 행에는 일반 그룹을 중첩할 수 없습니다",
+    "duplicated": "그룹 복제됨: {name}",
+    "duplicateFailed": "그룹 복제 실패: {msg}"
   },
   "ini": {
     "heading": "skin.ini 편집",
@@ -315,9 +322,21 @@
     "save": "현재 프리셋 저장",
     "newPreset": "새 프리셋",
     "newGroup": "새 그룹",
-    "copyPreset": "선택한 프리셋 복제",
+    "copyItem": "선택한 프리셋/그룹 복제",
+    "copyActions": "동작 복사 (INI/파일/이미지)",
+    "pasteActions": "동작 붙여넣기",
     "apply": "현재 프리셋 적용",
     "newTableGroup": "새 멀티셀렉트 그룹"
+  },
+  "paste": {
+    "catIni": "INI 편집",
+    "catCopy": "파일 복사",
+    "catDelete": "파일 삭제",
+    "catTint": "이미지 편집",
+    "conflictTitle": "{category}에 {count}개 충돌 — 어떻게 처리할까요?",
+    "skip": "건너뛰기",
+    "overwrite": "덮어쓰기",
+    "append": "추가"
   },
   "easterEggs": [
     {

@@ -7,7 +7,9 @@
     { id: 'new-preset',  key: 'Ctrl+N',  descKey: 'shortcutsDesc.newPreset',   modes: ['edit'] },
     { id: 'new-group',   key: 'Ctrl+G',  descKey: 'shortcutsDesc.newGroup',    modes: ['edit'] },
     { id: 'new-table-group', key: 'Ctrl+Shift+G', descKey: 'shortcutsDesc.newTableGroup', modes: ['edit'] },
-    { id: 'copy-preset', key: 'Ctrl+C',  descKey: 'shortcutsDesc.copyPreset',  modes: ['edit'] },
+    { id: 'copy-item',     key: 'Ctrl+Shift+C', descKey: 'shortcutsDesc.copyItem',     modes: ['edit'] },
+    { id: 'copy-actions',  key: 'Ctrl+C',  descKey: 'shortcutsDesc.copyActions',  modes: ['edit'] },
+    { id: 'paste-actions', key: 'Ctrl+V',  descKey: 'shortcutsDesc.pasteActions', modes: ['edit'] },
     { id: 'apply',       key: 'Space',   descKey: 'shortcutsDesc.apply',       modes: ['use'] },
   ];
 

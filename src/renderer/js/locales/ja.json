@@ -135,6 +135,11 @@
     "none": "プリセットがありません",
     "copySuffix": " - コピー",
     "copied": "{count} 個のプリセットをコピーしました",
+    "actionsCopied": "{count} 個のアクションをコピーしました",
+    "actionsPasted": "{count} 個のアクションを貼り付けました",
+    "noActionsClipboard": "クリップボードが空です（編集モードで Ctrl+C でアクションをコピー）",
+    "noActionsToCopy": "コピーするアクションがありません",
+    "cannotPasteHere": "通常グループにはアクションを貼り付けできません",
     "deleteConfirm": "{count} 個のプリセットを削除しますか?この操作は元に戻せません。",
     "deleteCountBtn": "削除 ({count})",
     "deleted": "{count} 個のプリセットを削除しました",
@@ -183,7 +188,9 @@
     "saved": "グループを保存しました",
     "flattenConfirm": "このグループにはネストされたサブグループがあります。マルチセレクトグループは1レベルのみ許可します。強制マージしますか？すべてのサブグループのプリセットがこのグループの最上位に展開されます。",
     "flattenForce": "強制マージ",
-    "cannotNestInTableRow": "マルチセレクトグループ内の行に普通グループをネストできません"
+    "cannotNestInTableRow": "マルチセレクトグループ内の行に普通グループをネストできません",
+    "duplicated": "グループを複製しました：{name}",
+    "duplicateFailed": "グループの複製に失敗しました：{msg}"
   },
   "ini": {
     "heading": "skin.ini 編集",
@@ -315,9 +322,21 @@
     "save": "現在のプリセットを保存",
     "newPreset": "新規プリセット",
     "newGroup": "新規グループ",
-    "copyPreset": "選択したプリセットを複製",
+    "copyItem": "選択したプリセット/グループを複製",
+    "copyActions": "アクションをコピー（INI/ファイル/画像）",
+    "pasteActions": "アクションを貼り付け",
     "apply": "現在のプリセットを適用",
     "newTableGroup": "新規マルチセレクトグループ"
+  },
+  "paste": {
+    "catIni": "INI 編集",
+    "catCopy": "ファイルコピー",
+    "catDelete": "ファイル削除",
+    "catTint": "画像編集",
+    "conflictTitle": "{category} に {count} 件の競合 — どう処理しますか？",
+    "skip": "スキップ",
+    "overwrite": "上書き",
+    "append": "追加"
   },
   "easterEggs": [
     {

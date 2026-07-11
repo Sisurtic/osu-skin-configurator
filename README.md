@@ -45,7 +45,7 @@ Get `osu-skin-configurator.exe` from [Releases](https://github.com/Sisurtic/osu-
 
 ### Changelog
 
-See [release-v1.0.1.md](release-v1.0.1.md) for the v1.0.1 release notes and post-release fixes (checkbox-group apply rework, row slide-in animations, group-save editor reload).
+See [release-v1.0.1.md](release-v1.0.1.md) for the v1.0.1 release notes and post-release fixes (checkbox-group apply rework, row slide-in animations, group-save editor reload, copy/paste actions + duplicate any item).
 
 ### Prerequisites
 

@@ -647,6 +647,131 @@
     return editData;
   }
 
+  // ── Actions copy/paste (Ctrl+C / Ctrl+V in edit mode) ──
+  // In-memory clipboard of a normalized actions object. Copied from the
+  // currently-editing item (preset or checkbox-group); pasted into another.
+  let _actionsClipboard = null;
+
+  function copyActions() {
+    // ALWAYS clear the clipboard first — guarantees no residue from a previous
+    // copy, regardless of tab / item type / selection.
+    _actionsClipboard = null;
+    // Plain (non-table) groups have no actions; nothing to copy.
+    if (editData.kind === 'group' && !editData._isTableGroup) {
+      Toast.warning(i18n.t('preset.noActionsToCopy'));
+      return;
+    }
+    // Tab-scoped: copy only the selected rows of the ACTIVE tab's editor.
+    // Only that one category is populated in the clipboard; the rest are [].
+    const activeTab = viewEl.querySelector('.tab--active')?.dataset.tab;
+    const cb = { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] };
+    if (activeTab === 'ini' && window.IniEditor && window.IniEditor.getSelectedActions) {
+      cb.skinIni = window.IniEditor.getSelectedActions();
+    } else if (activeTab === 'files' && window.FileCopyEditor && window.FileCopyEditor.getSelectedActions) {
+      const r = window.FileCopyEditor.getSelectedActions();
+      cb.fileCopies = r.fileCopies || [];
+      cb.fileDeletes = r.fileDeletes || [];
+    } else if (activeTab === 'tint' && window.TintEditor && window.TintEditor.getSelectedActions) {
+      cb.fileTints = window.TintEditor.getSelectedActions();
+    } else {
+      Toast.warning(i18n.t('preset.noActionsToCopy'));
+      return;
+    }
+    const total = cb.skinIni.length + cb.fileCopies.length + cb.fileDeletes.length + cb.fileTints.length;
+    if (total === 0) {
+      Toast.warning(i18n.t('preset.noActionsToCopy'));
+      return;
+    }
+    // Deep clone so later edits don't mutate the clipboard.
+    _actionsClipboard = JSON.parse(JSON.stringify(cb));
+    Toast.success(i18n.t('preset.actionsCopied', { count: total }));
+  }
+
+  // Dedup keys per category (mirror backend apply_group INI dedup).
+  const _iniKey = (e) => `${e.section || ''}◆${e.maniaKeys == null ? '' : e.maniaKeys}◆${e.key || ''}`;
+  const _copyKey = (e) => e.source || '';
+  const _deleteKey = (e) => e.path || '';
+  const _tintKey = (e) => e.source || '';
+
+  async function pasteActions() {
+    // Plain groups can't receive actions.
+    if (editData.kind === 'group' && !editData._isTableGroup) {
+      Toast.warning(i18n.t('preset.cannotPasteHere'));
+      return;
+    }
+    if (!_actionsClipboard) {
+      Toast.warning(i18n.t('preset.noActionsClipboard'));
+      return;
+    }
+    const cb = JSON.parse(JSON.stringify(_actionsClipboard));
+    // Normalize clipboard tints so keys/fields are well-formed.
+    cb.skinIni = cb.skinIni || [];
+    cb.fileCopies = cb.fileCopies || [];
+    cb.fileDeletes = cb.fileDeletes || [];
+    cb.fileTints = (cb.fileTints || []).map(normalizeTint);
+
+    // For each category, split clipboard entries into conflicting vs not.
+    // Non-conflicting entries always append; conflicting entries follow the
+    // user's per-category choice (Skip / Overwrite[/ Append]).
+    const categories = [
+      { name: 'skinIni',   key: _iniKey,    label: i18n.t('paste.catIni'),    allowAppend: false },
+      { name: 'fileCopies', key: _copyKey,  label: i18n.t('paste.catCopy'),   allowAppend: true },
+      { name: 'fileDeletes', key: _deleteKey, label: i18n.t('paste.catDelete'), allowAppend: true },
+      { name: 'fileTints', key: _tintKey,   label: i18n.t('paste.catTint'),   allowAppend: true },
+    ];
+
+    const result = { skinIni: [...editData.actions.skinIni], fileCopies: [...editData.actions.fileCopies], fileDeletes: [...editData.actions.fileDeletes], fileTints: [...editData.actions.fileTints] };
+    let added = 0;
+
+    for (const cat of categories) {
+      const target = result[cat.name];
+      const targetKeys = new Set(target.map(cat.key));
+      const cbEntries = cb[cat.name] || [];
+      const fresh = cbEntries.filter(e => !targetKeys.has(cat.key(e)));
+      const conflicts = cbEntries.filter(e => targetKeys.has(cat.key(e)));
+
+      // Always append non-conflicting entries.
+      for (const e of fresh) { target.push(e); added++; }
+
+      if (conflicts.length === 0) continue;
+
+      // Conflict: ask the user how to resolve this category.
+      // Button order (right-aligned by .modal__actions): append - overwrite - skip.
+      // Skip = red (danger), append = yellow (warning), overwrite = primary.
+      const opts = [];
+      if (cat.allowAppend) {
+        opts.push({ label: i18n.t('paste.append'), cls: 'btn--warning', value: 'append' });
+      }
+      opts.push({ label: i18n.t('paste.overwrite'), cls: 'btn--primary', value: 'overwrite' });
+      opts.push({ label: i18n.t('paste.skip'), cls: 'btn--danger', value: 'skip' });
+      const choice = await ApplyDialog.showConfirmDialog(
+        i18n.t('paste.conflictTitle', { category: cat.label, count: conflicts.length }),
+        opts
+      );
+      if (choice === 'overwrite') {
+        // Replace target entries whose key matches a clipboard entry, then add
+        // the clipboard's version. Preserve target order for surviving entries.
+        const cbByKey = new Map(conflicts.map(e => [cat.key(e), e]));
+        for (let i = 0; i < target.length; i++) {
+          const k = cat.key(target[i]);
+          if (cbByKey.has(k)) target[i] = cbByKey.get(k);
+        }
+        added += conflicts.length;
+      } else if (choice === 'append') {
+        for (const e of conflicts) { target.push(e); added++; }
+      }
+      // 'skip' or dialog dismissed → drop conflicting clipboard entries.
+    }
+
+    setSkinIniActions(result.skinIni);
+    setFileCopies(result.fileCopies);
+    setFileDeletes(result.fileDeletes);
+    setFileTints(result.fileTints);
+    state.set('presetDirty', true);
+    render();
+    Toast.success(i18n.t('preset.actionsPasted', { count: added }));
+  }
+
   // Reset the form to a fresh "new preset" state (used when the user re-clicks New Preset).
   function resetNew() {
     editData = {
@@ -685,5 +810,5 @@
     render();
   }
 
-  window.PresetEditor = { render, getCurrentEditData, doSave, doSaveGroup, doDelete, resetNew, moveTabIndicator };
+  window.PresetEditor = { render, getCurrentEditData, doSave, doSaveGroup, doDelete, resetNew, moveTabIndicator, copyActions, pasteActions };
 })();

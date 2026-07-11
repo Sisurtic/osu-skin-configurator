@@ -135,6 +135,11 @@
     "none": "暫無預設",
     "copySuffix": " - 副本",
     "copied": "已複製 {count} 個預設",
+    "actionsCopied": "已複製 {count} 個操作",
+    "actionsPasted": "已貼上 {count} 個操作",
+    "noActionsClipboard": "剪貼簿為空（編輯模式下按 Ctrl+C 複製操作）",
+    "noActionsToCopy": "無可複製的操作",
+    "cannotPasteHere": "普通分組無法貼上操作",
     "deleteConfirm": "確定要刪除 {count} 個預設嗎?此操作無法復原。",
     "deleteCountBtn": "刪除 ({count})",
     "deleted": "已刪除 {count} 個預設",
@@ -183,7 +188,9 @@
     "saved": "分組已儲存",
     "flattenConfirm": "該分組含巢狀子分組，復選組只允許一層。是否強制合併？合併後所有子分組中的預設將拆到該分組頂層。",
     "flattenForce": "強制合併",
-    "cannotNestInTableRow": "復選組內的行不允許再巢狀普通分組"
+    "cannotNestInTableRow": "復選組內的行不允許再巢狀普通分組",
+    "duplicated": "已複製分組：{name}",
+    "duplicateFailed": "複製分組失敗：{msg}"
   },
   "ini": {
     "heading": "skin.ini 修改",
@@ -315,9 +322,21 @@
     "save": "儲存目前預設",
     "newPreset": "新增預設",
     "newGroup": "新增分組",
-    "copyPreset": "複製選中預設",
+    "copyItem": "複製選中預設/分組",
+    "copyActions": "複製操作（INI/檔案/影像）",
+    "pasteActions": "貼上操作",
     "apply": "套用目前預設",
     "newTableGroup": "新增復選組"
+  },
+  "paste": {
+    "catIni": "INI 編輯",
+    "catCopy": "檔案複製",
+    "catDelete": "檔案刪除",
+    "catTint": "影像編輯",
+    "conflictTitle": "{category} 有 {count} 處衝突 — 如何處理？",
+    "skip": "跳過",
+    "overwrite": "覆蓋",
+    "append": "追加"
   },
   "easterEggs": [
     {
