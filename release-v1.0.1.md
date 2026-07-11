@@ -43,3 +43,25 @@
 ---
 
 **Full changelog:** https://github.com/Sisurtic/osu-skin-configurator/compare/v1.0.0...main
+
+---
+
+## Post-release fixes (in-development)
+
+### Checkbox (multi-select) group apply
+
+- **Apply semantics reworked.** A checkbox group now applies only the preset chosen **per row** plus any selected child checkbox groups (recursively) — not the entire subtree of presets. The backend `apply_group` reads `tableRowSelection` + `tableExpandedChildren` from config itself, mirroring the renderer's `collectTableRows`, so the applied set always matches what the user sees selected.
+- **Counter fixed.** The toolbar apply counter and the apply-dialog count now use the same recursive count as the backend (group itself + per-row selections + selected child groups). A 5-row nested checkbox group correctly reports 5 instead of 12/16/17.
+- **Group-only apply no longer fails** with "无法加载预设数据" — the abort guard now checks both the loose-preset list and the group list.
+- **Apply-dialog action counts are accurate.** A checkbox group's summary now merges actions from the root group + selected child groups + selected presets (previously only the root's own actions were shown). The dialog shows the total unit count as `(N)`.
+- **Selection clears after apply.** `activePresets` and `activeTableGroups` are now cleared atomically (`setMultiple`) so the checkbox group visibly folds after a successful apply.
+
+### Animations
+
+- **Slide-in animation** for newly-appeared rows/items: checkbox group activation, child sub-group expansion, and plain-group expansion (including sub-table-group headers) now fade + slide in from the left. Two-phase (sync hidden state + next-frame animation class) avoids flash and browser class-coalescing.
+- **Collapse / deselect closes immediately** (the previous upward-shrink exit animation was janky and has been removed).
+- Fixed an issue where no animation played: a duplicate `groups` state listener caused a second re-render that discarded the just-added animation elements before their `requestAnimationFrame` class was applied.
+
+### Edit mode
+
+- **Group save now reloads the editor**, mirroring the preset-save path: `editData` is refreshed from the freshly-saved group, and the preview cache is invalidated. Previously the editor kept showing the pre-save state.

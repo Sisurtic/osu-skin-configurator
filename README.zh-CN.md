@@ -45,6 +45,10 @@
 
 从 [Releases](https://github.com/Sisurtic/osu-skin-configurator/releases) 下载 `osu-skin-configurator.exe`，双击即可运行。
 
+### 更新日志
+
+见 [release-v1.0.1.md](release-v1.0.1.md)，包含 v1.0.1 发布说明及发布后修复（复选组应用逻辑重做、行级滑入动画、分组保存后编辑器重载）。
+
 ### 快速上手
 
 1. 启动 exe — 自动探测 osu! 安装路径（`%LOCALAPPDATA%\osu!`）

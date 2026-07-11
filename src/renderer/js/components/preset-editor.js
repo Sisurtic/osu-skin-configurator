@@ -368,6 +368,15 @@
     if (window.PresetList && typeof window.PresetList.refreshSkinData === 'function') {
       await window.PresetList.refreshSkinData(sk);
     }
+    // Drop cached previews (preview media may have changed) — mirrors the
+    // preset-save path.
+    if (window.PresetSelector && typeof window.PresetSelector.invalidateCache === 'function') {
+      window.PresetSelector.invalidateCache();
+    }
+    // Reload the group into the editor so editData reflects the freshly-saved
+    // state (same pattern as preset save setting selectedPreset). set() always
+    // fires listeners, so re-setting the same id re-triggers loadGroupIntoEditor.
+    state.set('selectedGroup', gid);
     return true;
   }
 

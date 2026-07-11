@@ -43,6 +43,10 @@ Toggle with the ✏️ button or `Ctrl+E`:
 
 Get `osu-skin-configurator.exe` from [Releases](https://github.com/Sisurtic/osu-skin-configurator/releases).
 
+### Changelog
+
+See [release-v1.0.1.md](release-v1.0.1.md) for the v1.0.1 release notes and post-release fixes (checkbox-group apply rework, row slide-in animations, group-save editor reload).
+
 ### Prerequisites
 
 - **Windows 10/11**
