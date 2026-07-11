@@ -1589,5 +1589,20 @@
 
   function layoutColumns() { /* preview uses canvas scaling; no-op */ }
 
-  window.TintEditor = { init, render, layoutColumns, deleteSelected, invalidateCache: () => { thumbCache.clear(); sourceImgCache.clear(); } };
+  // Return the currently-selected tint rows as plain objects (deep-cloned).
+  // Mirrors deleteSelected's index resolution: empty set falls back to the
+  // anchor row (the highlighted preview row).
+  function getSelectedActions() {
+    const set = opSel ? opSel.getSelected() : new Set();
+    const tints = cur();
+    const idxs = set.size > 0 ? [...set] : (opSel && opSel.getAnchor() >= 0 ? [opSel.getAnchor()] : []);
+    if (idxs.length === 0 || tints.length === 0) return [];
+    const out = [];
+    for (const i of idxs.sort((a, b) => a - b)) {
+      if (i >= 0 && i < tints.length) out.push(tints[i]);
+    }
+    return JSON.parse(JSON.stringify(out));
+  }
+
+  window.TintEditor = { init, render, layoutColumns, deleteSelected, getSelectedActions, invalidateCache: () => { thumbCache.clear(); sourceImgCache.clear(); } };
 })();

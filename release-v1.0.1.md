@@ -65,3 +65,13 @@
 ### Edit mode
 
 - **Group save now reloads the editor**, mirroring the preset-save path: `editData` is refreshed from the freshly-saved group, and the preview cache is invalidated. Previously the editor kept showing the pre-save state.
+
+### Copy / paste & duplication
+
+- **Duplicate any item (Ctrl+Shift+C).** The old Ctrl+C "duplicate preset" is now Ctrl+Shift+C and works on **presets, groups, and checkbox-groups** — duplicating a group deep-copies its entire subtree (child groups, checkbox-groups, presets, actions, description, preview).
+- **Copy / paste actions (Ctrl+C / Ctrl+V).** Copy the **selected rows of the current tab** (INI edits / file moves / image edits — one category at a time) into an in-app clipboard, then paste them into another preset or checkbox-group. Each copy fully resets the clipboard (no stale residue), and pasting merges with a per-category conflict dialog:
+  - INI edits: **Skip / Overwrite** (duplicates by `section + maniaKeys + key`).
+  - File copies / deletes / image edits: **Skip / Overwrite / Append** (duplicates by `source` / `path`). Append allows a same-path duplicate to coexist.
+  - No-conflict categories merge silently; the dialog only appears for categories with actual conflicts.
+- Paste fills the editor and marks it dirty — press Ctrl+S to persist.
+- **Checkbox-group creation merge check.** Creating a checkbox group from a selected group that has nested plain sub-groups now prompts to flatten (same as the drag-into-table path), instead of producing an invalid tree.

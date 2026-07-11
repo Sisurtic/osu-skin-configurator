@@ -1206,13 +1206,36 @@
     return div.innerHTML;
   }
 
-  // ── Copy selected presets ──
+  // ── Duplicate selected item(s) ──
+  // Presets: duplicates each selected preset in place (multiSelected).
+  // Group/checkbox-group: deep-copies the selected group's entire subtree
+  // (child groups, child checkbox-groups, presets, actions, meta/preview).
 
-  async function copySelected() {
-    if (multiSelected.size === 0) return;
+  async function duplicateSelected() {
     const skin = state.get('selectedSkin');
     if (!skin) return;
 
+    const selGid = state.get('selectedGroup');
+    if (selGid != null) {
+      // Group duplication (deep subtree copy).
+      const groups = state.get('groups') || [];
+      const src = groups.find(g => g.id === selGid);
+      if (!src) return;
+      const parent = groups.find(g => g.children && g.children.some(c => c.type === 'group' && c.id === selGid));
+      const parentId = parent ? parent.id : null;
+      try {
+        const newRootId = await duplicateSubtree(src, parentId, groups, skin, true);
+        if (newRootId != null) {
+          Toast.success(i18n.t('group.duplicated', { name: src.name || '' }));
+        }
+      } catch (err) {
+        Toast.error(i18n.t('group.duplicateFailed', { msg: (err && (err.message || String(err))) || i18n.t('app.unknownError') }));
+      }
+      await refreshSkinData(skin);
+      return;
+    }
+
+    if (multiSelected.size === 0) return;
     let copied = 0;
     for (const id of multiSelected) {
       const r = await api.loadPreset(skin, id);
@@ -1231,6 +1254,59 @@
     await refreshSkinData(skin);
     if (copied > 0) Toast.success(i18n.t('preset.copied', { count: copied }));
   }
+
+  // Deep-copy a group subtree into destParentId. Returns the new group id, or
+  // null on failure. `isRoot` controls whether the copy-suffix is appended to
+  // the name (only the duplicated root gets it; descendants keep their names).
+  async function duplicateSubtree(srcGroup, destParentId, allGroups, skin, isRoot) {
+    const newName = (srcGroup.name || '') + (isRoot ? i18n.t('preset.copySuffix') : '');
+    const addResult = await api.addGroup(skin, newName, destParentId, srcGroup.type || '');
+    if (!addResult || !addResult.success) return null;
+    const newGid = addResult.data;
+
+    // Copy own properties (description, preview, actions).
+    if (srcGroup.description) {
+      await api.setGroupDescription(skin, newGid, srcGroup.description);
+    }
+    if (srcGroup.previewPath || srcGroup.previewKind || (srcGroup.previewFrames && srcGroup.previewFrames.length)) {
+      await api.setGroupPreview(skin, newGid, {
+        path: srcGroup.previewPath || '',
+        kind: srcGroup.previewKind || 'image',
+        frames: srcGroup.previewKind === 'sequence' ? (srcGroup.previewFrames || []) : [],
+        fps: srcGroup.previewFps || 12,
+      });
+    }
+    if (srcGroup.type === 'table' && srcGroup.actions) {
+      await api.setGroupActions(skin, newGid, srcGroup.actions);
+    }
+
+    // Recurse into children in original order.
+    for (const c of (srcGroup.children || [])) {
+      if (c.type === 'preset') {
+        await duplicatePresetIntoGroup(c.id, newGid, skin);
+      } else if (c.type === 'group') {
+        const childSrc = allGroups.find(g => g.id === c.id);
+        if (childSrc) await duplicateSubtree(childSrc, newGid, allGroups, skin, false);
+      }
+    }
+    return newGid;
+  }
+
+  // Duplicate a preset and move the fresh copy into destGroupId.
+  async function duplicatePresetIntoGroup(srcPresetId, destGroupId, skin) {
+    const r = await api.loadPreset(skin, srcPresetId);
+    if (!r.success || !r.data) return;
+    const data = { ...r.data };
+    // Children keep their original names (no copy suffix) for subtree copies.
+    const saveResult = await api.savePreset(skin, null, data);
+    if (saveResult && saveResult.success && saveResult.data != null) {
+      // savePreset returns the new preset id directly (not an object).
+      await api.movePresetGroup(skin, saveResult.data, destGroupId);
+    }
+  }
+
+  // Legacy alias (some external refs may use copySelected).
+  const copySelected = duplicateSelected;
 
   // ── Delete selected presets ──
 
@@ -1509,5 +1585,5 @@
     });
   }
 
-  window.PresetList = { render, createGroupWithSelected, deleteSelected, copySelected, clearSelection, confirmSwitchIfDirty, refreshSkinData };
+  window.PresetList = { render, createGroupWithSelected, deleteSelected, copySelected, duplicateSelected, clearSelection, confirmSwitchIfDirty, refreshSkinData };
 })();

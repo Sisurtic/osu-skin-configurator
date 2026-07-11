@@ -135,6 +135,11 @@
     "none": "No presets yet",
     "copySuffix": " - Copy",
     "copied": "Copied {count} preset(s)",
+    "actionsCopied": "Copied {count} action(s)",
+    "actionsPasted": "Pasted {count} action(s)",
+    "noActionsClipboard": "No actions copied yet (Ctrl+C in edit mode to copy)",
+    "noActionsToCopy": "Nothing to copy — this item has no actions",
+    "cannotPasteHere": "Can't paste actions into a plain group",
     "deleteConfirm": "Delete {count} preset(s)? This cannot be undone.",
     "deleteCountBtn": "Delete ({count})",
     "deleted": "Deleted {count} preset(s)",
@@ -183,7 +188,9 @@
     "saved": "Group saved",
     "flattenConfirm": "This group has nested sub-groups, but multi-select groups only allow one level. Force-merge? All presets from sub-groups will be flattened to the top level of this group.",
     "flattenForce": "Force merge",
-    "cannotNestInTableRow": "Rows inside a multi-select group can't contain plain sub-groups"
+    "cannotNestInTableRow": "Rows inside a multi-select group can't contain plain sub-groups",
+    "duplicated": "Group duplicated: {name}",
+    "duplicateFailed": "Failed to duplicate group: {msg}"
   },
   "ini": {
     "heading": "skin.ini edits",
@@ -338,9 +345,21 @@
     "save": "Save current preset",
     "newPreset": "New preset",
     "newGroup": "New group",
-    "copyPreset": "Duplicate selected preset(s)",
+    "copyItem": "Duplicate selected preset / group",
+    "copyActions": "Copy actions (INI / files / images)",
+    "pasteActions": "Paste actions",
     "apply": "Apply current preset",
     "newTableGroup": "New multi-select group"
+  },
+  "paste": {
+    "catIni": "INI edits",
+    "catCopy": "File copies",
+    "catDelete": "File deletes",
+    "catTint": "Image edits",
+    "conflictTitle": "{count} {category} conflict(s) — how to resolve?",
+    "skip": "Skip",
+    "overwrite": "Overwrite",
+    "append": "Append"
   },
   "easterEggs": [
     {

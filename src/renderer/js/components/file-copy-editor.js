@@ -786,5 +786,22 @@
     window.addEventListener('resize', () => layoutColumns(filesContainer));
   }
 
-  window.FileCopyEditor = { init, render, layoutColumns, invalidateCache: () => thumbCache.clear() };
+  // Return the currently-selected file-copy + file-delete rows as plain
+  // objects (deep-cloned), split by _type. Selection indices map into the
+  // unified currentFileOps view-model. No anchor fallback (empty = empty).
+  function getSelectedActions() {
+    const set = sel ? sel.getSelected() : new Set();
+    if (set.size === 0) return { fileCopies: [], fileDeletes: [] };
+    const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+    const fileCopies = [], fileDeletes = [];
+    for (const i of [...set].sort((a, b) => a - b)) {
+      const op = ops[i];
+      if (!op) continue;
+      if (op._type === 'copy') fileCopies.push({ source: op.source, destination: op.destination, exact: !!op.exact });
+      else if (op._type === 'delete') fileDeletes.push({ path: op.path, exact: !!op.exact });
+    }
+    return JSON.parse(JSON.stringify({ fileCopies, fileDeletes }));
+  }
+
+  window.FileCopyEditor = { init, render, layoutColumns, getSelectedActions, invalidateCache: () => thumbCache.clear() };
 })();

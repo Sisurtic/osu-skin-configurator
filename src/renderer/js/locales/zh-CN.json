@@ -135,6 +135,11 @@
     "none": "暂无预设",
     "copySuffix": " - 副本",
     "copied": "已复制 {count} 个预设",
+    "actionsCopied": "已复制 {count} 个操作",
+    "actionsPasted": "已粘贴 {count} 个操作",
+    "noActionsClipboard": "剪贴板为空（编辑模式下按 Ctrl+C 复制操作）",
+    "noActionsToCopy": "无可复制的操作",
+    "cannotPasteHere": "普通分组无法粘贴操作",
     "deleteConfirm": "确定要删除 {count} 个预设吗？此操作不可恢复。",
     "deleteCountBtn": "删除 ({count})",
     "deleted": "已删除 {count} 个预设",
@@ -183,7 +188,9 @@
     "saved": "分组已保存",
     "flattenConfirm": "该分组含嵌套子分组，复选组只允许一层。是否强制合并？\n合并后所有子分组中的预设将拆到该分组顶层。",
     "flattenForce": "强制合并",
-    "cannotNestInTableRow": "复选组内的行不允许再嵌套普通分组"
+    "cannotNestInTableRow": "复选组内的行不允许再嵌套普通分组",
+    "duplicated": "已复制分组：{name}",
+    "duplicateFailed": "复制分组失败：{msg}"
   },
   "ini": {
     "heading": "skin.ini 修改",
@@ -338,9 +345,21 @@
     "save": "保存当前预设",
     "newPreset": "新建预设",
     "newGroup": "新建分组",
-    "copyPreset": "复制选中预设",
+    "copyItem": "复制选中预设/分组",
+    "copyActions": "复制操作（INI/文件/图像）",
+    "pasteActions": "粘贴操作",
     "apply": "应用当前预设",
     "newTableGroup": "新建复选组"
+  },
+  "paste": {
+    "catIni": "INI 编辑",
+    "catCopy": "文件复制",
+    "catDelete": "文件删除",
+    "catTint": "图像编辑",
+    "conflictTitle": "{category} 有 {count} 处冲突 — 如何处理？",
+    "skip": "跳过",
+    "overwrite": "覆盖",
+    "append": "追加"
   },
   "easterEggs": [
     {

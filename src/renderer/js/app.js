@@ -1184,12 +1184,32 @@
         }
         break;
 
-      case 'copy-preset':
+      case 'copy-item':
         if (state.get('appMode') !== 'edit') break;
         if (isInput) break;
         e.preventDefault();
-        if (window.PresetList && typeof window.PresetList.copySelected === 'function') {
-          window.PresetList.copySelected();
+        if (window.PresetList && typeof window.PresetList.duplicateSelected === 'function') {
+          window.PresetList.duplicateSelected();
+        }
+        break;
+
+      case 'copy-actions':
+        if (state.get('appMode') !== 'edit') break;
+        // No isInput guard: Ctrl+C copies the selected rows of the active tab's
+        // table even when a value input is focused (selection lives on rows).
+        e.preventDefault();
+        if (window.PresetEditor && typeof window.PresetEditor.copyActions === 'function') {
+          window.PresetEditor.copyActions();
+        }
+        break;
+
+      case 'paste-actions':
+        if (state.get('appMode') !== 'edit') break;
+        // No isInput guard: Ctrl+C/V drive the in-app actions clipboard, not
+        // the system text clipboard, when editing actions.
+        e.preventDefault();
+        if (window.PresetEditor && typeof window.PresetEditor.pasteActions === 'function') {
+          window.PresetEditor.pasteActions();
         }
         break;
 

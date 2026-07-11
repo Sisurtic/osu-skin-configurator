@@ -70,6 +70,19 @@
   cursor: not-allowed;
 }
 
+.btn--warning {
+  background: transparent;
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.btn--warning:hover {
+  background: rgba(224, 160, 64, 0.1);
+}
+.btn--warning:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .btn--ghost {
   background: transparent;
   color: var(--text-secondary);
@@ -474,11 +487,6 @@ select.form-input {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-}
-
-/* Push last button (cancel) to the far right */
-.modal__actions > :last-child {
-  margin-left: auto;
 }
 
 
