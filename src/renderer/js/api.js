@@ -37,7 +37,7 @@ const api = {
   setGroupDescription: (skinName, groupId, description) => window.electronAPI.setGroupDescription(skinName, groupId, description),
   setGroupPreview: (skinName, groupId, preview) => window.electronAPI.setGroupPreview(skinName, groupId, preview),
   setGroupActions: (skinName, groupId, actions) => window.electronAPI.setGroupActions(skinName, groupId, actions),
-  applyGroup: (skinName, groupId) => window.electronAPI.applyGroup(skinName, groupId),
+  applyGroup: (skinName, groupId, presetIds) => window.electronAPI.applyGroup(skinName, groupId, presetIds),
   flattenGroupSubgroups: (skinName, groupId) => window.electronAPI.flattenGroupSubgroups(skinName, groupId),
   setTableState: (skinName, expanded, rowSelection) => window.electronAPI.setTableState(skinName, expanded, rowSelection),
 

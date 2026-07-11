@@ -19,6 +19,11 @@
   let _suppressRender = false;
   let _justToggledGid = null;  // group id whose underline should animate this render
   let _animDepthBase = 0;     // depth of the toggled group (for relative delay)
+  // Row keys (data-row-key) present on the PREVIOUS render. Rows that appear
+  // this render but weren't here last render play the slide-in animation —
+  // this covers both activating a checkbox group and expanding a child sub-
+  // group (its nested rows are new).
+  let _prevRowKeys = new Set();
 
   function render() {
     if (_suppressRender) return;
@@ -180,13 +185,18 @@
     const prevPreview = viewEl.querySelector('#preset-preview-panel');
     const savedPreviewHtml = prevPreview ? prevPreview.innerHTML : null;
 
+    // Rebuild immediately. Collapsing/folding closes right away (no exit
+    // animation — it was janky); only the slide-IN animation on newly-appeared
+    // rows plays (handled in afterRebuild).
     viewEl.innerHTML = html;
-
     if (savedPreviewHtml) {
       const newPreview = viewEl.querySelector('#preset-preview-panel');
       if (newPreview) newPreview.innerHTML = savedPreviewHtml;
     }
+    afterRebuild();
+    return;
 
+    function afterRebuild() {
     // Suppress the hover flash: after a DOM rebuild the element under the
     // cursor instantly matches :hover, and ANY transition (item background,
     // label color, etc.) plays = visible flash. Disable transitions on every
@@ -625,9 +635,40 @@
     });
 
     initDividerDrag();
+
+    // Slide-in animation for newly-appeared rows/items (any element with
+    // data-row-key). Plays when a checkbox group is activated, a child sub-group
+    // is expanded, OR a plain group is expanded — its child preset rows + sub-
+    // group headers are new. Two-phase per element:
+    //   1. synchronously add --enter-init → born hidden (opacity 0, shifted left);
+    //   2. next rAF swap to --enter → runs the left→right slide+fade.
+    const newRowEls = [];
+    const currRowKeys = new Set();
+    viewEl.querySelectorAll('[data-row-key]').forEach(row => {
+      const rk = row.dataset.rowKey;
+      currRowKeys.add(rk);
+      if (!_prevRowKeys.has(rk)) {
+        newRowEls.push(row);
+      }
+    });
+    _prevRowKeys = currRowKeys;
+    if (newRowEls.length) {
+      // Two-phase: synchronously hide (born invisible), then next frame swap to
+      // the animation class. The rAF gap forces the browser to commit the hidden
+      // state first, so the class swap is a real change that fires the animation.
+      newRowEls.forEach(row => row.classList.add('preset-group__enter-init'));
+      requestAnimationFrame(() => {
+        newRowEls.forEach(row => {
+          row.classList.remove('preset-group__enter-init');
+          row.classList.add('preset-group__enter');
+        });
+      });
+    }
+
     // Clear after all synchronous renders settle (multiple 'groups' listeners
     // may trigger render in sequence; only clear after the last one).
     setTimeout(() => { _justToggledGid = null; _animDepthBase = 0; }, 0);
+    } // end afterRebuild
   }
 
   // ── Recursive group rendering ──
@@ -737,7 +778,7 @@
     const count = countAllPresets(group, allGroups) + 1; // +1 for the group itself
     let html = `<div class="preset-group preset-group--table" style="--depth:${depth}">`;
     html += `<div class="preset-group__header preset-group__item ${isCollapsed ? 'preset-group__header--collapsed' : ''} ${depth > 0 ? 'preset-group__header--nested' : ''} ${isActive ? 'preset-group__item--editing' : ''} ${shortcut ? 'preset-group__item--has-shortcut' : ''} ${inSelect ? 'preset-group__item--shortcut-sel' : ''}"
-             data-group-id="${gid}" data-table-toggle="${gid}" data-id="${gid}" data-sel-key="group:${gid}">
+             data-group-id="${gid}" data-table-toggle="${gid}" data-id="${gid}" data-sel-key="group:${gid}" data-row-key="g:${gid}">
       <span class="preset-radio ${isActive ? 'preset-radio--selected' : ''}" data-group-id="${gid}"></span>
       <span class="preset-group__label">${escapeHtml(group.name)}</span>
       ${count > 0 ? `<span class="preset-group__count">[${count}]</span>` : ''}
@@ -792,7 +833,7 @@
     const isCollapsed = group.collapsed === true;
     const count = countAllPresets(group, allGroups);
     let html = `<div class="preset-group" style="--depth:${depth}">`;
-    html += `<div class="preset-group__header ${isCollapsed ? 'preset-group__header--collapsed' : ''} ${depth > 0 ? 'preset-group__header--nested' : ''}" data-group-id="${group.id}">
+    html += `<div class="preset-group__header ${isCollapsed ? 'preset-group__header--collapsed' : ''} ${depth > 0 ? 'preset-group__header--nested' : ''}" data-group-id="${group.id}" data-row-key="g:${group.id}">
       ${(!isCollapsed) ? `<div class="preset-group__header-underline${isAnim ? ' preset-group__header-underline--anim' : ''}" style="${isAnim ? `animation-delay:${(depth - _animDepthBase) * 80}ms;` : ''}background:linear-gradient(90deg, hsl(${140 + depth * 25}deg,60%,65%), hsl(${160 + depth * 25}deg,60%,45%))"></div>` : ''}
       <span class="preset-tree__collapse-icon">${isCollapsed ? '▶' : '▼'}</span>
       <span class="preset-group__label">${escapeHtml(group.name)}</span>
@@ -838,10 +879,11 @@
     const shortcut = preset.meta?.shortcut || '';
     const inSelect = shortcutSelected.has('preset:' + preset.id);
     return `
-      <div class="preset-group__item ${isActive ? 'preset-group__item--editing' : ''} ${shortcut ? 'preset-group__item--has-shortcut' : ''} ${inSelect ? 'preset-group__item--shortcut-sel' : ''}"
+      <div class="preset-group__item preset-group__item--plain-row ${isActive ? 'preset-group__item--editing' : ''} ${shortcut ? 'preset-group__item--has-shortcut' : ''} ${inSelect ? 'preset-group__item--shortcut-sel' : ''}"
            data-id="${preset.id}"
            data-sel-key="preset:${preset.id}"
-           data-group-id="${groupId}">
+           data-group-id="${groupId}"
+           data-row-key="p:${groupId}:${preset.id}">
         <span class="preset-radio ${isActive ? 'preset-radio--selected' : ''}"
               data-group-id="${groupId}" data-id="${preset.id}"></span>
         <span class="preset-group__name">${escapeHtml(name)}</span>
@@ -1304,7 +1346,7 @@
   state.on('presets', () => render());
   state.on('groups', () => render());
   state.on('rootChildren', () => render());
-  state.on('selectedSkin', () => render());
+  state.on('selectedSkin', () => { _prevRowKeys = new Set(); render(); });
   state.on('appMode', (mode) => { if (mode === 'use') render(); });
   state.on('activePresets', () => render());
 
@@ -1331,7 +1373,10 @@
   // tableExpandedChildren / tableRowSelection changes are always followed by an
   // explicit render() (or an activePresets change which re-renders), so they
   // don't need their own listeners — that would only multiply renders.
-  state.on('groups', () => { if (state.get('appMode') === 'use') render(); });
+  // NOTE: 'groups' already has its render listener above; do NOT add a second
+  // one — a duplicate causes two renders per groups change, and the second
+  // rebuild discards the first render's just-added animation elements before
+  // their rAF animation class is applied (no animation ever plays).
 
   async function toggleCollapse(groupId) {
     const skin = state.get('selectedSkin');
@@ -1379,5 +1424,34 @@
     await api.setGroupsCollapsedBatch(skin, ids, target);
   }
 
-  window.PresetSelector = { render, invalidateCache: () => { previewCache = {}; } };
+  // Collect apply units for a checkbox (table) group, mirroring the backend
+  // apply_group recursion: the group itself (1) + each visible row's selected
+  // item — a preset id (1) or a child table group (recurse). Uses the SAME
+  // collectTableRows as the renderer so rowKeys match tableRowSelection exactly.
+  // Returns { presetIds: Set, groupIds: Set }.
+  function collectApplyUnits(rootGid) {
+    const groups = state.get('groups') || [];
+    const byId = new Map(groups.map(g => [g.id, g]));
+    const expanded = state.get('tableExpandedChildren') || {};
+    const allSel = state.get('tableRowSelection') || {};
+    const presetIds = new Set();
+    const groupIds = new Set();
+    const rec = (gid) => {
+      if (groupIds.has(gid)) return; // cycle guard
+      groupIds.add(gid);
+      const g = byId.get(gid);
+      if (!g) return;
+      const sel = allSel[gid] || {};
+      const rows = collectTableRows(g, groups, expanded, 0, null);
+      for (const row of rows) {
+        const chosen = sel[row.rowKey];
+        if (typeof chosen === 'number') presetIds.add(chosen);
+        else if (typeof chosen === 'string' && chosen.startsWith('group:')) rec(parseInt(chosen.slice(6), 10));
+      }
+    };
+    rec(rootGid);
+    return { presetIds, groupIds };
+  }
+
+  window.PresetSelector = { render, invalidateCache: () => { previewCache = {}; }, collectApplyUnits };
 })();

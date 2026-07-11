@@ -915,6 +915,22 @@ select.form-input {
      which sits after the radio (16px) + gap (8px) + header padding-left (8px). */
   padding: 4px 0 8px 32px;
 }
+/* Slide-in (left→right) for newly-appeared rows/items. Plays per element when
+   a checkbox group is activated, a child sub-group is expanded, OR a plain
+   group is expanded — any element with data-row-key that wasn't in the previous
+   render. Two-phase: --enter-init hides synchronously (born hidden), --enter
+   (added next rAF) runs the animation. */
+.preset-group__enter-init {
+  opacity: 0;
+  transform: translateX(-10px);
+}
+.preset-group__enter {
+  animation: group-row-enter 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes group-row-enter {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
 .preset-group__table-row {
   display: flex;
   align-items: center;

@@ -672,31 +672,24 @@
     }
   }
 
-  // Collect every preset id under a group's subtree (mirrors the backend recursion).
-  function collectDescendantPresetIdsFrontend(gid, groups) {
-    const out = [];
-    const rec = (id) => {
-      const g = groups.find(x => x.id === id);
-      if (!g || !g.children) return;
-      for (const c of g.children) {
-        if (c.type === 'preset') out.push(c.id);
-        else if (c.type === 'group') rec(c.id);
-      }
-    };
-    rec(gid);
-    return out;
-  }
-
   function actionApply() {
     const mode = state.get('appMode');
     if (mode === 'use') {
       const active = state.get('activePresets') || {};
       const atg = state.get('activeTableGroups') || {};
-      const groups = state.get('groups') || [];
       const activeGroupIds = Object.keys(atg).filter(k => atg[k]).map(Number);
-      // Presets under an active table group are already covered by apply_group —
-      // exclude them from the loose-preset list to avoid double application.
-      const covered = new Set(activeGroupIds.flatMap(gid => collectDescendantPresetIdsFrontend(gid, groups)));
+      // The backend apply_group recursively applies each active table group's
+      // selected presets (per row) + selected child groups. Collect every preset
+      // id those groups will apply, so the loose list excludes them (no double
+      // application). Presets in the subtree but NOT selected stay loose.
+      const collectApplyUnits = window.PresetSelector?.collectApplyUnits;
+      const covered = new Set();
+      if (collectApplyUnits) {
+        for (const gid of activeGroupIds) {
+          const u = collectApplyUnits(gid);
+          for (const id of u.presetIds) covered.add(id);
+        }
+      }
       const loosePresetIds = [].concat(...Object.values(active).filter(a => Array.isArray(a)))
         .filter(id => !covered.has(id));
       if (loosePresetIds.length === 0 && activeGroupIds.length === 0) {
@@ -764,22 +757,20 @@
     } else {
       const active = state.get('activePresets') || {};
       const atg = state.get('activeTableGroups') || {};
-      const rowSel = state.get('tableRowSelection') || {};
-      const groups = state.get('groups') || [];
-      // Count: each activated table group = its row count + 1 (own actions).
-      // Other activePresets entries (plain preset selections) = their preset count.
       const atgKeys = new Set(Object.keys(atg).filter(k => atg[k]));
+      const collectApplyUnits = window.PresetSelector?.collectApplyUnits;
+      // Count apply units with the SAME recursion the backend apply_group uses
+      // (collectApplyUnits). A table group = 1 + per-row selections (preset=1,
+      // child group recurses). Plain preset groups just count selected ids.
       let total = 0;
       for (const k of Object.keys(active)) {
         if (atgKeys.has(k)) {
-          // Table group: count rows (from tableRowSelection) + 1 (the group itself).
-          total += 1;
-          const sel = rowSel[k] || {};
-          total += Object.keys(sel).length;
+          if (!collectApplyUnits) continue;
+          const u = collectApplyUnits(Number(k));
+          total += u.presetIds.size + u.groupIds.size;
         } else {
-          // Plain preset group: count preset ids.
           const arr = active[k];
-          if (Array.isArray(arr)) total += arr.length;
+          if (Array.isArray(arr)) total += new Set(arr).size;
         }
       }
       btnApplyPreset.disabled = !skin || total === 0;

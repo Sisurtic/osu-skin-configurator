@@ -118,21 +118,6 @@
     return div.innerHTML;
   }
 
-  // Collect every preset id under a group's subtree (for apply summaries).
-  function collectDescendantPresetIdsLocal(gid, groups) {
-    const out = [];
-    const rec = (id) => {
-      const g = groups.find(x => x.id === id);
-      if (!g || !g.children) return;
-      for (const c of g.children) {
-        if (c.type === 'preset') out.push(c.id);
-        else if (c.type === 'group') rec(c.id);
-      }
-    };
-    rec(gid);
-    return out;
-  }
-
   /**
    * Show multi-preset apply dialog from use mode.
    * @param {{presetIds?: number[], groupIds?: number[]}} args
@@ -159,14 +144,48 @@
     }
     // Group apply units: read meta + actions from state.groups (already loaded).
     const groups = state.get('groups') || [];
-    const groupDataList = groupIds.map(gid => {
+    const collectApplyUnits = window.PresetSelector?.collectApplyUnits;
+    // For each checkbox group, collect the actions of EVERY unit the backend
+    // apply_group will apply: the root group + selected child groups (own
+    // actions, from state.groups) + selected presets (loaded via loadPreset).
+    // This makes the dialog's action counts match what actually gets applied.
+    const groupDataList = [];
+    for (const gid of groupIds) {
       const g = groups.find(x => x.id === gid) || {};
-      const a = g.actions || { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] };
       const meta = { name: g.name || i18n.t('group.tableGroup') };
-      return { id: gid, meta, actions: a, isGroup: true, descendantPresetIds: collectDescendantPresetIdsLocal(gid, groups) };
-    });
+      const u = collectApplyUnits ? collectApplyUnits(gid) : { presetIds: new Set(), groupIds: new Set([gid]) };
+      const applyCount = u.presetIds.size + u.groupIds.size;
+      // Merge own actions of every group in the unit set (root + selected subs).
+      const merged = { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] };
+      for (const sgid of u.groupIds) {
+        const sg = groups.find(x => x.id === sgid);
+        const sa = sg?.actions;
+        if (sa) {
+          if (Array.isArray(sa.skinIni)) merged.skinIni.push(...sa.skinIni);
+          if (Array.isArray(sa.fileCopies)) merged.fileCopies.push(...sa.fileCopies);
+          if (Array.isArray(sa.fileDeletes)) merged.fileDeletes.push(...sa.fileDeletes);
+          if (Array.isArray(sa.fileTints)) merged.fileTints.push(...sa.fileTints);
+        }
+      }
+      // Load each selected preset's actions and merge.
+      for (const pid of u.presetIds) {
+        const result = await api.loadPreset(skin, pid);
+        if (result.success && result.data) {
+          const pa = result.data.actions || {};
+          if (Array.isArray(pa.skinIni)) merged.skinIni.push(...pa.skinIni);
+          if (Array.isArray(pa.fileCopies)) merged.fileCopies.push(...pa.fileCopies);
+          if (Array.isArray(pa.fileDeletes)) merged.fileDeletes.push(...pa.fileDeletes);
+          if (Array.isArray(pa.fileTints)) merged.fileTints.push(...pa.fileTints);
+        }
+      }
+      groupDataList.push({ id: gid, meta, actions: merged, isGroup: true, applyCount });
+    }
 
-    if (presetDataList.length === 0) {
+    // Only abort if BOTH lists are empty: a group-only apply (no loose presets)
+    // is valid — its preset data comes from state.groups via groupDataList, and
+    // the backend apply_group loads the subtree. Aborting on empty presetDataList
+    // alone made checkbox-group-only applies fail with "无法加载预设数据".
+    if (presetDataList.length === 0 && groupDataList.length === 0) {
       Toast.error(i18n.t('apply.loadPresetFailed'));
       return;
     }
@@ -192,14 +211,16 @@
       totalColor += c.colorCount; totalCrop += c.cropCount;
       presetSummaries.push({ name: pd.meta.name || i18n.t('preset.fallbackName', { id: pd.id }), ...c });
     }
-    // Group apply units: own actions count (+ descendant preset count for display).
+    // Group apply units: gd.actions already merges every unit the backend will
+    // apply (root + selected child groups + selected presets), so the counts
+    // here reflect the actual application.
     for (const gd of groupDataList) {
       const c = countActions(gd.actions);
       totalIniMod += c.iniMod; totalIniDel += c.iniDel;
       totalCopy += c.copyCount; totalDelete += c.deleteCount;
       totalColor += c.colorCount; totalCrop += c.cropCount;
       presetSummaries.push({
-        name: gd.meta.name + (gd.descendantPresetIds.length ? ` (+${gd.descendantPresetIds.length})` : ''),
+        name: gd.meta.name + (gd.applyCount > 0 ? ` (${gd.applyCount})` : ''),
         ...c,
       });
     }
@@ -212,7 +233,7 @@
       <div class="modal">
         <div class="modal__title">${i18n.t('apply.confirmTitle')}</div>
         <div class="modal__body">
-          <p style="margin-bottom:8px">${i18n.t('apply.willApplyMulti', { count: presetDataList.length, name: escapeHtml(skin) })}</p>
+          <p style="margin-bottom:8px">${i18n.t('apply.willApplyMulti', { count: presetDataList.length + groupDataList.length, name: escapeHtml(skin) })}</p>
           ${presetSummaries.map(ps => `
             <div style="padding:3px 2px">
               <strong>${escapeHtml(ps.name)}</strong>
@@ -268,8 +289,12 @@
         if (r.success) combined = r.data; else failed = r;
       }
       if (!failed) {
+        // The backend apply_group recursively reads tableRowSelection +
+        // tableExpandedChildren from config itself, applying the per-row selected
+        // presets + selected child groups (mirroring collectApplyUnits). No need
+        // to pass the selection here — pass null.
         for (const gid of groupIds) {
-          const rg = await api.applyGroup(skin, gid);
+          const rg = await api.applyGroup(skin, gid, null);
           if (rg.success) {
             const d = rg.data;
             if (!combined) combined = d;
@@ -289,8 +314,12 @@
         Toast.error(i18n.t('apply.applyFailed', { msg: failed.error || i18n.t('app.unknownError') }));
       } else {
         const d = combined || {};
-        state.set('activePresets', {});
-        state.set('activeTableGroups', {});
+        // Clear BOTH selection states atomically. setMultiple fires the
+        // activePresets listener (→ render) only AFTER both are written, so the
+        // re-render sees activeTableGroups already empty — otherwise the group
+        // would briefly still look active (activeTableGroups has no render
+        // listener of its own).
+        state.setMultiple({ activePresets: {}, activeTableGroups: {} });
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
         const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0);
         Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);

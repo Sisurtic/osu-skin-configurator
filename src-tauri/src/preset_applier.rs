@@ -6,8 +6,10 @@
 
 use indexmap::IndexMap;
 use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use rayon::prelude::*;
+use crate::preset_manager::Group;
 
 fn normalize_lexical(p: &str) -> String {
     // emulate Node path.normalize for our containment check: collapse separators,
@@ -581,7 +583,7 @@ pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
 /// Apply a table group's OWN actions + all its descendant presets' actions.
 /// The subtree is applied exactly once (each preset id visited once — the group
 /// tree is a tree, not a graph). INI edits are deduped by section+maniaKeys+key.
-pub fn apply_group(skin_path: &str, group_id: i64) -> Result<Value, String> {
+pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) -> Result<Value, String> {
     let cfg = crate::preset_manager::load_config(skin_path);
     let g = cfg.groups.iter().find(|g| g.id == group_id)
         .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
@@ -598,29 +600,147 @@ pub fn apply_group(skin_path: &str, group_id: i64) -> Result<Value, String> {
         }
     };
 
-    // Group's own actions first.
-    if let Some(ga) = &g.actions {
-        push_actions(&mut all_ini, ga, "skinIni");
-        push_actions(&mut all_copies, ga, "fileCopies");
-        push_actions(&mut all_deletes, ga, "fileDeletes");
-        push_actions(&mut all_tints, ga, "fileTints");
-    }
+    // Recursively collect apply units for this checkbox (table) group, mirroring
+    // the frontend collectTableRows + the user's apply semantics:
+    //   - the group itself applies its own actions (counts as 1 unit);
+    //   - each visible row's selected item: a preset → apply that preset;
+    //     a child table group → recurse into it (its own actions + its rows).
+    // A row's selection is read from tableRowSelection[rowKey]; visible rows
+    // (including expanded child-table rows) come from collect_table_rows.
+    let by_id: HashMap<i64, &Group> = cfg.groups.iter().map(|g| (g.id, g)).collect();
+    let mut applied_presets: HashSet<i64> = HashSet::new();
+    let mut applied_groups: HashSet<i64> = HashSet::new();
 
-    // Descendant presets (each id once).
-    let preset_ids = crate::preset_manager::collect_descendant_preset_ids(&cfg, group_id);
-    for id in &preset_ids {
-        match cfg.presets.iter().find(|p| p.get("id").and_then(|v| v.as_i64()) == Some(*id)) {
-            Some(preset) => {
-                if let Some(a) = preset.get("actions") {
-                    push_actions(&mut all_ini, a, "skinIni");
-                    push_actions(&mut all_copies, a, "fileCopies");
-                    push_actions(&mut all_deletes, a, "fileDeletes");
-                    push_actions(&mut all_tints, a, "fileTints");
-                }
-            }
-            None => warnings.push(crate::i18n::t("err.preset_not_found", &[("id", &id.to_string())])),
+    fn expanded_set(cfg_expanded: &Value, gid: i64) -> HashSet<i64> {
+        match cfg_expanded.get(gid.to_string()) {
+            Some(Value::Array(arr)) => arr.iter().filter_map(|v| v.as_i64()).collect(),
+            Some(Value::Object(o)) => o.values().filter_map(|v| v.as_i64()).collect(),
+            _ => HashSet::new(),
         }
     }
+
+    // Returns the flat list of visible rows (rowKey + options) for a table group,
+    // splicing in expanded child-table-group rows at depth+1 (mirrors
+    // collectTableRows in preset-selector.js).
+    fn collect_table_rows(
+        group: &Group,
+        by_id: &HashMap<i64, &Group>,
+        expanded: &Value,
+        path_prefix: &str,
+    ) -> Vec<(String, Vec<(String, i64)>)> {
+        // options: Vec of (kind, id) where kind is "preset" or "group"
+        let prefix = if path_prefix.is_empty() { format!("{}:", group.id) } else { path_prefix.to_string() };
+        let ex = expanded_set(expanded, group.id);
+        let mut rows: Vec<(String, Vec<(String, i64)>)> = Vec::new();
+        // __direct__ row: direct presets + nested table sub-groups.
+        let mut direct_opts: Vec<(String, i64)> = Vec::new();
+        for c in &group.children {
+            if c.kind == "preset" {
+                direct_opts.push(("preset".to_string(), c.id));
+            } else if c.kind == "group" {
+                if let Some(sg) = by_id.get(&c.id) {
+                    if sg.kind == "table" { direct_opts.push(("group".to_string(), sg.id)); }
+                }
+            }
+        }
+        if !direct_opts.is_empty() {
+            rows.push((format!("{}__direct__", prefix), direct_opts));
+        }
+        // Labeled rows: one per plain (non-table) sub-group.
+        for c in &group.children {
+            if c.kind != "group" { continue; }
+            let sg = match by_id.get(&c.id) { Some(g) => g, None => continue };
+            if sg.kind == "table" { continue; }
+            let mut sub_opts: Vec<(String, i64)> = Vec::new();
+            for sc in &sg.children {
+                if sc.kind == "preset" { sub_opts.push(("preset".to_string(), sc.id)); }
+                else if sc.kind == "group" {
+                    if let Some(ssg) = by_id.get(&sc.id) {
+                        if ssg.kind == "table" { sub_opts.push(("group".to_string(), ssg.id)); }
+                    }
+                }
+            }
+            if !sub_opts.is_empty() {
+                rows.push((format!("{}{}", prefix, c.id), sub_opts));
+            }
+        }
+        // Splice expanded child-table rows after each row whose options include
+        // an expanded child table group.
+        let mut out: Vec<(String, Vec<(String, i64)>)> = Vec::new();
+        for row in &rows {
+            out.push(row.clone());
+            for opt in &row.1 {
+                if opt.0 == "group" && ex.contains(&opt.1) {
+                    if let Some(cg) = by_id.get(&opt.1) {
+                        let child_prefix = format!("{}{}:", prefix, opt.1);
+                        let child_rows = collect_table_rows(cg, by_id, expanded, &child_prefix);
+                        for cr in child_rows { out.push(cr); }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    // Recursive apply-unit collection.
+    fn collect_units(
+        gid: i64,
+        by_id: &HashMap<i64, &Group>,
+        cfg: &crate::preset_manager::Config,
+        expanded: &Value,
+        row_selection: &Value,
+        applied_presets: &mut HashSet<i64>,
+        applied_groups: &mut HashSet<i64>,
+        ini: &mut Vec<Value>, copies: &mut Vec<Value>, deletes: &mut Vec<Value>, tints: &mut Vec<Value>,
+        warnings: &mut Vec<String>,
+        push_actions: &impl Fn(&mut Vec<Value>, &Value, &str),
+    ) {
+        let g = match by_id.get(&gid) { Some(g) => g, None => return };
+        if !applied_groups.insert(gid) { return; } // guard against cycles
+        // Group's own actions.
+        if let Some(ga) = &g.actions {
+            push_actions(ini, ga, "skinIni");
+            push_actions(copies, ga, "fileCopies");
+            push_actions(deletes, ga, "fileDeletes");
+            push_actions(tints, ga, "fileTints");
+        }
+        let rows = collect_table_rows(g, by_id, expanded, "");
+        let sel = row_selection.get(gid.to_string()).unwrap_or(&Value::Null);
+        for (row_key, _opts) in &rows {
+            let chosen = sel.get(row_key);
+            match chosen {
+                Some(Value::Number(n)) => {
+                    if let Some(id) = n.as_i64() {
+                        if applied_presets.insert(id) {
+                            match cfg.presets.iter().find(|p| p.get("id").and_then(|v| v.as_i64()) == Some(id)) {
+                                Some(preset) => {
+                                    if let Some(a) = preset.get("actions") {
+                                        push_actions(ini, a, "skinIni");
+                                        push_actions(copies, a, "fileCopies");
+                                        push_actions(deletes, a, "fileDeletes");
+                                        push_actions(tints, a, "fileTints");
+                                    }
+                                }
+                                None => warnings.push(crate::i18n::t("err.preset_not_found", &[("id", &id.to_string())])),
+                            }
+                        }
+                    }
+                }
+                Some(Value::String(s)) if s.starts_with("group:") => {
+                    if let Ok(child_gid) = s[6..].parse::<i64>() {
+                        collect_units(child_gid, by_id, cfg, expanded, row_selection,
+                            applied_presets, applied_groups, ini, copies, deletes, tints, warnings, push_actions);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    collect_units(group_id, &by_id, &cfg, &cfg.table_expanded_children, &cfg.table_row_selection,
+        &mut applied_presets, &mut applied_groups,
+        &mut all_ini, &mut all_copies, &mut all_deletes, &mut all_tints, &mut warnings, &push_actions);
+    let _ = g; // (group already used via by_id lookup above)
 
     // Dedup INI edits (same as apply_multiple_presets).
     let mut merged_map: IndexMap<String, Value> = IndexMap::new();

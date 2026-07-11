@@ -181,16 +181,6 @@ fn collect_preset_ids(children: &[ChildRef], groups: &[Group], out: &mut Vec<i64
     }
 }
 
-/// Collect every preset id under a group's subtree (recursive). Each id is
-/// visited exactly once — the group tree is a tree, not a graph.
-pub fn collect_descendant_preset_ids(cfg: &Config, group_id: i64) -> Vec<i64> {
-    let mut out = Vec::new();
-    if let Some(g) = cfg.groups.iter().find(|g| g.id == group_id) {
-        collect_preset_ids(&g.children, &cfg.groups, &mut out);
-    }
-    out
-}
-
 fn save_config(skin_path: &str, cfg: &Config) -> Result<(), String> {
     let p = config_path(skin_path);
     let mut v = serde_json::Map::new();
