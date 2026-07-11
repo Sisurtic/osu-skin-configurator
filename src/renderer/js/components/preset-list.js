@@ -57,42 +57,13 @@
     presets = presets || [];
     const groups = state.get('groups') || [];
     const rootChildren = state.get('rootChildren') || [];
-    // Count ALL items: root presets + all groups recursively (each group's
-    // [N] already counts presets + multi-select groups as 1 each).
-    let totalCount = 0;
-    const cntGroupMap = new Map(groups.map(g => [g.id, g]));
-    for (const c of rootChildren) {
-      if (c.type === 'preset') {
-        totalCount++;
-      } else if (c.type === 'group') {
-        const g = cntGroupMap.get(c.id);
-        if (g) {
-          if (g.type === 'table') {
-            totalCount += 1 + countAllPresetsRecursive(g, groups);
-          } else {
-            totalCount += countAllPresetsRecursive(g, groups);
-          }
-        }
-      }
-    }
-    // Also count orphan presets not in rootChildren.
-    const presetsInTree = new Set();
-    function collectPresetIds(children) {
-      if (!children) return;
-      for (const c of children) {
-        if (c.type === 'preset') presetsInTree.add(c.id);
-        else if (c.type === 'group') {
-          const sub = cntGroupMap.get(c.id);
-          if (sub) collectPresetIds(sub.children);
-        }
-      }
-    }
-    for (const g of groups) collectPresetIds(g.children);
-    for (const p of presets) {
-      if (!presetsInTree.has(p.id)) totalCount++;
-    }
+    // Count presets + table-type groups (same algorithm as skin_scanner.rs).
+    const tableGroupCount = groups.filter(g => g.type === 'table').length;
+    const totalCount = presets.length + tableGroupCount;
     countEl.textContent = totalCount > 0 ? totalCount : '';
     countEl.style.display = totalCount > 0 ? '' : 'none';
+    // cntGroupMap still used by render logic below (collectPresets, renderGroupNode).
+    const cntGroupMap = new Map(groups.map(g => [g.id, g]));
 
     if (presets.length === 0 && groups.length === 0) {
       const isCreatingNew = selectedPreset === '__new__';
@@ -1116,10 +1087,9 @@
     const btnNewTableGroup = document.getElementById('btn-new-table-group');
     if (btnNewTableGroup) {
       btnNewTableGroup.addEventListener('click', async () => {
-        // If presets are selected, create the table group and move them in
-        // (single-level table groups may hold presets directly). Otherwise
-        // create an empty root-level table group.
-        if (multiSelected.size > 0) {
+        // If presets OR groups are selected, create the table group and move them in.
+        const selGid2 = state.get('selectedGroup');
+        if (multiSelected.size > 0 || selGid2 != null) {
           createGroupWithSelected('table');
           return;
         }
@@ -1127,12 +1097,6 @@
         if (!newName) return;
         const skin = state.get('selectedSkin');
         if (!skin) return;
-        // If a group is selected, create + move it in (like presets).
-        const selGid2 = state.get('selectedGroup');
-        if (selGid2 != null) {
-          createGroupWithSelected('table');
-          return;
-        }
         const result = await api.addGroup(skin, newName, null, 'table');
         if (result.success) {
           Toast.success(i18n.t('group.createdTable', { name: newName }));

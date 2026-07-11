@@ -94,7 +94,9 @@
     if (skinName && allSkins.length > 0) {
       const idx = allSkins.findIndex(s => s.name === skinName);
       if (idx >= 0) {
-        allSkins[idx] = { ...allSkins[idx], presetCount: (presets || []).length };
+        const groups = state.get('groups') || [];
+        const tableGroupCount = groups.filter(g => g.type === 'table').length;
+        allSkins[idx] = { ...allSkins[idx], presetCount: (presets || []).length + tableGroupCount };
         render(allSkins, skinName);
       }
     }
