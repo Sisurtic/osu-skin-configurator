@@ -422,11 +422,12 @@
       });
 
       groupEl.addEventListener('drop', async (e) => {
+        // Only handle PRESET drops here; group drops have their own handler below.
+        if (!dragPresetIds || dragPresetIds.length === 0) return;
         e.stopPropagation();
         e.preventDefault();
         groupEl.style.removeProperty('--drop-indent');
         groupEl.classList.remove('preset-tree__group--drop-target');
-        if (!dragPresetIds || dragPresetIds.length === 0) return;
         // Only the group header accepts the nest drop (matches dragover).
         const dropHdr = groupEl.querySelector(':scope > .preset-tree__group-header');
         if (!dropHdr || !dropHdr.contains(e.target)) return;
@@ -499,6 +500,9 @@
           // Lower half → clear the reorder line, let the group-body nest handler take over.
           const gdl = document.getElementById('__group_drop_line');
           if (gdl) gdl.style.display = 'none';
+          // Still preventDefault so the browser doesn't show the "no-drop" cursor —
+          // the group dragover handler will set dropEffect = 'move'.
+          e.preventDefault();
           return;
         }
         // Upper half = insert before this group (same-level reorder).
@@ -576,7 +580,6 @@
         // child reorder in the group body).
         const hdr = groupEl.querySelector(':scope > .preset-tree__group-header');
         if (!hdr || !hdr.contains(e.target)) return;
-        e.stopPropagation();
         // Block dropping parent group onto its own descendant
         const targetGroupId = parseInt(groupEl.dataset.groupId, 10);
         const groups = state.get('groups') || [];
@@ -584,6 +587,7 @@
           e.dataTransfer.dropEffect = 'none';
           return;
         }
+        e.stopPropagation();
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         listEl.querySelectorAll('.preset-tree__group--drop-target').forEach(el => {
@@ -1089,8 +1093,9 @@
     const btnNewGroup = document.getElementById('btn-new-empty-group');
     if (btnNewGroup) {
       btnNewGroup.addEventListener('click', async () => {
-        // If presets are selected, create the group and move them in.
-        if (multiSelected.size > 0) {
+        // If presets OR groups are selected, create the group and move them in.
+        const selGid = state.get('selectedGroup');
+        if (multiSelected.size > 0 || selGid != null) {
           createGroupWithSelected();
           return;
         }
@@ -1098,14 +1103,7 @@
         if (!newName) return;
         const skin = state.get('selectedSkin');
         if (!skin) return;
-        // If a group is selected, create inside it; otherwise root level.
-        const parentGid = state.get('selectedGroup');
-        const groups = state.get('groups') || [];
-        if (parentGid != null && isPlainRowInTable(groups, parentGid)) {
-          Toast.warning(i18n.t('group.cannotNestInTableRow'));
-          return;
-        }
-        const result = await api.addGroup(skin, newName, parentGid);
+        const result = await api.addGroup(skin, newName, null);
         if (result.success) {
           Toast.success(i18n.t('group.created', { name: newName }));
           await refreshSkinData(skin);
@@ -1129,6 +1127,12 @@
         if (!newName) return;
         const skin = state.get('selectedSkin');
         if (!skin) return;
+        // If a group is selected, create + move it in (like presets).
+        const selGid2 = state.get('selectedGroup');
+        if (selGid2 != null) {
+          createGroupWithSelected('table');
+          return;
+        }
         const result = await api.addGroup(skin, newName, null, 'table');
         if (result.success) {
           Toast.success(i18n.t('group.createdTable', { name: newName }));
@@ -1332,7 +1336,7 @@
   function isDescendantOfGroup(groups, ancestorId, targetId) {
     const groupMap = new Map(groups.map(g => [g.id, g]));
     function check(groupId) {
-      const group = cntGroupMap.get(groupId);
+      const group = groupMap.get(groupId);
       if (!group || !group.children) return false;
       for (const child of group.children) {
         if (child.type === 'group') {
@@ -1387,7 +1391,20 @@
     // Determine the appropriate parent group for the new group
     let parentGroupId = null;
     const groups = state.get('groups') || [];
-    if (multiSelected.size > 0) {
+    const selGid = state.get('selectedGroup');
+    if (selGid != null) {
+      const selGroup = groups.find(g => g.id === selGid);
+      // Block: selected group is a row (plain group inside a table group).
+      // Can't create a plain group inside it (2nd-level nesting).
+      if (!isTable && isPlainRowInTable(groups, selGid)) {
+        Toast.warning(i18n.t('group.cannotNestInTableRow'));
+        return;
+      }
+      // A group is selected: new group goes in the SAME parent (sibling),
+      // then the selected group is moved INTO the new group.
+      const parent = groups.find(g => g.children && g.children.some(c => c.type === 'group' && c.id === selGid));
+      parentGroupId = parent ? parent.id : null;
+    } else if (multiSelected.size > 0) {
       const parentIds = new Set();
       for (const pid of multiSelected) {
         parentIds.add(findPresetParentGroupId(groups, pid));
@@ -1430,6 +1447,13 @@
         : i18n.t('group.createdWithPresets', { name: newName, count: multiSelected.size }));
       multiSelected.clear();
       lastClickedId = null;
+    } else if (selGid != null) {
+      // Move the selected group INTO the new group.
+      await api.moveGroup(skin, selGid, newGroupId);
+      state.set('selectedGroup', newGroupId);
+      Toast.success(isTable
+        ? i18n.t('group.createdTable', { name: newName })
+        : i18n.t('group.createdEmpty', { name: newName }));
     } else {
       Toast.success(isTable
         ? i18n.t('group.createdTable', { name: newName })
