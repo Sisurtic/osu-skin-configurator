@@ -1412,6 +1412,27 @@
       multiSelected.clear();
       lastClickedId = null;
     } else if (selGid != null) {
+      // Moving the selected group INTO the new group. When creating a TABLE
+      // (checkbox) group, a source group that contains nested plain sub-groups
+      // can't live inside it (a table group only allows one level of plain
+      // sub-groups as rows) — same merge check as the drag-into-table path.
+      if (isTable && hasNestedSubGroups(groups, selGid)) {
+        const choice = await ApplyDialog.showConfirmDialog(
+          i18n.t('group.flattenConfirm'),
+          [
+            { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
+            { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
+          ]
+        );
+        if (choice !== 'flatten') {
+          // Abort: remove the just-created empty table group so we don't leave
+          // an orphan, then bail.
+          await api.removeGroup(skin, newGroupId);
+          await refreshSkinData(skin);
+          return;
+        }
+        await api.flattenGroupSubgroups(skin, selGid);
+      }
       // Move the selected group INTO the new group.
       await api.moveGroup(skin, selGid, newGroupId);
       state.set('selectedGroup', newGroupId);
