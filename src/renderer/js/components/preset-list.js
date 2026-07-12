@@ -1488,11 +1488,15 @@
       multiSelected.clear();
       lastClickedId = null;
     } else if (selGid != null) {
-      // Moving the selected group INTO the new group. When creating a TABLE
-      // (checkbox) group, a source group that contains nested plain sub-groups
-      // can't live inside it (a table group only allows one level of plain
-      // sub-groups as rows) — same merge check as the drag-into-table path.
-      if (isTable && hasNestedSubGroups(groups, selGid)) {
+      // Moving the selected group INTO the new group. A merge/flatten is only
+      // needed when creating a TABLE group AND the selected group is itself a
+      // PLAIN group with nested plain sub-groups (a plain group can only enter
+      // a table as a single row, so its own plain sub-groups would create an
+      // invalid 2nd nesting level). A selected TABLE group keeps its structure
+      // (it becomes a nested table group; its plain children are its rows), so
+      // no flatten prompt in that case.
+      const selIsTable = (groups.find(g => g.id === selGid) || {}).type === 'table';
+      if (isTable && !selIsTable && hasNestedSubGroups(groups, selGid)) {
         const choice = await ApplyDialog.showConfirmDialog(
           i18n.t('group.flattenConfirm'),
           [

@@ -652,17 +652,14 @@
   // currently-editing item (preset or checkbox-group); pasted into another.
   let _actionsClipboard = null;
 
+  // Returns true when actions were actually copied (rows selected), false
+  // otherwise (no selection / plain group / basic tab). Callers use the return
+  // value to decide whether to preventDefault the keypress — when nothing is
+  // copied we leave the browser default untouched.
   function copyActions() {
-    // ALWAYS clear the clipboard first — guarantees no residue from a previous
-    // copy, regardless of tab / item type / selection.
-    _actionsClipboard = null;
     // Plain (non-table) groups have no actions; nothing to copy.
-    if (editData.kind === 'group' && !editData._isTableGroup) {
-      Toast.warning(i18n.t('preset.noActionsToCopy'));
-      return;
-    }
+    if (editData.kind === 'group' && !editData._isTableGroup) return false;
     // Tab-scoped: copy only the selected rows of the ACTIVE tab's editor.
-    // Only that one category is populated in the clipboard; the rest are [].
     const activeTab = viewEl.querySelector('.tab--active')?.dataset.tab;
     const cb = { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] };
     if (activeTab === 'ini' && window.IniEditor && window.IniEditor.getSelectedActions) {
@@ -674,17 +671,17 @@
     } else if (activeTab === 'tint' && window.TintEditor && window.TintEditor.getSelectedActions) {
       cb.fileTints = window.TintEditor.getSelectedActions();
     } else {
-      Toast.warning(i18n.t('preset.noActionsToCopy'));
-      return;
+      return false;
     }
     const total = cb.skinIni.length + cb.fileCopies.length + cb.fileDeletes.length + cb.fileTints.length;
-    if (total === 0) {
-      Toast.warning(i18n.t('preset.noActionsToCopy'));
-      return;
-    }
-    // Deep clone so later edits don't mutate the clipboard.
+    // Only copy when rows are actually selected — otherwise leave the clipboard
+    // untouched and let the caller skip preventDefault.
+    if (total === 0) return false;
+    // Clear the old clipboard then commit a fresh deep clone (no residue).
+    _actionsClipboard = null;
     _actionsClipboard = JSON.parse(JSON.stringify(cb));
     Toast.success(i18n.t('preset.actionsCopied', { count: total }));
+    return true;
   }
 
   // Dedup keys per category (mirror backend apply_group INI dedup).
