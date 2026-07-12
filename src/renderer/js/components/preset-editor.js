@@ -14,7 +14,6 @@
     _previewKind: 'image',     // 'image' | 'video' | 'sequence'
     _previewFrames: null,      // string[] (sequence only)
     _previewFps: 12,           // sequence frame rate
-    _isNew: true,
     _groupId: null,
     _isTableGroup: false,
     _originalName: '',
@@ -104,7 +103,31 @@
     return r.success ? r.data : null;
   });
 
+  // True when nothing is selected (no preset, no group, no multi-select) → the
+  // editor shows the empty/hint state instead of a form.
+  function isEmptyState() {
+    return state.get('selectedPreset') == null
+      && state.get('selectedGroup') == null
+      && !state.get('multiSelectActive');
+  }
+
+  function renderEmpty() {
+    viewEl.innerHTML = `
+      <div class="tabs tabs--empty">
+        <div class="tab tab--active" data-tab="basic" tabindex="0">${i18n.t('preset.tabBasic')}</div>
+        <div class="tab" data-tab="ini" tabindex="0">${i18n.t('preset.tabIni')}</div>
+        <div class="tab" data-tab="files" tabindex="0">${i18n.t('preset.tabFiles')}</div>
+        <div class="tab" data-tab="tint" tabindex="0">${i18n.t('preset.tabTint')}</div>
+        <div class="tabs__indicator" id="tabs-indicator"></div>
+      </div>
+      <div class="tab-content tab-content--active editor-empty">
+        <p class="editor-empty__hint">${i18n.t('editor.emptyHint')}</p>
+      </div>`;
+    viewEl.classList.remove('editor--group-mode', 'editor--locked');
+  }
+
   function render() {
+    if (isEmptyState()) { renderEmpty(); return; }
     const editingGroup = editData.kind === 'group';
     const prevActiveTab = viewEl.querySelector('.tab--active');
     const savedTabName = prevActiveTab ? prevActiveTab.dataset.tab : 'basic';
@@ -177,6 +200,8 @@
   function bindTabs() {
     viewEl.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
+        // No tab switching while a multi-select is active (editor is locked).
+        if (state.get('multiSelectActive')) return;
         viewEl.querySelectorAll('.tab').forEach(t => t.classList.remove('tab--active'));
         viewEl.querySelectorAll('.tab-content').forEach(c => c.classList.remove('tab-content--active'));
         tab.classList.add('tab--active');
@@ -298,7 +323,6 @@
       _previewKind: g.previewKind || 'image',
       _previewFrames: Array.isArray(g.previewFrames) ? g.previewFrames : null,
       _previewFps: g.previewFps || 12,
-      _isNew: false,
       _groupId: groupId,
       _originalName: g.name || '',
     };
@@ -547,12 +571,22 @@
 
   state.on('selectedPreset', async (preset, prev) => {
     const sk = skinName();
-    if (!preset || preset === '__new__') {
+    if (preset == null) {
+      // Only show the empty/hint state when truly nothing is selected. During
+      // multi-select selectedPreset is nulled too, but the editor should stay
+      // locked (editor--locked) — not flip to the hint.
+      if (isEmptyState()) {
+        renderEmpty();
+        playEditorEnter();
+      }
+      return;
+    }
+    if (preset === '__new__') {
       if (prev === '__new__') {
         // Re-asserted '__new__' from doSave() — keep form data, don't reset
         return;
       }
-      // Switching to new-preset mode from elsewhere — reset the form
+      // User explicitly chose "New Preset" — reset the form
       resetNew();
       playEditorEnter();
       return;
@@ -569,7 +603,6 @@
         _previewKind: result.data.meta?.previewKind || 'image',
         _previewFrames: result.data.meta?.previewFrames || null,
         _previewFps: result.data.meta?.previewFps || 12,
-        _isNew: false,
         _groupId: null,
     _isTableGroup: false,
         _originalName: '',
@@ -614,7 +647,6 @@
         _previewKind: result.data.meta?.previewKind || 'image',
         _previewFrames: result.data.meta?.previewFrames || null,
         _previewFps: result.data.meta?.previewFps || 12,
-        _isNew: false,
         _groupId: null,
     _isTableGroup: false,
         _originalName: '',
@@ -643,6 +675,14 @@
     }
   });
 
+  // Multi-select (groups or presets, >1) locks the editor: tabs disabled + the
+  // body is non-interactive so nothing can be edited mid-selection.
+  state.on('multiSelectActive', (active) => {
+    const tabs = viewEl.querySelector('.tabs');
+    if (tabs) tabs.classList.toggle('tabs--disabled', !!active);
+    viewEl.classList.toggle('editor--locked', !!active);
+  });
+
   function getCurrentEditData() {
     return editData;
   }
@@ -657,6 +697,7 @@
   // value to decide whether to preventDefault the keypress — when nothing is
   // copied we leave the browser default untouched.
   function copyActions() {
+    if (isEmptyState()) return false;
     // Plain (non-table) groups have no actions; nothing to copy.
     if (editData.kind === 'group' && !editData._isTableGroup) return false;
     // Tab-scoped: copy only the selected rows of the ACTIVE tab's editor.
@@ -691,6 +732,7 @@
   const _tintKey = (e) => e.source || '';
 
   async function pasteActions() {
+    if (isEmptyState()) return;
     // Plain groups can't receive actions.
     if (editData.kind === 'group' && !editData._isTableGroup) {
       Toast.warning(i18n.t('preset.cannotPasteHere'));
@@ -779,7 +821,6 @@
       _previewKind: 'image',
       _previewFrames: null,
       _previewFps: 12,
-      _isNew: true,
       _groupId: null,
     _isTableGroup: false,
       _originalName: '',

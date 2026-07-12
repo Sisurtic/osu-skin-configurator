@@ -130,6 +130,9 @@
     "noActionsMulti": "⚠ 所選預設沒有任何操作",
     "dedupHint": "⚠ 相同 INI 欄位的修改以後套用的預設為準"
   },
+  "editor": {
+    "emptyHint": "未選取任何項 — 在左側選擇預設或分組編輯，或新增一個。\n\n▸ 新增預設：「+ 新增預設」（Ctrl+N）→ 基本資訊填名稱 → 加 INI / 檔案 / 影像操作 → 💾 儲存（Ctrl+S）。\n▸ 分組與巢狀：Ctrl+G 新增分組；拖曳預設入組、拖曳分組巢狀進另一分組。Ctrl+Shift+G 新增復選組表格。\n▸ 復選組表格：每行左側的行名是普通子分組的名稱；每行的選項是該行可選的預設（或巢狀復選組），每行選一個。\n▸ 編輯器快捷鍵：Ctrl+N 新增、Ctrl+S 儲存、Ctrl+C / Ctrl+V 複製貼上選取操作、Ctrl+Shift+C 複製選取項、1-4 切換分頁、Esc 取消選取。\n\n編輯模式用於建構預設；使用模式（✏️ / Ctrl+E）選擇並套用預設。"
+  },
   "preset": {
     "fallbackName": "預設 {id}",
     "none": "暫無預設",
@@ -190,6 +193,7 @@
     "flattenForce": "強制合併",
     "cannotNestInTableRow": "復選組內的行不允許再巢狀普通分組",
     "duplicated": "已複製分組：{name}",
+    "duplicatedMulti": "已複製 {count} 個分組",
     "duplicateFailed": "複製分組失敗：{msg}"
   },
   "ini": {
@@ -296,8 +300,6 @@
     "clickSelect": "🖱️左鍵點擊選擇預設",
     "rightClickShortcut": "右鍵點擊建立全域快捷鍵",
     "ctrlMulti": "ctrl點擊以多選",
-    "noSkin": "未選擇皮膚",
-    "noSkinHint": "請從左側選擇一個皮膚",
     "none": "暫無預設",
     "noneHint": "點擊頂部「✏️ 編輯模式」按鈕來建立預設",
     "heading": "📄 預設選擇",

@@ -189,6 +189,50 @@ select.form-input {
   pointer-events: auto;
   cursor: default;
 }
+/* Empty editor state: ALL tabs dimmed (including active) + no hover response. */
+.tabs--empty .tab,
+.tabs--empty .tab--active {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: default;
+  color: var(--text-muted);
+}
+.tabs--empty .tab:hover,
+.tabs--empty .tab--active:hover {
+  color: var(--text-muted);
+}
+.tabs--empty .tabs__indicator {
+  display: none;
+}
+/* Editor locked during multi-select: dim the whole editor and block
+   interaction so nothing can be edited while more than one item is selected.
+   The dim fades in/out smoothly via the transition below. */
+#view-editor {
+  transition: opacity 0.18s ease;
+}
+.editor--locked {
+  opacity: 0.5;
+  pointer-events: none;
+}
+/* Empty editor state (nothing selected): a single merged, readable hint block. */
+.editor-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.editor-empty__hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-line;
+  padding: 24px 36px;
+  width: 100%;
+  animation: editor-empty-fade 0.3s ease;
+}
+@keyframes editor-empty-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .tab-content {
   display: none;
   flex: 1;
@@ -216,6 +260,10 @@ select.form-input {
 .skin-item--active {
   background: var(--accent-bg);
   color: var(--accent);
+}
+/* No hover highlight on the currently-selected skin. */
+.skin-item--active:hover {
+  background: var(--accent-bg);
 }
 /* Staggered fade-in-up when the skin list refreshes (one per item, queued). */
 .skin-item--enter {
@@ -1421,12 +1469,12 @@ select.form-input {
   background: linear-gradient(to left, var(--bg-secondary) 0%, transparent 100%);
 }
 .preset-tree__group {
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 .preset-tree__group-header {
   display: flex;
   align-items: center;
-  padding: 6px 8px 6px 4px;
+  padding: 5px 8px 5px 4px;
   gap: 6px;
   cursor: default;
   user-select: none;
@@ -1445,6 +1493,17 @@ select.form-input {
 .preset-tree__group-header--selected,
 .preset-tree__group-header--selected:hover {
   background: var(--accent-bg);
+}
+.preset-tree__group-header--multi-selected {
+  background: rgba(102, 204, 136, 0.14);
+  outline: 1px solid var(--accent-dim);
+  outline-offset: -1px;
+  border-radius: var(--radius-sm);
+  position: sticky;
+  z-index: 2;
+}
+.preset-tree__group-header--multi-selected:hover {
+  background: rgba(102, 204, 136, 0.14);
 }
 .preset-tree__group-header--dragging {
   opacity: 0.3;
@@ -1537,7 +1596,6 @@ select.form-input {
   gap: 6px;
   border-radius: 4px;
   transition: background 0.15s;
-  margin: 1px 0;
   position: sticky;
   left: 8px;
   background: var(--bg-secondary);
@@ -1555,6 +1613,7 @@ select.form-input {
 .preset-tree__item--multi-selected {
   background: rgba(102,204,136,0.14);
   outline: 1px solid var(--accent-dim);
+  outline-offset: -1px;
   border-radius: var(--radius-sm);
 }
 .preset-tree__item--multi-selected:hover {
