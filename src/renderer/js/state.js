@@ -64,4 +64,3 @@ state.set('tableExpandedChildren', {}); // { [parentGid]: Set<childGid> } expand
 state.set('tableRowSelection', {});     // { [gid]: { [rowKey]: presetId } }
 state.set('appMode', 'use');
 state.set('presetDirty', false);
-state.set('_welcomeDismissed', false);

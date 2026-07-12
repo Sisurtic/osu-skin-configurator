@@ -130,6 +130,9 @@
     "noActionsMulti": "⚠ 所选预设没有任何操作",
     "dedupHint": "⚠ 相同 INI 字段的修改以后应用的预设为准"
   },
+  "editor": {
+    "emptyHint": "未选中任何项 — 在左侧选择预设或分组编辑，或新建一个。\n\n▸ 新建预设：「+ 新建预设」（Ctrl+N）→ 基本信息填名称 → 加 INI / 文件 / 图像操作 → 💾 保存（Ctrl+S）。\n▸ 分组与嵌套：Ctrl+G 新建分组；拖拽预设入组、拖组嵌套进另一分组。Ctrl+Shift+G 新建复选组表格。\n▸ 复选组表格：每行左侧的行名是普通子分组的名称；每行的选项是该行可选的预设（或嵌套复选组），每行选一个。\n▸ 编辑器快捷键：Ctrl+N 新建、Ctrl+S 保存、Ctrl+C / Ctrl+V 复制粘贴选中操作、Ctrl+Shift+C 复制选中项、1-4 切换标签、Esc 取消选中。\n\n编辑模式用于构建预设；使用模式（✏️ / Ctrl+E）选择并应用预设。"
+  },
   "preset": {
     "fallbackName": "预设 {id}",
     "none": "暂无预设",
@@ -190,6 +193,7 @@
     "flattenForce": "强制合并",
     "cannotNestInTableRow": "复选组内的行不允许再嵌套普通分组",
     "duplicated": "已复制分组：{name}",
+    "duplicatedMulti": "已复制 {count} 个分组",
     "duplicateFailed": "复制分组失败：{msg}"
   },
   "ini": {
@@ -319,8 +323,6 @@
     "clickSelect": "🖱️左键单击选择预设",
     "rightClickShortcut": "右键单击创建全局快捷键",
     "ctrlMulti": "ctrl单击以多选",
-    "noSkin": "未选择皮肤",
-    "noSkinHint": "请从左侧选择一个皮肤",
     "none": "暂无预设",
     "noneHint": "点击顶部「✏️ 编辑模式」按钮来创建预设",
     "heading": "📄 预设选择",

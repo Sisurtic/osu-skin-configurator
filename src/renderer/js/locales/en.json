@@ -130,6 +130,9 @@
     "noActionsMulti": "⚠ The selected presets have no actions",
     "dedupHint": "⚠ For identical INI fields, the preset applied last wins"
   },
+  "editor": {
+    "emptyHint": "Nothing selected — pick a preset or group on the left to edit, or create a new one.\n\n▸ New preset: \"+ New preset\" (Ctrl+N) → name on Basic → add INI / file / image edits → 💾 Save (Ctrl+S).\n▸ Groups & nesting: Ctrl+G creates a group; drag a preset into a group, drag a group into another to nest. Ctrl+Shift+G creates a checkbox-group table.\n▸ Checkbox-group table: each row's label is a plain sub-group's name; a row's options are the presets (or nested checkbox-groups) you pick one from per row.\n▸ Editor shortcuts: Ctrl+N new, Ctrl+S save, Ctrl+C / Ctrl+V copy/paste selected actions, Ctrl+Shift+C duplicate item, 1-4 switch tabs, Esc deselect.\n\nEdit mode builds presets; Use mode (✏️ / Ctrl+E) selects and applies them."
+  },
   "preset": {
     "fallbackName": "Preset {id}",
     "none": "No presets yet",
@@ -190,6 +193,7 @@
     "flattenForce": "Force merge",
     "cannotNestInTableRow": "Rows inside a multi-select group can't contain plain sub-groups",
     "duplicated": "Group duplicated: {name}",
+    "duplicatedMulti": "Duplicated {count} group(s)",
     "duplicateFailed": "Failed to duplicate group: {msg}"
   },
   "ini": {
@@ -319,8 +323,6 @@
     "clickSelect": "🖱️ Left-click to select a preset",
     "rightClickShortcut": "Right-click to bind a global shortcut",
     "ctrlMulti": "Ctrl+click to multi-select",
-    "noSkin": "No skin selected",
-    "noSkinHint": "Select a skin on the left",
     "none": "No presets yet",
     "noneHint": "Click the ✏️ edit-mode button at the top to create one",
     "heading": "📄 Presets",

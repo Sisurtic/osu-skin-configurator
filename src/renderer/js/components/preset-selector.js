@@ -34,13 +34,10 @@
     const activePresets = state.get('activePresets') || {};
 
     if (!skin) {
-      viewEl.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state__icon">📁</div>
-          <div class="empty-state__title">${i18n.t('selector.noSkin')}</div>
-          <div class="empty-state__desc">${i18n.t('selector.noSkinHint')}</div>
-        </div>
-      `;
+      // No skin selected: the welcome page (view-welcome) is shown on top via
+      // switchView, so leave the selector empty — don't render a noSkin state
+      // (it would flash when switching skins before the new data loads).
+      viewEl.innerHTML = '';
       return;
     }
 
@@ -1354,10 +1351,23 @@
 
   // ── State listeners ──
 
-  state.on('presets', () => render());
-  state.on('groups', () => render());
-  state.on('rootChildren', () => render());
-  state.on('selectedSkin', () => { _prevRowKeys = new Set(); render(); });
+  // presets/groups/rootChildren are usually set together (setMultiple), so
+  // collapse their renders into ONE microtask to avoid 3× rebuilds (which can
+  // re-trigger row enter animations / empty-state flashes).
+  let _dataRenderQueued = false;
+  const queueDataRender = () => {
+    if (_dataRenderQueued) return;
+    _dataRenderQueued = true;
+    queueMicrotask(() => { _dataRenderQueued = false; render(); });
+  };
+  state.on('presets', queueDataRender);
+  state.on('groups', queueDataRender);
+  state.on('rootChildren', queueDataRender);
+  // On skin change, just reset the row-animation diff state; the actual
+  // render happens when the new presets/groups arrive (queueDataRender). This
+  // avoids a flash of empty/wrong content rendered with the OLD skin's data
+  // before the new scan completes.
+  state.on('selectedSkin', () => { _prevRowKeys = new Set(); });
   state.on('appMode', (mode) => { if (mode === 'use') render(); });
   state.on('activePresets', () => render());
 

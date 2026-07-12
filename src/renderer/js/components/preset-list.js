@@ -33,12 +33,25 @@
 
   // Drag state
   let dragPresetIds = null;     // number[] — preset ids being dragged
-  let dragGroupId = null;       // number — group id being dragged
+  let dragGroupId = null;       // number — group id being dragged (single, for payload)
+  let dragGroupIds = null;      // number[] — group ids being dragged (multi)
   let dragSourceGroupId = null; // number — source group for preset drag
 
   // Multi-select state
   let multiSelected = new Set(); // Set<number> — preset ids
   let lastClickedId = null;      // number — last clicked preset id
+  let multiSelectedGroups = new Set(); // Set<number> — group ids
+  let lastClickedGroupId = null;       // number — last clicked group id
+  // Unified last-clicked key for cross-type Shift-range selection.
+  let lastClickedKey = null;     // { kind:'preset'|'group', id } | null
+
+  // Notify the editor that a multi-select is active (size > 1) so it disables
+  // its tabs. Called after every selection change.
+  function syncMultiSelectActive() {
+    // Multi-select is active when the COMBINED selection has more than one
+    // item (so a preset + a group counts, not just 2+ of the same kind).
+    state.set('multiSelectActive', (multiSelected.size + multiSelectedGroups.size) > 1);
+  }
 
   function render(presets, selectedPreset, selectedSkin) {
     const appMode = state.get('appMode');
@@ -169,37 +182,62 @@
       item.addEventListener('click', async (e) => {
         e.stopPropagation();
         const id = parseInt(item.dataset.id, 10);
-        // Selecting any preset clears group selection (mutually exclusive),
-        // regardless of click modifier (plain/Ctrl/Shift).
-        if (state.get('selectedGroup') != null) state.set('selectedGroup', null);
+        // Entering or extending a multi-select (Ctrl/Shift) may discard unsaved
+        // edits to the currently-edited item — prompt first; cancel aborts.
+        if ((e.ctrlKey || e.metaKey || e.shiftKey) && !await confirmSwitchIfDirty()) return;
+        // Mixed select: Ctrl/Shift on a preset extends the COMBINED selection
+        // (presets + groups coexist). Only a plain click is single-select.
         if (e.ctrlKey || e.metaKey) {
+          if (state.get('selectedGroup') != null) state.set('selectedGroup', null);
           if (multiSelected.has(id)) {
             multiSelected.delete(id);
           } else {
             multiSelected.add(id);
           }
           lastClickedId = id;
-        } else if (e.shiftKey && lastClickedId !== null) {
-          const allIds = getAllVisiblePresetIds();
-          const start = allIds.indexOf(lastClickedId);
-          const end = allIds.indexOf(id);
+          lastClickedKey = { kind: 'preset', id };
+        } else if (e.shiftKey && lastClickedKey != null) {
+          if (state.get('selectedGroup') != null) state.set('selectedGroup', null);
+          // Cross-type range over the unified DOM-order list.
+          const keys = getAllVisibleKeys();
+          const start = keyIndex(keys, lastClickedKey.kind, lastClickedKey.id);
+          const end = keyIndex(keys, 'preset', id);
+          console.log('[shift] preset start=', start, 'end=', end, 'lastKey=', lastClickedKey, 'keysLen=', keys.length);
           if (start !== -1 && end !== -1) {
             const [lo, hi] = start < end ? [start, end] : [end, start];
-            if (!e.ctrlKey && !e.metaKey) multiSelected.clear();
-            for (let i = lo; i <= hi; i++) multiSelected.add(allIds[i]);
+            if (!e.ctrlKey && !e.metaKey) { multiSelected.clear(); multiSelectedGroups.clear(); }
+            for (let i = lo; i <= hi; i++) {
+              const k = keys[i];
+              if (k.kind === 'preset') multiSelected.add(k.id);
+              else multiSelectedGroups.add(k.id);
+            }
           }
         } else {
           if (!await confirmSwitchIfDirty()) return;
+          // Plain click → single-select: clear BOTH sets + group selection.
           multiSelected.clear();
+          multiSelectedGroups.clear();
+          lastClickedGroupId = null;
           multiSelected.add(id);
           lastClickedId = id;
-          state.set('selectedPreset', id);
+          lastClickedKey = { kind: 'preset', id };
+          updateMultiSelectedGroupHighlights();
+          // Atomic: set selectedPreset + multiSelectActive together so the
+          // editor re-render and the lock state are consistent (no flicker).
+          state.setMultiple({ selectedPreset: id, selectedGroup: null, multiSelectActive: false });
+          updateMultiSelectHighlights();
+          return;
         }
         updateMultiSelectHighlights();
+        updateMultiSelectedGroupHighlights();
+        // Multi-select branch: set multiSelectActive atomically with any
+        // selectedPreset clear so listeners see a consistent state.
+        state.set('multiSelectActive', (multiSelected.size + multiSelectedGroups.size) > 1);
       });
     });
 
     updateMultiSelectHighlights();
+    updateMultiSelectedGroupHighlights();
     updateGroupSelectionHighlights();
 
     // Truncation-aware tooltip: only show a title tooltip on a name span when
@@ -230,9 +268,55 @@
     // preset rows). The collapse-icon has its own handler with stopPropagation,
     // so clicking the arrow toggles collapse without selecting.
     listEl.querySelectorAll('.preset-tree__group-header').forEach(header => {
-      header.addEventListener('click', (e) => {
+      header.addEventListener('click', async (e) => {
         const groupId = parseInt(header.dataset.groupId, 10);
-        selectGroup(groupId);
+        // Dirty guard: entering ANY new selection may discard unsaved edits.
+        if (!await confirmSwitchIfDirty()) return;
+        // Mixed select: Ctrl/Shift on a group extends the COMBINED selection
+        // (presets + groups coexist). Only a plain click is single-select.
+        if (e.ctrlKey || e.metaKey) {
+          if (multiSelectedGroups.has(groupId)) multiSelectedGroups.delete(groupId);
+          else multiSelectedGroups.add(groupId);
+          lastClickedGroupId = groupId;
+          lastClickedKey = { kind: 'group', id: groupId };
+        } else if (e.shiftKey && lastClickedKey != null) {
+          // Cross-type range over the unified DOM-order list.
+          const keys = getAllVisibleKeys();
+          const start = keyIndex(keys, lastClickedKey.kind, lastClickedKey.id);
+          const end = keyIndex(keys, 'group', groupId);
+          if (start !== -1 && end !== -1) {
+            const [lo, hi] = start < end ? [start, end] : [end, start];
+            if (!e.ctrlKey && !e.metaKey) { multiSelected.clear(); multiSelectedGroups.clear(); }
+            for (let i = lo; i <= hi; i++) {
+              const k = keys[i];
+              if (k.kind === 'preset') multiSelected.add(k.id);
+              else multiSelectedGroups.add(k.id);
+            }
+          }
+        } else {
+          // Plain click → single-select: clear BOTH sets.
+          multiSelected.clear();
+          lastClickedId = null;
+          multiSelectedGroups.clear();
+          multiSelectedGroups.add(groupId);
+          lastClickedGroupId = groupId;
+          lastClickedKey = { kind: 'group', id: groupId };
+          updateMultiSelectHighlights();
+        }
+        updateMultiSelectHighlights();
+        updateMultiSelectedGroupHighlights();
+        // If exactly one item is selected overall, open it in the editor. Else
+        // (multi, mixed) keep selectedGroup null so the editor disables tabs.
+        // Compute multiSelectActive here and set it atomically with the rest so
+        // the save-button listener sees a consistent state (no flicker).
+        const multiActive = (multiSelected.size + multiSelectedGroups.size) > 1;
+        if (!multiActive && multiSelectedGroups.size === 1) {
+          const only = [...multiSelectedGroups][0];
+          state.setMultiple({ selectedPreset: null, selectedGroup: only, presetDirty: false, multiSelectActive: false });
+        } else {
+          state.setMultiple({ selectedPreset: null, selectedGroup: null, multiSelectActive: multiActive });
+        }
+        updateGroupSelectionHighlights();
       });
     });
 
@@ -265,6 +349,8 @@
         } else {
           dragPresetIds = [id];
         }
+        // Mixed select: keep group multi-select intact so selected groups can
+        // be deleted alongside (delete-zone checks multiSelectedGroups).
         // Highlight dragged items
         listEl.querySelectorAll('.preset-tree__item').forEach(el => {
           if (dragPresetIds.includes(parseInt(el.dataset.id, 10))) {
@@ -423,13 +509,12 @@
         // Block drag while editing the group name (input is inside header).
         if (e.target.tagName === 'INPUT' || header.querySelector('input')) { e.preventDefault(); return; }
         if (dragPresetIds) { e.preventDefault(); return; }
-        // Clear any preset selection so the dragged group is the sole focus.
-        if (multiSelected.size > 0 || lastClickedId != null) {
-          multiSelected.clear();
-          lastClickedId = null;
-          updateMultiSelectHighlights();
-        }
+        // Mixed select: keep preset multi-select intact so selected presets can
+        // be deleted alongside (delete-zone checks multiSelected).
         dragGroupId = parseInt(header.dataset.groupId, 10);
+        // Multi-aware: drag the whole selection if this header is part of it.
+        dragGroupIds = (multiSelectedGroups.size > 1 && multiSelectedGroups.has(dragGroupId))
+          ? [...multiSelectedGroups] : [dragGroupId];
         header.classList.add('preset-tree__group-header--dragging');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', 'group:' + dragGroupId);
@@ -438,6 +523,7 @@
       header.addEventListener('dragend', () => {
         header.classList.remove('preset-tree__group-header--dragging');
         dragGroupId = null;
+        dragGroupIds = null;
         listEl.querySelectorAll('.preset-tree__group--drop-target').forEach(el => {
           el.style.removeProperty('--drop-indent');
           el.classList.remove('preset-tree__group--drop-target');
@@ -495,8 +581,6 @@
       });
       header.addEventListener('drop', async (e) => {
         if (!dragGroupId) return;
-        const groups = state.get('groups') || [];
-        if (isDescendantOfGroup(groups, dragGroupId, parseInt(header.dataset.groupId, 10))) return;
         const r = header.getBoundingClientRect();
         const before = (e.clientY - r.top) < r.height / 2;
         if (!before) return; // lower half → let group-body nest handler drop
@@ -505,40 +589,50 @@
         const line = document.getElementById('__group_drop_line');
         if (line) line.style.display = 'none';
         const targetGroupId = parseInt(header.dataset.groupId, 10);
-        if (dragGroupId === targetGroupId) return;
-        // Find target group's parent and its index among siblings.
         const skin = state.get('selectedSkin');
         if (!skin) return;
-        // Determine target's parent + child index.
-        let targetParentId = null;
-        let targetChildIdx = -1;
-        for (const g of groups) {
-          const idx = g.children.findIndex(c => c.type === 'group' && c.id === targetGroupId);
-          if (idx >= 0) { targetParentId = g.id; targetChildIdx = idx; break; }
-        }
-        if (targetChildIdx < 0) {
-          // Target is at root — find in the unified rootChildren (mixed).
-          const rootChildren = state.get('rootChildren') || [];
-          targetChildIdx = rootChildren.findIndex(c => c.type === 'group' && c.id === targetGroupId);
-        }
-        if (targetChildIdx < 0) return;
-        // `before` already computed above (upper half only reaches here).
-        let insertIdx = targetChildIdx;
-        // Same-parent adjust: move_group removes source first.
-        // Check if drag group is in the same parent and before the target.
-        const checkSameParent = (parentId) => {
-          if (parentId === null) {
-            const rootChildren = state.get('rootChildren') || [];
-            const srcIdx = rootChildren.findIndex(c => c.type === 'group' && c.id === dragGroupId);
-            return srcIdx >= 0 && srcIdx < insertIdx;
+
+        // Move one dragged group to just before targetGroupId. Recomputes the
+        // target's sibling index on each call (indices shift as groups move).
+        const moveOneBefore = async (gid) => {
+          if (gid === targetGroupId) return;
+          const groups = state.get('groups') || [];
+          if (isDescendantOfGroup(groups, gid, targetGroupId)) return;
+          let targetParentId = null;
+          let targetChildIdx = -1;
+          for (const g of groups) {
+            const idx = g.children.findIndex(c => c.type === 'group' && c.id === targetGroupId);
+            if (idx >= 0) { targetParentId = g.id; targetChildIdx = idx; break; }
           }
-          const pg = groups.find(g => g.id === parentId);
-          if (!pg) return false;
-          const srcIdx = pg.children.findIndex(c => c.type === 'group' && c.id === dragGroupId);
-          return srcIdx >= 0 && srcIdx < insertIdx;
+          if (targetChildIdx < 0) {
+            const rootChildren = state.get('rootChildren') || [];
+            targetChildIdx = rootChildren.findIndex(c => c.type === 'group' && c.id === targetGroupId);
+          }
+          if (targetChildIdx < 0) return;
+          let insertIdx = targetChildIdx;
+          // Same-parent adjust: moveGroup removes the source first; if the source
+          // was before the target in the same parent, shift the insert back.
+          const sameParent = targetParentId === null
+            ? (state.get('rootChildren') || []).some(c => c.type === 'group' && c.id === gid)
+              && (state.get('rootChildren') || []).findIndex(c => c.type === 'group' && c.id === gid) < insertIdx
+            : (() => {
+              const pg = groups.find(g => g.id === targetParentId);
+              if (!pg) return false;
+              const srcIdx = pg.children.findIndex(c => c.type === 'group' && c.id === gid);
+              return srcIdx >= 0 && srcIdx < insertIdx;
+            })();
+          if (sameParent) insertIdx = Math.max(0, insertIdx - 1);
+          await api.moveGroup(skin, gid, targetParentId, insertIdx);
         };
-        if (checkSameParent(targetParentId)) insertIdx = Math.max(0, insertIdx - 1);
-        await api.moveGroup(skin, dragGroupId, targetParentId, insertIdx);
+
+        // Multi: move each selected group (in DOM order) before the target.
+        const gids = (dragGroupIds && dragGroupIds.length) ? [...new Set(dragGroupIds)] : [dragGroupId];
+        // Guard: block if the primary dragged group is an ancestor of the target.
+        const groups0 = state.get('groups') || [];
+        if (isDescendantOfGroup(groups0, dragGroupId, targetGroupId)) return;
+        for (const gid of gids) {
+          await moveOneBefore(gid);
+        }
         refreshSkinData(skin);
       });
     });
@@ -580,57 +674,60 @@
         const dropHdr = groupEl.querySelector(':scope > .preset-tree__group-header');
         if (!dropHdr || !dropHdr.contains(e.target)) return;
         const targetGroupId = parseInt(groupEl.dataset.groupId, 10);
-        if (dragGidSnapshot === targetGroupId) return;
-        // Block dropping parent group onto its own descendant
-        const groups = state.get('groups') || [];
-        if (isDescendantOfGroup(groups, dragGidSnapshot, targetGroupId)) {
-          Toast.error(i18n.t('group.cannotMoveIntoChild'));
-          return;
-        }
         const skin = state.get('selectedSkin');
         if (!skin) return;
-        // Dropping a group into a table group:
-        // - Into the table group itself: flatten only if it has nested plain sub-groups.
-        // - Into a row inside the table group: always flatten (a group can't be a
-        //   sub-row, so it must be collapsed regardless of its contents).
-        const targetGroup = groups.find(g => g.id === targetGroupId);
-        const dragGroup = groups.find(g => g.id === dragGidSnapshot);
-        const dragIsTable = dragGroup && dragGroup.type === 'table';
-        const targetIsTable = targetGroup && targetGroup.type === 'table';
-        const targetIsRowInTable = targetGroup && isPlainRowInTable(groups, targetGroupId);
-        // 2×2 matrix:
-        //   普通A→表格a: check hasNestedSubGroups → flatten confirm
-        //   普通A→行b:   always flatten confirm (rows can't have plain sub-groups)
-        //   表格B→表格a: pass
-        //   表格B→行b:   pass
-        const needFlatten = !dragIsTable && (
-          (targetIsTable && hasNestedSubGroups(groups, dragGidSnapshot)) || targetIsRowInTable
-        );
-        if (needFlatten) {
-          const choice = await ApplyDialog.showConfirmDialog(
-            i18n.t('group.flattenConfirm'),
-            [
-              { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
-              { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-            ]
+
+        // Move one dragged group into targetGroupId, applying the flatten matrix.
+        // Returns true on success, false if aborted/failed. Reads `groups` fresh
+        // each call (state may change between iterations in the multi case).
+        const moveOneInto = async (gid) => {
+          if (gid === targetGroupId) return true;
+          const groups = state.get('groups') || [];
+          if (isDescendantOfGroup(groups, gid, targetGroupId)) return true; // skip invalid
+          const targetGroup = groups.find(g => g.id === targetGroupId);
+          const dragGroup = groups.find(g => g.id === gid);
+          const dragIsTable = dragGroup && dragGroup.type === 'table';
+          const targetIsTable = targetGroup && targetGroup.type === 'table';
+          const targetIsRowInTable = targetGroup && isPlainRowInTable(groups, targetGroupId);
+          const needFlatten = !dragIsTable && (
+            (targetIsTable && hasNestedSubGroups(groups, gid)) || targetIsRowInTable
           );
-          if (choice !== 'flatten') return;
-          if (targetIsTable) {
-            // 普通A→复选a: flatten A first (remove its plain sub-groups), then move.
-            await api.flattenGroupSubgroups(skin, dragGidSnapshot);
-            await api.moveGroup(skin, dragGidSnapshot, targetGroupId);
-          } else {
-            // 普通A→行b: move A into b first, then flatten b (merge A's content into b).
-            await api.moveGroup(skin, dragGidSnapshot, targetGroupId);
-            await api.flattenGroupSubgroups(skin, targetGroupId);
+          if (needFlatten) {
+            const choice = await ApplyDialog.showConfirmDialog(
+              i18n.t('group.flattenConfirm'),
+              [
+                { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
+                { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
+              ]
+            );
+            if (choice !== 'flatten') return false;
+            if (targetIsTable) {
+              await api.flattenGroupSubgroups(skin, gid);
+              await api.moveGroup(skin, gid, targetGroupId);
+            } else {
+              await api.moveGroup(skin, gid, targetGroupId);
+              await api.flattenGroupSubgroups(skin, targetGroupId);
+            }
+            return true;
           }
-          await refreshSkinData(skin);
-          return;
-        }
-        const moveResult = await api.moveGroup(skin, dragGidSnapshot, targetGroupId);
-        if (!moveResult || !moveResult.success) {
-          Toast.error(i18n.t('group.moveFailed', { msg: ((moveResult && moveResult.error) || i18n.t('app.unknownError')) }));
-          return;
+          const moveResult = await api.moveGroup(skin, gid, targetGroupId);
+          if (!moveResult || !moveResult.success) {
+            Toast.error(i18n.t('group.moveFailed', { msg: ((moveResult && moveResult.error) || i18n.t('app.unknownError')) }));
+            return false;
+          }
+          return true;
+        };
+
+        const gids = (dragGroupIds && dragGroupIds.length) ? [...new Set(dragGroupIds)] : [dragGidSnapshot];
+        for (const gid of gids) {
+          // Descendant-into-its-own-subtree guard for the primary dragged group.
+          const groups0 = state.get('groups') || [];
+          if (isDescendantOfGroup(groups0, gid, targetGroupId)) {
+            if (gid === dragGidSnapshot) Toast.error(i18n.t('group.cannotMoveIntoChild'));
+            continue;
+          }
+          const ok = await moveOneInto(gid);
+          if (!ok) break;
         }
         await refreshSkinData(skin);
       });
@@ -666,17 +763,51 @@
           if (result.success && ids.includes(state.get('selectedPreset'))) {
             state.set('selectedPreset', null);
           }
+          // Mixed select: also delete any selected groups dragged along.
+          let gPresets = 0, gGroups = 0;
+          if (multiSelectedGroups.size > 0) {
+            for (const g of multiSelectedGroups) {
+              const rg = await api.deleteGroupRecursive(skin, g);
+              if (rg.success) { gPresets += rg.data.deletedPresets || 0; gGroups += rg.data.deletedGroups || 0; }
+            }
+          }
           await refreshSkinData(skin);
           multiSelected.clear();
           lastClickedId = null;
+          multiSelectedGroups.clear();
+          lastClickedGroupId = null;
+          syncMultiSelectActive();
           updateMultiSelectHighlights();
-          Toast.info(i18n.t('preset.deleted', { count: ids.length }));
+          updateMultiSelectedGroupHighlights();
+          if (gGroups > 0) {
+            Toast.info(i18n.t('group.deletedRecursive', { presets: gPresets, groups: gGroups }));
+          } else {
+            Toast.info(i18n.t('preset.deleted', { count: ids.length }));
+          }
         } else if (dragGroupId) {
-          const result = await api.deleteGroupRecursive(skin, dragGroupId);
-          if (result.success) {
-            const d = result.data;
-            // The deleted group (and its presets) is gone — clear any selection
-            // that pointed at it and switch the editor to a fresh new-preset form.
+          // Delete all dragged groups (multi-aware). dragGroupIds is set at
+          // dragstart when a multi-selection is dragged; fall back to the
+          // single dragGroupId.
+          const gids0 = (dragGroupIds && dragGroupIds.length) ? [...new Set(dragGroupIds)] : [dragGroupId];
+          // If a parent and its descendant are both selected, only delete the
+          // outermost parent (its subtree already contains the descendant) —
+          // otherwise the descendant delete would fail (already gone).
+          const groupsDel = state.get('groups') || [];
+          const gids = gids0.filter(gid => !gids0.some(other => other !== gid && isDescendantOfGroup(groupsDel, other, gid)));
+          let totalPresets = 0, totalGroups = 0, anyFail = false;
+          for (const g of gids) {
+            const result = await api.deleteGroupRecursive(skin, g);
+            if (result.success) {
+              totalPresets += result.data.deletedPresets || 0;
+              totalGroups += result.data.deletedGroups || 0;
+            } else { anyFail = true; }
+          }
+          // Mixed select: also delete any selected presets dragged along.
+          if (multiSelected.size > 0) {
+            const rp = await api.deletePresets(skin, [...multiSelected]);
+            if (rp.success) totalPresets += [...multiSelected].length;
+          }
+          if (!anyFail || totalGroups > 0) {
             state.set('selectedGroup', null);
             state.set('presetDirty', false);
             state.set('selectedPreset', '__new__');
@@ -685,10 +816,13 @@
             }
             multiSelected.clear();
             lastClickedId = null;
+            multiSelectedGroups.clear();
+            lastClickedGroupId = null;
+            syncMultiSelectActive();
             await refreshSkinData(skin);
-            Toast.success(i18n.t('group.deletedRecursive', { presets: d.deletedPresets, groups: d.deletedGroups }));
+            Toast.success(i18n.t('group.deletedRecursive', { presets: totalPresets, groups: totalGroups }));
           } else {
-            Toast.error(i18n.t('group.deleteFailed', { msg: (result.error || i18n.t('app.unknownError')) }));
+            Toast.error(i18n.t('group.deleteFailed', { msg: i18n.t('app.unknownError') }));
           }
         }
       });
@@ -740,13 +874,14 @@
             Toast.info(i18n.t('group.movedOut', { count: movedCount }));
           }
         } else if (dragGroupId) {
-          const rootChildren = state.get('rootChildren') || [];
-          const alreadyRoot = rootChildren.some(c => c.type === 'group' && c.id === dragGroupId);
-          await api.moveGroup(skin, dragGroupId, null);
-          await refreshSkinData(skin);
-          if (!alreadyRoot) {
-            Toast.info(i18n.t('group.movedToRoot'));
+          const gids = (dragGroupIds && dragGroupIds.length) ? [...new Set(dragGroupIds)] : [dragGroupId];
+          const rootChildren0 = state.get('rootChildren') || [];
+          for (const g of gids) {
+            await api.moveGroup(skin, g, null);
           }
+          await refreshSkinData(skin);
+          const anyMoved = gids.some(g => !rootChildren0.some(c => c.type === 'group' && c.id === g));
+          if (anyMoved) Toast.info(i18n.t('group.movedToRoot'));
         }
       });
     }
@@ -897,14 +1032,66 @@
     });
   }
 
+  function getAllVisibleGroupIds() {
+    const ids = [];
+    listEl.querySelectorAll('.preset-tree__group-header').forEach(el => {
+      ids.push(parseInt(el.dataset.groupId, 10));
+    });
+    return ids;
+  }
+
+  // Unified DOM-order list of every selectable item (presets + groups mixed),
+  // for cross-type Shift-range selection. Each entry: { kind, id }.
+  function getAllVisibleKeys() {
+    const out = [];
+    // Walk top-level nodes in DOM order, recursing into groups so the range
+    // respects the visible tree (group headers appear before their children).
+    const walk = (container) => {
+      // Direct children: either .preset-tree__item (preset) or
+      // .preset-tree__group (group: header + children).
+      for (const child of container.children) {
+        if (child.classList.contains('preset-tree__item')) {
+          out.push({ kind: 'preset', id: parseInt(child.dataset.id, 10) });
+        } else if (child.classList.contains('preset-tree__group')) {
+          const hdr = child.querySelector(':scope > .preset-tree__group-header');
+          if (hdr) out.push({ kind: 'group', id: parseInt(hdr.dataset.groupId, 10) });
+          const kids = child.querySelector(':scope > .preset-tree__group-children');
+          if (kids) walk(kids);
+        }
+      }
+    };
+    const tree = listEl.querySelector(':scope > .preset-tree') || listEl;
+    walk(tree);
+    return out;
+  }
+
+  function keyIndex(keys, kind, id) {
+    return keys.findIndex(k => k.kind === kind && k.id === id);
+  }
+
+  function updateMultiSelectedGroupHighlights() {
+    listEl.querySelectorAll('.preset-tree__group-header').forEach(h => {
+      const id = parseInt(h.dataset.groupId, 10);
+      h.classList.toggle('preset-tree__group-header--multi-selected', multiSelectedGroups.has(id));
+    });
+  }
+
   // Clear all selection state (multi-select + last-clicked) and refresh the
   // tree highlights. Shared by the sidebar button and the new-preset shortcut.
   function clearSelection() {
     multiSelected.clear();
     lastClickedId = null;
-    state.set('selectedGroup', null);
+    multiSelectedGroups.clear();
+    lastClickedGroupId = null;
+    lastClickedKey = null;
+    // Clear both single-edit foci so ESC fully deselects (the selectedPreset
+    // listener resets the editor to a new-preset form; callers that want
+    // '__new__' re-set it immediately after, overriding this).
+    state.setMultiple({ selectedPreset: null, selectedGroup: null });
     updateMultiSelectHighlights();
+    updateMultiSelectedGroupHighlights();
     updateGroupSelectionHighlights();
+    syncMultiSelectActive();
   }
 
   // Select a group for basic-info editing (mutually exclusive with selectedPreset).
@@ -920,8 +1107,12 @@
     });
     multiSelected.clear();
     lastClickedId = null;
+    multiSelectedGroups.clear();
+    lastClickedGroupId = groupId;
     updateMultiSelectHighlights();
+    updateMultiSelectedGroupHighlights();
     updateGroupSelectionHighlights();
+    syncMultiSelectActive();
   }
 
   function updateGroupSelectionHighlights() {
@@ -1066,7 +1257,7 @@
       btnNewGroup.addEventListener('click', async () => {
         // If presets OR groups are selected, create the group and move them in.
         const selGid = state.get('selectedGroup');
-        if (multiSelected.size > 0 || selGid != null) {
+        if (multiSelected.size > 0 || multiSelectedGroups.size > 0 || selGid != null) {
           createGroupWithSelected();
           return;
         }
@@ -1089,7 +1280,7 @@
       btnNewTableGroup.addEventListener('click', async () => {
         // If presets OR groups are selected, create the table group and move them in.
         const selGid2 = state.get('selectedGroup');
-        if (multiSelected.size > 0 || selGid2 != null) {
+        if (multiSelected.size > 0 || multiSelectedGroups.size > 0 || selGid2 != null) {
           createGroupWithSelected('table');
           return;
         }
@@ -1215,45 +1406,69 @@
     const skin = state.get('selectedSkin');
     if (!skin) return;
 
+    // Mixed select: duplicate selected GROUPS (deep subtree copy) AND selected
+    // PRESETS. Either or both may be present.
     const selGid = state.get('selectedGroup');
-    if (selGid != null) {
-      // Group duplication (deep subtree copy).
+    const groupIdsToDup = multiSelectedGroups.size > 0 ? [...multiSelectedGroups]
+      : (multiSelected.size === 0 && selGid != null ? [selGid] : []);
+    let groupOk = 0, presetCopied = 0;
+
+    if (groupIdsToDup.length > 0) {
       const groups = state.get('groups') || [];
-      const src = groups.find(g => g.id === selGid);
-      if (!src) return;
-      const parent = groups.find(g => g.children && g.children.some(c => c.type === 'group' && c.id === selGid));
-      const parentId = parent ? parent.id : null;
+      // If a parent and its descendant are both selected, only duplicate the
+      // OUTERMOST parent (its subtree already contains the descendant) —
+      // otherwise the descendant would be copied twice.
+      const outerOnly = groupIdsToDup.filter(gid =>
+        !groupIdsToDup.some(other => other !== gid && isDescendantOfGroup(groups, other, gid))
+      );
       try {
-        const newRootId = await duplicateSubtree(src, parentId, groups, skin, true);
-        if (newRootId != null) {
-          Toast.success(i18n.t('group.duplicated', { name: src.name || '' }));
+        for (const gid of outerOnly) {
+          const src = groups.find(g => g.id === gid);
+          if (!src) continue;
+          const parent = groups.find(g => g.children && g.children.some(c => c.type === 'group' && c.id === gid));
+          const parentId = parent ? parent.id : null;
+          const newRootId = await duplicateSubtree(src, parentId, groups, skin, true);
+          if (newRootId != null) groupOk++;
         }
       } catch (err) {
         Toast.error(i18n.t('group.duplicateFailed', { msg: (err && (err.message || String(err))) || i18n.t('app.unknownError') }));
       }
-      await refreshSkinData(skin);
-      return;
     }
 
-    if (multiSelected.size === 0) return;
-    let copied = 0;
-    for (const id of multiSelected) {
-      const r = await api.loadPreset(skin, id);
-      if (!r.success || !r.data) continue;
-
-      const data = { ...r.data };
-      if (!data.meta) data.meta = {};
-      data.meta.name = (data.meta.name || i18n.t('preset.fallbackName', { id: r.data.id })) + i18n.t('preset.copySuffix');
-      // Save with id: null — server assigns new id
-      const saveResult = await api.savePreset(skin, null, data);
-      if (saveResult.success) copied++;
+    if (multiSelected.size > 0) {
+      for (const id of multiSelected) {
+        const r = await api.loadPreset(skin, id);
+        if (!r.success || !r.data) continue;
+        const data = { ...r.data };
+        if (!data.meta) data.meta = {};
+        data.meta.name = (data.meta.name || i18n.t('preset.fallbackName', { id: r.data.id })) + i18n.t('preset.copySuffix');
+        const saveResult = await api.savePreset(skin, null, data);
+        if (saveResult.success) presetCopied++;
+      }
     }
 
     multiSelected.clear();
     lastClickedId = null;
+    multiSelectedGroups.clear();
+    lastClickedGroupId = null;
+    syncMultiSelectActive();
+
+    if (groupIdsToDup.length === 0 && multiSelected.size === 0) return; // nothing to do
     await refreshSkinData(skin);
-    if (copied > 0) Toast.success(i18n.t('preset.copied', { count: copied }));
+
+    // Toast: summarize combined result.
+    if (groupOk > 0 && presetCopied === 0) {
+      Toast.success(groupOk === 1
+        ? i18n.t('group.duplicated', { name: (groups0(groupIdsToDup[0]) || {}).name || '' })
+        : i18n.t('group.duplicatedMulti', { count: groupOk }));
+    } else if (presetCopied > 0 && groupOk === 0) {
+      Toast.success(i18n.t('preset.copied', { count: presetCopied }));
+    } else if (groupOk > 0 && presetCopied > 0) {
+      Toast.success(i18n.t('group.duplicatedMulti', { count: groupOk }) + ' / ' + i18n.t('preset.copied', { count: presetCopied }));
+    }
   }
+  // helper for the toast above (find a group by id from current state)
+  function groups0(gid) { return (state.get('groups') || []).find(g => g.id === gid); }
 
   // Deep-copy a group subtree into destParentId. Returns the new group id, or
   // null on failure. `isRoot` controls whether the copy-suffix is appended to
@@ -1432,7 +1647,17 @@
     let parentGroupId = null;
     const groups = state.get('groups') || [];
     const selGid = state.get('selectedGroup');
-    if (selGid != null) {
+    if (multiSelectedGroups.size > 0) {
+      // Multiple groups selected: new parent = lowest common ancestor of their
+      // parents. Cross-level selection is allowed.
+      const parentIds = new Set();
+      for (const gid of multiSelectedGroups) {
+        const p = groups.find(g => g.children && g.children.some(c => c.type === 'group' && c.id === gid));
+        parentIds.add(p ? p.id : null);
+      }
+      const uniqueParents = [...parentIds].filter(id => id !== null);
+      parentGroupId = parentIds.has(null) ? null : (uniqueParents.length === 1 ? uniqueParents[0] : findOutermostCommonAncestor(groups, uniqueParents));
+    } else if (selGid != null) {
       const selGroup = groups.find(g => g.id === selGid);
       // Block: selected group is a row (plain group inside a table group).
       // Can't create a plain group inside it (2nd-level nesting).
@@ -1478,7 +1703,33 @@
     }
     const newGroupId = result.data;
 
-    if (multiSelected.size > 0) {
+    if (multiSelectedGroups.size > 0) {
+      // Move each selected group into the new group. For a TABLE parent, apply
+      // the per-source flatten check (plain group with nested plain subs) —
+      // same rule as the single-group path.
+      for (const gid of multiSelectedGroups) {
+        const srcIsTable = (groups.find(g => g.id === gid) || {}).type === 'table';
+        if (isTable && !srcIsTable && hasNestedSubGroups(groups, gid)) {
+          const choice = await ApplyDialog.showConfirmDialog(
+            i18n.t('group.flattenConfirm'),
+            [
+              { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
+              { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
+            ]
+          );
+          if (choice !== 'flatten') continue; // skip this one, keep going
+          await api.flattenGroupSubgroups(skin, gid);
+        }
+        await api.moveGroup(skin, gid, newGroupId);
+      }
+      state.set('selectedGroup', newGroupId);
+      multiSelectedGroups.clear();
+      lastClickedGroupId = null;
+      syncMultiSelectActive();
+      Toast.success(isTable
+        ? i18n.t('group.createdTable', { name: newName })
+        : i18n.t('group.createdEmpty', { name: newName }));
+    } else if (multiSelected.size > 0) {
       for (const pid of multiSelected) {
         await api.movePresetGroup(skin, pid, newGroupId);
       }
@@ -1532,6 +1783,8 @@
     const dirty = state.get('presetDirty');
     const isNew = state.get('selectedPreset') === '__new__';
     const editingGroup = state.get('selectedGroup') != null;
+    // No saving during multi-select (nothing single to save; editor is locked).
+    if (state.get('multiSelectActive')) { btn.disabled = true; return; }
     // Group mode: the button reflects the group's dirty state only (a leftover
     // '__new__' selectedPreset must NOT keep the button enabled here).
     // Preset mode: new presets can always be saved (continuous save).
@@ -1556,6 +1809,10 @@
     if (btn) updateSidebarSaveButton(btn);
   });
   state.on('selectedGroup', () => {
+    const btn = document.getElementById('btn-save-preset-sidebar');
+    if (btn) updateSidebarSaveButton(btn);
+  });
+  state.on('multiSelectActive', () => {
     const btn = document.getElementById('btn-save-preset-sidebar');
     if (btn) updateSidebarSaveButton(btn);
   });

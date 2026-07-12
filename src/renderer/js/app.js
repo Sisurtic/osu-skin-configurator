@@ -366,37 +366,36 @@
     const selectedSkin = state.get('selectedSkin');
     const selectedPreset = state.get('selectedPreset');
     const appMode = state.get('appMode');
-    const welcomeDismissed = state.get('_welcomeDismissed');
 
     updateWelcomeContent(osuPath);
 
     if (!osuPath) {
       switchView('welcome');
+      playEnterAnim(viewWelcome, 'main-content--enter');
       ensureSkinListRendered();
       return;
     }
 
     if (appMode === 'edit') {
-      if (selectedPreset) {
+      if (selectedPreset || selectedSkin) {
+        // With a skin selected, show the editor view even when no preset is
+        // chosen — the editor renders its empty/hint state in that case.
         switchView('editor');
         if (window.PresetEditor && typeof window.PresetEditor.render === 'function') {
           window.PresetEditor.render();
         }
-      } else if (selectedSkin) {
-        state.set('selectedPreset', '__new__');
-        return;
       } else {
-        switchView(welcomeDismissed ? 'selector' : 'welcome');
+        switchView('welcome');
+        playEnterAnim(viewWelcome, 'main-content--enter');
       }
     } else {
       ensureSkinListRendered();
       if (selectedSkin) {
         switchView('selector');
         PresetSelector.render();
-      } else if (welcomeDismissed) {
-        switchView('selector');
       } else {
         switchView('welcome');
+        playEnterAnim(viewWelcome, 'main-content--enter');
       }
     }
 
@@ -450,8 +449,11 @@
   // Play a one-shot enter animation (e.g. main-content--enter) on an element,
   // removing the class on animationend so it doesn't replay when the element
   // later toggles display:none → flex (which restarts lingering animations).
+  // Dedup: if the same element already has the class (animation in flight),
+  // don't restart it — avoids a double play when multiple state changes fire.
   function playEnterAnim(el, cls) {
     if (!el) return;
+    if (el.classList.contains(cls)) return;
     el.classList.remove(cls);
     void el.offsetWidth;
     el.classList.add(cls);
@@ -489,14 +491,8 @@
       renderCurrentView();
       return;
     }
-    state.set('_welcomeDismissed', true);
     // Persist the selected skin so the next launch restores it.
     api.setLastSkin(skinName);
-    // Clear any preset selection from the previous skin (ids are skin-specific)
-    state.set('activePresets', {});
-    state.set('activeTableGroups', {});
-    state.set('tableExpandedChildren', {});
-    state.set('tableRowSelection', {});
     // Re-register global shortcuts for the new skin
     api.reloadGlobalShortcuts(skinName);
     if (!state.get('_initializing')) {
@@ -506,12 +502,17 @@
       const result = await api.scanPresets(skinName);
       await exitPromise;   // make sure the fade-out finished before swapping
       if (result.success) {
+        // Atomically set the new data AND clear the previous skin's selection
+        // so the selector re-renders ONCE with the new data (no flash of the
+        // old/empty state from intermediate clears).
         state.setMultiple({
           presets: result.data.presets,
           groups: result.data.groups,
           rootChildren: result.data.rootChildren || [],
           tableExpandedChildren: result.data.tableExpandedChildren || {},
           tableRowSelection: result.data.tableRowSelection || {},
+          activePresets: {},
+          activeTableGroups: {},
         });
       }
       if (main) main.classList.remove('main-content--exit');
@@ -521,7 +522,17 @@
   });
 
   state.on('selectedPreset', (presetId) => {
-    renderCurrentView();
+    // Only switch the view here; the preset-editor's own selectedPreset
+    // listener does the render + enter animation (calling renderCurrentView
+    // too would render with stale editData mid-async-load → double anim).
+    if (state.get('appMode') === 'edit') {
+      switchView('editor');
+    } else if (state.get('selectedSkin')) {
+      // Use mode + a skin is selected → make sure we're on the selector view.
+      // Don't call full renderCurrentView (it would render the selector with
+      // not-yet-loaded skin data when switching skins → flash of empty state).
+      switchView('selector');
+    }
   });
 
   state.on('appMode', (mode) => {
@@ -540,11 +551,9 @@
     }
 
     if (mode === 'edit') {
-      const presets = state.get('presets') || [];
-      const skin = state.get('selectedSkin');
-      if (skin && presets.length === 0 && !state.get('selectedPreset')) {
-        state.set('selectedPreset', '__new__');
-      }
+      // No auto-__new__ here: with a skin selected but no preset chosen, the
+      // editor shows its empty/hint state. The New Preset button/Ctrl+N set
+      // '__new__' explicitly when the user wants a form.
     }
 
     renderCurrentView();
@@ -1045,6 +1054,43 @@
     const _rec = document.getElementById('shortcut-recorder');
     const isModal = !!document.querySelector('.modal-overlay') || (_rec && _rec.style.display !== 'none');
 
+    // Escape clears the current selection (single or multi) in edit mode.
+    // Escape clears the current selection (single or multi) in edit mode — but
+    // ONLY when the keydown's target was NOT a focusable element (so a focused
+    // input/button keeps its own Escape behavior: the dedicated blur handler at
+    // the top blurs the field; the selection is cleared only on a subsequent
+    // Escape when nothing is focused). Prompt to save unsaved edits before
+    // discarding the selection.
+    const escTargetIsFocusable = e.target && e.target !== document.body
+      && e.target.matches && e.target.matches('input, textarea, select, button, [contenteditable], [tabindex]');
+    if (e.key === 'Escape' && state.get('appMode') === 'edit' && !isModal && !escTargetIsFocusable) {
+      const proceed = async () => {
+        if (window.PresetList && typeof window.PresetList.confirmSwitchIfDirty === 'function') {
+          if (!await window.PresetList.confirmSwitchIfDirty()) return;
+        }
+        if (window.PresetList && typeof window.PresetList.clearSelection === 'function') {
+          window.PresetList.clearSelection();
+        }
+      };
+      proceed();
+      return;
+    }
+    // Use mode: Escape clears selected preset(s)/checkbox-group(s); if none are
+    // selected, it deselects the skin (back to welcome/selector).
+    if (e.key === 'Escape' && state.get('appMode') === 'use' && !isModal && !escTargetIsFocusable) {
+      const ap = state.get('activePresets') || {};
+      const atg = state.get('activeTableGroups') || {};
+      const hasSel = Object.keys(ap).length > 0 || Object.keys(atg).length > 0;
+      if (hasSel) {
+        state.setMultiple({ activePresets: {}, activeTableGroups: {} });
+      } else {
+        // Clear the persisted last-skin too, so a restart doesn't reselect it.
+        api.setLastSkin(null);
+        state.set('selectedSkin', null);
+      }
+      return;
+    }
+
     if (e.key === 'Tab') {
       if (isModal) {
         e.preventDefault();
@@ -1091,9 +1137,12 @@
     }
 
     if (e.key >= '1' && e.key <= '4' && !isInput && !isModal && state.get('appMode') === 'edit') {
-      // Plain groups (non-table) have no actions — tabs are disabled, so don't
-      // let number keys switch away from basic. Table groups + presets allow it.
+      // Number-key tab switching only when the editor is actually usable:
+      // not multi-select, not the empty/no-selection state, not a plain group.
+      if (state.get('multiSelectActive')) return;
+      const sp = state.get('selectedPreset');
       const sg = state.get('selectedGroup');
+      if (sp == null && sg == null) return; // empty state — tabs disabled
       if (sg != null) {
         const g = (state.get('groups') || []).find(x => x.id === sg);
         if (g && g.type !== 'table') return;
