@@ -1195,18 +1195,21 @@
 
       case 'copy-actions':
         if (state.get('appMode') !== 'edit') break;
-        // No isInput guard: Ctrl+C copies the selected rows of the active tab's
-        // table even when a value input is focused (selection lives on rows).
-        e.preventDefault();
+        // Only copy when NOT focused in an input (let native text copy work in
+        // inputs) AND when rows are actually selected. copyActions returns true
+        // when it copied; otherwise fall through (no preventDefault) so the
+        // browser's default is untouched.
+        if (isInput) break;
         if (window.PresetEditor && typeof window.PresetEditor.copyActions === 'function') {
-          window.PresetEditor.copyActions();
+          if (window.PresetEditor.copyActions()) e.preventDefault();
         }
         break;
 
       case 'paste-actions':
         if (state.get('appMode') !== 'edit') break;
-        // No isInput guard: Ctrl+C/V drive the in-app actions clipboard, not
-        // the system text clipboard, when editing actions.
+        // Only paste when NOT focused in an input — let native text paste work
+        // in inputs.
+        if (isInput) break;
         e.preventDefault();
         if (window.PresetEditor && typeof window.PresetEditor.pasteActions === 'function') {
           window.PresetEditor.pasteActions();

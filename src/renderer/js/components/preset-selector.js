@@ -636,6 +636,17 @@
 
     initDividerDrag();
 
+    // Truncated-label tooltips: only row labels that actually overflow their
+    // clipped width get a native title with the full name (set via JS so we
+    // can detect overflow, rather than unconditionally on every row).
+    viewEl.querySelectorAll('.preset-group__table-label[data-full-label]').forEach(el => {
+      if (el.scrollWidth > el.clientWidth) {
+        el.title = el.dataset.fullLabel;
+      } else {
+        el.removeAttribute('title');
+      }
+    });
+
     // Slide-in animation for newly-appeared rows/items (any element with
     // data-row-key). Plays when a checkbox group is activated, a child sub-group
     // is expanded, OR a plain group is expanded — its child preset rows + sub-
@@ -735,7 +746,7 @@
         }
       }
       if (subOpts.length > 0) {
-        rows.push({ rowKey: prefix + c.id, label: g.name || '', depth, options: subOpts });
+        rows.push({ rowKey: prefix + c.id, label: g.name || '', labelId: c.id, depth, options: subOpts });
       }
     }
     const out = [];
@@ -797,7 +808,7 @@
       html += '<div class="preset-group__table-rows">';
       for (const row of rows) {
         html += `<div class="preset-group__table-row" data-row-key="${escapeHtml(row.rowKey)}" style="margin-left:0">
-          <span class="preset-group__table-label">${escapeHtml(row.label)}</span>
+          <span class="preset-group__table-label"${row.label ? ` data-full-label="${escapeHtml(row.label)}"` : ''}>${escapeHtml(row.label)}</span>
           <div class="preset-group__table-options">`;
         for (const opt of row.options) {
           if (opt.kind === 'preset') {
