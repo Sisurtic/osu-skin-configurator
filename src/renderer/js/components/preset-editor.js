@@ -480,21 +480,17 @@
     }
     if (result && result.success) {
       state.set('presetDirty', false);
-      if (currentId !== '__new__') {
-        state.set('selectedPreset', result.data);
-      } else {
-        // New preset saved: keep selectedPreset='__new__' so the user can
-        // continue saving (Ctrl+S works for __new__ regardless of presetDirty).
-        state.set('selectedPreset', '__new__');
-        // If a sibling parent was requested (New Preset while a group was
-        // selected), move the fresh preset into that parent so it appears as a
-        // sibling of the selected group instead of at the tree root.
+      if (currentId === '__new__') {
+        // New preset saved: move it into the requested parent (if any), then
+        // SELECT it — subsequent Ctrl+S edits this preset instead of creating
+        // more. (Previously it stayed '__new__' for continuous creation.)
         if (_newPresetTargetParent !== undefined) {
           const sk0 = skinName();
           if (sk0) await api.movePresetGroup(sk0, result.data, _newPresetTargetParent);
           _newPresetTargetParent = undefined;
         }
       }
+      state.set('selectedPreset', result.data);
       // Preview images may have changed — drop the cached ones before re-scan
       // so the next render reloads them (ids are also compacted on delete).
       if (window.PresetSelector && typeof window.PresetSelector.invalidateCache === 'function') {
@@ -858,6 +854,11 @@
       return r.success ? r.data : null;
     });
     render();
+    // Auto-focus the name input when creating a new preset.
+    requestAnimationFrame(() => {
+      const nameInput = document.getElementById('preset-name');
+      if (nameInput) nameInput.focus();
+    });
   }
 
   window.PresetEditor = { render, getCurrentEditData, doSave, doSaveGroup, doDelete, resetNew, moveTabIndicator, copyActions, pasteActions, set newPresetTargetParent(v) { _newPresetTargetParent = v; } };

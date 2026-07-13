@@ -244,35 +244,11 @@ fn insert_into_parent(cfg: &mut Config, child_id: i64, kind: &str, parent_group_
             let i = index.filter(|x| *x >= 0).unwrap_or(len) as usize;
             let i = i.min(cfg.groups[gi].children.len());
             cfg.groups[gi].children.insert(i, ChildRef { kind: kind.to_string(), id: child_id });
-            // If the parent is a table group, enforce ordering: direct presets
-            // and table sub-groups before plain sub-groups (so the __direct__
-            // row is always at the top in use mode).
-            if cfg.groups[gi].kind == "table" {
-                let children = std::mem::take(&mut cfg.groups[gi].children);
-                cfg.groups[gi].children = reorder_children_stable(children, &cfg.groups);
-            }
         }
     }
     Ok(())
 }
 
-// Reorder children: presets + table sub-groups first (stable), plain sub-groups
-// after (stable). Keeps relative order within each partition.
-fn reorder_children_stable(children: Vec<ChildRef>, all_groups: &[Group]) -> Vec<ChildRef> {
-    let mut top = Vec::new();
-    let mut bottom = Vec::new();
-    for c in children {
-        let is_plain = c.kind == "group" && all_groups.iter().find(|g| g.id == c.id)
-            .map(|g| g.kind != "table").unwrap_or(false);
-        if is_plain {
-            bottom.push(c);
-        } else {
-            top.push(c);
-        }
-    }
-    top.append(&mut bottom);
-    top
-}
 
 // ── ID compaction ──
 
@@ -680,11 +656,17 @@ fn is_descendant(cfg: &Config, ancestor_id: i64, group_id: i64) -> bool {
 
 pub fn reorder_children(skin_path: &str, parent_group_id: Option<i64>, child_order: Vec<ChildRef>) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
+    // Guard: prevent a group from being placed inside itself (circular ref
+    // would cause infinite recursion in save_config → stack overflow).
+    if let Some(pid) = parent_group_id {
+        if child_order.iter().any(|c| c.kind == "group" && c.id == pid) {
+            return Err("Cannot place a group inside itself".to_string());
+        }
+    }
     match parent_group_id {
         None => { cfg.root_children = child_order; }
         Some(pid) => {
             let gi = find_group_mut(&mut cfg, pid).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &pid.to_string())]))?;
-            // Order map keyed by (kind, id) so preset/group ids can't collide.
             let order_map: HashMap<(String, i64), usize> = child_order.iter().enumerate()
                 .map(|(i, c)| ((c.kind.clone(), c.id), i)).collect();
             cfg.groups[gi].children.sort_by(|a, b| {

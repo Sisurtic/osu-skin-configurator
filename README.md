@@ -45,7 +45,7 @@ Get `osu-skin-configurator.exe` from [Releases](https://github.com/Sisurtic/osu-
 
 ### Changelog
 
-See [release-v1.1.0.md](release-v1.1.0.md) for the v1.1.0 release notes and post-release fixes (checkbox-group apply rework, row slide-in animations, group-save editor reload, copy/paste actions + duplicate any item, group multi-select, editor empty-state hint).
+See [release-v1.1.0.md](release-v1.1.0.md) for the v1.1.0 release notes and post-release fixes (checkbox-group apply rework, unified drag/drop rewrite, multi-select `selection.js` module, mixed preset+group selection, copy/paste actions, editor empty-state, ESC to deselect).
 
 ### Prerequisites
 
