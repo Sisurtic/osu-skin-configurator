@@ -285,8 +285,15 @@
             changed = false;
             const rows = collectTableRows(g, groups, expanded, 0, null);
             for (const row of rows) {
-              // Seed unselected row → leftmost option.
-              if (allSel[gid][row.rowKey] == null) {
+              // Seed unselected OR stale-selected row → leftmost option. A
+              // persisted selection may reference a preset/child-group that no
+              // longer exists in this row (deleted, restructured) — re-seed it.
+              const cur = allSel[gid][row.rowKey];
+              const validKeys = new Set([
+                ...row.options.filter(o => o.kind === 'preset').map(o => o.id),
+                ...row.options.filter(o => o.kind === 'group').map(o => 'group:' + o.id),
+              ]);
+              if (cur == null || !validKeys.has(cur)) {
                 const first = row.options[0];
                 if (first) {
                   allSel[gid][row.rowKey] = first.kind === 'group' ? 'group:' + first.id : first.id;
