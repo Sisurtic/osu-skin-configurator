@@ -75,3 +75,35 @@
   - No-conflict categories merge silently; the dialog only appears for categories with actual conflicts.
 - Paste fills the editor and marks it dirty — press Ctrl+S to persist.
 - **Checkbox-group creation merge check.** Creating a checkbox group from a selected group that has nested plain sub-groups now prompts to flatten (same as the drag-into-table path), instead of producing an invalid tree.
+
+### Multi-select & mixed selection (edit mode)
+
+- **Standalone `selection.js` module.** All multi-select state (presets + groups + Shift-range anchor) extracted from `preset-list.js` into a dedicated module with a clean API (`toggle`, `setSingle`, `setRangeFromAnchor`, `clear`, `beginDragPresetIds`, `beginDragGroupIds`, `outermostGroups`, `commonAncestor`). Eliminated ~10 dead-code items, 2 latent crash/state bugs, and 6+ duplicated logic blocks.
+- **Mixed selection.** Presets and groups can be selected together (Ctrl/Shift). Shift-range works cross-type. Duplicate/delete/drag/create-parent all handle mixed selections.
+- **ESC to deselect.** ESC clears the current selection (single or multi) in edit mode; in use mode ESC clears preset selection first, then deselects the skin. Only fires when nothing is focused (so input fields keep their own ESC behavior).
+- **Editor locks during multi-select.** Tabs disabled + editor dimmed with a fade transition. Save button disabled.
+
+### Unified drag/drop rewrite
+
+- **Single delegated drag/drop system** replaces the previous 7 binding blocks / 13 handlers / 2 separate pipelines (preset vs group). One zone model: upper 25% = insert before, lower 25% = insert after, middle 50% = nest (group headers only).
+- **`reorderChildren` atomic API** used for all reorder moves — computes the final child order array locally and sets it in one call, eliminating all same-parent index-adjustment bugs.
+- **Drop line follows scroll.** Replaced the `position:fixed` overlay with element-level `::after` CSS classes that move naturally with the row.
+- **Cross-parent drag fixed.** Dragging an item from one parent to another no longer duplicates it (the item is moved via `movePresetGroup`/`moveGroup` first, then reordered).
+- **Circular-reference guard** in `reorder_children` (Rust) prevents a group from being placed inside itself → stack overflow.
+- **Plain groups can be freely reordered** — removed the forced "plain sub-groups at bottom" constraint in table groups.
+- **Performance fix:** delegated listeners bound once (guarded) instead of re-bound on every render.
+- **Nest highlight scrolls with the header** via a `scroll` listener that updates `--drop-indent`/`--drop-right`.
+
+### Editor empty state
+
+- When nothing is selected, the editor shows **disabled tabs + a fade-in hint** (new preset steps, group/checkbox-group table explanation, editor shortcuts, Esc to deselect) instead of a blank new-preset form.
+- **New Preset placement:** selecting a group → new preset becomes its child; selecting a preset → new preset is a sibling; nothing selected → root.
+- **Save selects the new item.** Saving a new preset now selects it (previously stayed in `__new__` for continuous creation). Same for groups.
+- **Auto-focus name input** on new preset.
+
+### Other fixes
+
+- **Stale checkbox-group row selection re-seeded.** Rows whose persisted selection references a deleted/restructured preset now re-seed the leftmost option.
+- **Use-mode row label truncation** with hover tooltip for the full name.
+- **Skin hover highlight removed** on the selected skin.
+- **Welcome page always shown** when no skin is selected (removed the empty selector state).

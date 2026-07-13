@@ -223,7 +223,7 @@ select.form-input {
 .editor-empty__hint {
   color: var(--text-muted);
   font-size: 12px;
-  line-height: 1.7;
+  line-height: 1.6;
   white-space: pre-line;
   padding: 24px 36px;
   width: 100%;
@@ -1554,7 +1554,7 @@ select.form-input {
   content: '';
   position: absolute;
   left: var(--drop-indent, 0px);
-  right: 0;
+  right: var(--drop-right, 0px);
   top: 0;
   bottom: 0;
   background: var(--accent-bg);
@@ -1563,6 +1563,23 @@ select.form-input {
   pointer-events: none;
   z-index: 0;
 }
+/* Drop line: drawn as ::after on the target row element (not a fixed overlay).
+   Moves naturally with the row on scroll. */
+.preset-tree__drop-before::after,
+.preset-tree__drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid var(--accent);
+  pointer-events: none;
+  z-index: 10;
+}
+.preset-tree__drop-before::after { top: 0; }
+.preset-tree__drop-after::after { bottom: 0; }
+/* Drop line ::after anchors to the row's existing positioning context
+   (sticky for items, relative for headers). No override needed. */
 /* Drop target: make children transparent so the ::before accent shows through.
    Do NOT override `position` here — the header is position:sticky and changing
    it would drop it out of its sticky pin, making the whole group visually shift. */
