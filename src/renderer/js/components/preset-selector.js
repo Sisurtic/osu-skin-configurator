@@ -7,6 +7,8 @@
   let previewCache = {};   // previewPath → dataURL (loaded on skin select)
   let shortcutSelected = new Set();   // selection keys ("group:<id>" / "preset:<id>")
   let recorderActive = false;          // true while waiting for the next keypress to bind
+  // Persisted divider flex — survives re-renders (selectedSkin, appMode, etc).
+  let _dividerPanelFlex = null;
 
   // Shared empty-state markup for the preview panel. MUST be a function (not a
   // module-level const) so i18n.t() runs after the locale dictionaries are
@@ -177,18 +179,24 @@
     // Preserve list scroll position across re-renders
     const prevList = viewEl.querySelector('.preset-selector__list');
     const savedScroll = prevList ? prevList.scrollTop : 0;
-    // Preserve the preview panel content so a re-render (e.g. toggling a table
-    // group) doesn't flash it empty → refilled.
     const prevPreview = viewEl.querySelector('#preset-preview-panel');
     const savedPreviewHtml = prevPreview ? prevPreview.innerHTML : null;
+    // Save divider flex from DOM into module var (survives full rebuild).
+    if (prevPreview && prevPreview.style.flex) {
+      _dividerPanelFlex = prevPreview.style.flex;
+    }
 
-    // Rebuild immediately. Collapsing/folding closes right away (no exit
-    // animation — it was janky); only the slide-IN animation on newly-appeared
-    // rows plays (handled in afterRebuild).
     viewEl.innerHTML = html;
     if (savedPreviewHtml) {
       const newPreview = viewEl.querySelector('#preset-preview-panel');
       if (newPreview) newPreview.innerHTML = savedPreviewHtml;
+    }
+    // Restore the divider-dragged flex from module var.
+    if (_dividerPanelFlex) {
+      const newPanel = viewEl.querySelector('#preset-preview-panel');
+      const newList = viewEl.querySelector('.preset-selector__list');
+      if (newPanel) newPanel.style.flex = _dividerPanelFlex;
+      if (newList) newList.style.flex = '1';
     }
     afterRebuild();
     return;
@@ -668,10 +676,10 @@
     });
     _prevRowKeys = currRowKeys;
     if (newRowEls.length) {
-      // Two-phase: synchronously hide (born invisible), then next frame swap to
-      // the animation class. The rAF gap forces the browser to commit the hidden
-      // state first, so the class swap is a real change that fires the animation.
-      newRowEls.forEach(row => row.classList.add('preset-group__enter-init'));
+      newRowEls.forEach((row, i) => {
+        row.classList.add('preset-group__enter-init');
+        row.style.animationDelay = (i * 40) + 'ms';
+      });
       requestAnimationFrame(() => {
         newRowEls.forEach(row => {
           row.classList.remove('preset-group__enter-init');

@@ -653,11 +653,13 @@
   // and its keyboard shortcut call these so behavior never diverges.
 
   async function actionRefresh() {
-    // Disabled in edit mode (editing assumes a stable skin on disk).
     if (state.get('appMode') === 'edit') return;
-    // Drop all cached images — skin files may have changed on disk since the
-    // last scan (e.g. user replaced an image externally), so re-read fresh.
     if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
+    // Fade out the selector while reloading, then fade back in.
+    const viewSelector = document.getElementById('view-selector');
+    if (viewSelector && state.get('appMode') === 'use') {
+      await playExitAnim(viewSelector, 'main-content--exit');
+    }
     await scanSkins();
     const skin = state.get('selectedSkin');
     if (skin) {
@@ -673,10 +675,8 @@
       }
     }
     Toast.info(i18n.t('toast.skinsRefreshed'));
-    // Refreshing re-selects the current skin → replay the preset selector's
-    // load animation (use mode only).
-    const viewSelector = document.getElementById('view-selector');
     if (viewSelector && state.get('appMode') === 'use') {
+      viewSelector.classList.remove('main-content--exit');
       playEnterAnim(viewSelector, 'main-content--enter');
     }
   }
@@ -707,8 +707,18 @@
       }
       ApplyDialog.showMulti({ presetIds: loosePresetIds, groupIds: activeGroupIds });
     } else {
-      // Edit mode: apply the currently selected (saved) preset.
+      // Edit mode: apply the currently selected (saved) preset, OR a selected
+      // checkbox-group's own actions only (not its subtree).
       const preset = state.get('selectedPreset');
+      const selGroup = state.get('selectedGroup');
+      if (selGroup != null) {
+        const groups = state.get('groups') || [];
+        const g = groups.find(x => x.id === selGroup);
+        if (g && g.type === 'table') {
+          ApplyDialog.showMulti({ groupIds: [selGroup] });
+          return;
+        }
+      }
       if (!preset || preset === '__new__') {
         Toast.warning(i18n.t('toast.selectPresetFirst'));
         return;
@@ -761,7 +771,10 @@
     const skin = state.get('selectedSkin');
 
     if (mode === 'edit') {
-      btnApplyPreset.disabled = isNew || !preset;
+      const selGroup = state.get('selectedGroup');
+      const groups = state.get('groups') || [];
+      const selGroupIsTable = selGroup != null && (groups.find(g => g.id === selGroup) || {}).type === 'table';
+      btnApplyPreset.disabled = (!preset || isNew) && !selGroupIsTable;
       btnApplyPreset.textContent = i18n.t('toolbar.apply');
     } else {
       const active = state.get('activePresets') || {};

@@ -10,7 +10,7 @@
     { id: 'copy-item',     key: 'Ctrl+Shift+C', descKey: 'shortcutsDesc.copyItem',     modes: ['edit'] },
     { id: 'copy-actions',  key: 'Ctrl+C',  descKey: 'shortcutsDesc.copyActions',  modes: ['edit'] },
     { id: 'paste-actions', key: 'Ctrl+V',  descKey: 'shortcutsDesc.pasteActions', modes: ['edit'] },
-    { id: 'apply',       key: 'Space',   descKey: 'shortcutsDesc.apply',       modes: ['use'] },
+    { id: 'apply',       key: 'Space',   descKey: 'shortcutsDesc.apply',       modes: ['use','edit'] },
   ];
 
   // Current bindings (id → key string). Loaded from config on startup.

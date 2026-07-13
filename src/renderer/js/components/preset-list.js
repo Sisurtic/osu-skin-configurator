@@ -1208,9 +1208,9 @@
       }
     }
 
+    const hadWork = groupIdsToDup.length > 0 || Selection.presetIds().length > 0;
     Selection.clear();
-
-    if (groupIdsToDup.length === 0 && Selection.presetIds().length === 0) return; // nothing to do
+    if (!hadWork) return;
     await refreshSkinData(skin);
 
     // Toast: summarize combined result.

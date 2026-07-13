@@ -11,13 +11,18 @@
     meta: { name: '', description: '' },
     actions: { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] },
     _previewPath: null,
-    _previewKind: 'image',     // 'image' | 'video' | 'sequence'
-    _previewFrames: null,      // string[] (sequence only)
-    _previewFps: 12,           // sequence frame rate
+    _previewKind: 'image',
+    _previewFrames: null,
+    _previewFps: 12,
     _groupId: null,
     _isTableGroup: false,
     _originalName: '',
   };
+  // When true, sub-editor set* callbacks (setFileTints, etc.) are suppressed —
+  // prevents stale blur/change events from old inputs marking the editor dirty
+  // right after a save (the old DOM is destroyed by render, firing blur on the
+  // old inputs which write to the freshly-reloaded clean editData).
+  let _suppressSubEditorWrites = false;
 
   // Fill in default fields for a tint op loaded from config.osp (compact storage
   // omits defaults). darkenEnabled is derived (not stored).
@@ -44,13 +49,13 @@
   }
 
   function getSkinIniActions() { return editData.actions.skinIni; }
-  function setSkinIniActions(v) { editData.actions.skinIni = v; state.set('presetDirty', true); }
+  function setSkinIniActions(v) { if (_suppressSubEditorWrites) return; editData.actions.skinIni = v; state.set('presetDirty', true); }
   function getFileCopies() { return editData.actions.fileCopies; }
-  function setFileCopies(v) { editData.actions.fileCopies = v; state.set('presetDirty', true); }
+  function setFileCopies(v) { if (_suppressSubEditorWrites) return; editData.actions.fileCopies = v; state.set('presetDirty', true); }
   function getFileDeletes() { return editData.actions.fileDeletes || []; }
-  function setFileDeletes(v) { editData.actions.fileDeletes = v; state.set('presetDirty', true); }
+  function setFileDeletes(v) { if (_suppressSubEditorWrites) return; editData.actions.fileDeletes = v; state.set('presetDirty', true); }
   function getFileTints() { return editData.actions.fileTints || []; }
-  function setFileTints(v) { editData.actions.fileTints = v; state.set('presetDirty', true); }
+  function setFileTints(v) { if (_suppressSubEditorWrites) return; editData.actions.fileTints = v; state.set('presetDirty', true); }
   function getPreviewDataUrl() { return editData._previewPath; }
   function setPreviewDataUrl(v) { editData._previewPath = v; state.set('presetDirty', true); }
   // Full preview meta getter/setter (kind/frames/fps). preview-upload writes via this.
@@ -480,6 +485,11 @@
     }
     if (result && result.success) {
       state.set('presetDirty', false);
+      // Suppress sub-editor writes during the post-save re-render: the old
+      // input DOM is destroyed by render(), firing blur/change events that
+      // would write stale values into the freshly-reloaded editData and
+      // re-mark it dirty. Restore after the render settles.
+      _suppressSubEditorWrites = true;
       if (currentId === '__new__') {
         // New preset saved: move it into the requested parent (if any), then
         // SELECT it — subsequent Ctrl+S edits this preset instead of creating
@@ -505,6 +515,8 @@
           rootChildren: scanResult.data.rootChildren || [],
         });
       }
+      // Re-enable sub-editor writes after the render + re-scan settle.
+      requestAnimationFrame(() => { _suppressSubEditorWrites = false; });
     } else {
       Toast.error(i18n.t('preset.saveFailed', { msg: result.error || i18n.t('app.unknownError') }));
       return false;
