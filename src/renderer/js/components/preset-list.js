@@ -1243,6 +1243,21 @@
     if (btnNew) {
       btnNew.addEventListener('click', async () => {
         if (!await confirmSwitchIfDirty()) return;
+        // Decide where the new preset goes:
+        // - a GROUP is selected → new preset becomes its CHILD (inside the group);
+        // - a PRESET is selected  → new preset becomes its SIBLING (same parent);
+        // - nothing selected      → root.
+        const selGid = state.get('selectedGroup');
+        const selPreset = state.get('selectedPreset');
+        let targetParent = null;
+        const groups0 = state.get('groups') || [];
+        if (selGid != null) {
+          targetParent = selGid;
+        } else if (selPreset != null && selPreset !== '__new__') {
+          const parent = groups0.find(g => g.children && g.children.some(c => c.type === 'preset' && c.id === selPreset));
+          targetParent = parent ? parent.id : null;
+        }
+        if (window.PresetEditor) window.PresetEditor.newPresetTargetParent = targetParent;
         clearSelection();
         state.set('selectedPreset', '__new__');
         // Force a fresh form even when already in __new__ (re-clicking "New Preset")
@@ -1648,6 +1663,12 @@
     const groups = state.get('groups') || [];
     const selGid = state.get('selectedGroup');
     if (multiSelectedGroups.size > 0) {
+      // Block: creating a PLAIN group whose source includes a row (plain group
+      // inside a table group) would create an invalid 2nd-level nesting.
+      if (!isTable && [...multiSelectedGroups].some(gid => isPlainRowInTable(groups, gid))) {
+        Toast.warning(i18n.t('group.cannotNestInTableRow'));
+        return;
+      }
       // Multiple groups selected: new parent = lowest common ancestor of their
       // parents. Cross-level selection is allowed.
       const parentIds = new Set();
@@ -1704,22 +1725,31 @@
     const newGroupId = result.data;
 
     if (multiSelectedGroups.size > 0) {
-      // Move each selected group into the new group. For a TABLE parent, apply
-      // the per-source flatten check (plain group with nested plain subs) —
-      // same rule as the single-group path.
-      for (const gid of multiSelectedGroups) {
+      // Move each selected group into the new group. For a TABLE parent, a
+      // plain source group with nested plain sub-groups must be flattened
+      // first. Prompt ONCE for all such sources (not per-group) to avoid
+      // repeated merge dialogs when the selection shares the same family.
+      const needFlatten = [...multiSelectedGroups].filter(gid => {
         const srcIsTable = (groups.find(g => g.id === gid) || {}).type === 'table';
-        if (isTable && !srcIsTable && hasNestedSubGroups(groups, gid)) {
-          const choice = await ApplyDialog.showConfirmDialog(
-            i18n.t('group.flattenConfirm'),
-            [
-              { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
-              { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-            ]
-          );
-          if (choice !== 'flatten') continue; // skip this one, keep going
-          await api.flattenGroupSubgroups(skin, gid);
+        return isTable && !srcIsTable && hasNestedSubGroups(groups, gid);
+      });
+      if (needFlatten.length > 0) {
+        const choice = await ApplyDialog.showConfirmDialog(
+          i18n.t('group.flattenConfirm'),
+          [
+            { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
+            { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
+          ]
+        );
+        if (choice !== 'flatten') {
+          // Abort entirely: remove the just-created empty group and bail.
+          await api.removeGroup(skin, newGroupId);
+          await refreshSkinData(skin);
+          return;
         }
+        for (const gid of needFlatten) await api.flattenGroupSubgroups(skin, gid);
+      }
+      for (const gid of multiSelectedGroups) {
         await api.moveGroup(skin, gid, newGroupId);
       }
       state.set('selectedGroup', newGroupId);
