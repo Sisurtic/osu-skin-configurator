@@ -486,6 +486,14 @@
         // New preset saved: keep selectedPreset='__new__' so the user can
         // continue saving (Ctrl+S works for __new__ regardless of presetDirty).
         state.set('selectedPreset', '__new__');
+        // If a sibling parent was requested (New Preset while a group was
+        // selected), move the fresh preset into that parent so it appears as a
+        // sibling of the selected group instead of at the tree root.
+        if (_newPresetTargetParent !== undefined) {
+          const sk0 = skinName();
+          if (sk0) await api.movePresetGroup(sk0, result.data, _newPresetTargetParent);
+          _newPresetTargetParent = undefined;
+        }
       }
       // Preview images may have changed — drop the cached ones before re-scan
       // so the next render reloads them (ids are also compacted on delete).
@@ -691,6 +699,10 @@
   // In-memory clipboard of a normalized actions object. Copied from the
   // currently-editing item (preset or checkbox-group); pasted into another.
   let _actionsClipboard = null;
+  // When set, a newly-created preset (__new__ → save) is moved into this parent
+  // group id (null = root) right after save. Set by the "New Preset" action
+  // when a group is selected, so the new preset becomes a SIBLING of it.
+  let _newPresetTargetParent = undefined;
 
   // Returns true when actions were actually copied (rows selected), false
   // otherwise (no selection / plain group / basic tab). Callers use the return
@@ -848,5 +860,5 @@
     render();
   }
 
-  window.PresetEditor = { render, getCurrentEditData, doSave, doSaveGroup, doDelete, resetNew, moveTabIndicator, copyActions, pasteActions };
+  window.PresetEditor = { render, getCurrentEditData, doSave, doSaveGroup, doDelete, resetNew, moveTabIndicator, copyActions, pasteActions, set newPresetTargetParent(v) { _newPresetTargetParent = v; } };
 })();
