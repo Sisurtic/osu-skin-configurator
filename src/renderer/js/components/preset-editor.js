@@ -475,6 +475,9 @@
 
     let result;
     try {
+      // Close any open color picker popover before saving (it's on document.body,
+      // survives the render rebuild, and would stay open over stale DOM).
+      document.querySelectorAll('.cp-popover').forEach(el => el.remove());
       result = await api.savePreset(sk, idToSend, dataToSave);
     } catch (err) {
       // IPC-level failure (command not registered, arg serialization, backend

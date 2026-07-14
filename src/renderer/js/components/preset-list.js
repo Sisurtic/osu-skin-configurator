@@ -1170,12 +1170,10 @@
     const groupIdsToDup = Selection.groupIds().length > 0 ? Selection.groupIds()
       : (Selection.presetIds().length === 0 && selGid != null ? [selGid] : []);
     let groupOk = 0, presetCopied = 0;
+    let lastNewId = null;
 
     if (groupIdsToDup.length > 0) {
       const groups = state.get('groups') || [];
-      // If a parent and its descendant are both selected, only duplicate the
-      // OUTERMOST parent (its subtree already contains the descendant) —
-      // otherwise the descendant would be copied twice.
       const outerOnly = groupIdsToDup.filter(gid =>
         !groupIdsToDup.some(other => other !== gid && isDescendantOfGroup(groups, other, gid))
       );
@@ -1183,10 +1181,10 @@
         for (const gid of outerOnly) {
           const src = groups.find(g => g.id === gid);
           if (!src) continue;
-          const parent = groups.find(g => g.children && g.children.some(c => c.type === 'group' && c.id === gid));
+          const parent = groups.find(g => g.children && g.children.some(c => c.type === "group" && c.id === gid));
           const parentId = parent ? parent.id : null;
           const newRootId = await duplicateSubtree(src, parentId, groups, skin, true);
-          if (newRootId != null) groupOk++;
+          if (newRootId != null) { groupOk++; lastNewId = { kind: "group", id: newRootId }; }
         }
       } catch (err) {
         Toast.error(i18n.t('group.duplicateFailed', { msg: (err && (err.message || String(err))) || i18n.t('app.unknownError') }));
@@ -1201,7 +1199,7 @@
         if (!data.meta) data.meta = {};
         data.meta.name = (data.meta.name || i18n.t('preset.fallbackName', { id: r.data.id })) + i18n.t('preset.copySuffix');
         const saveResult = await api.savePreset(skin, null, data);
-        if (saveResult.success) presetCopied++;
+        if (saveResult.success) { presetCopied++; lastNewId = { kind: "preset", id: saveResult.data }; }
       }
     }
 
@@ -1209,6 +1207,15 @@
     Selection.clear();
     if (!hadWork) return;
     await refreshSkinData(skin);
+    // Focus the last duplicated item.
+    if (lastNewId) {
+      if (lastNewId.kind === "group") {
+        state.setMultiple({ selectedPreset: null, selectedGroup: lastNewId.id, presetDirty: false });
+      } else {
+        state.setMultiple({ selectedPreset: lastNewId.id, selectedGroup: null });
+      }
+      updateGroupSelectionHighlights();
+    }
 
     // Toast: summarize combined result.
     if (groupOk > 0 && presetCopied === 0) {

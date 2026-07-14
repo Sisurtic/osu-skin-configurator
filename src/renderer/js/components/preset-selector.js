@@ -627,7 +627,6 @@
             if (!newRowKeys.has(el.dataset.rowKey)) fadeOutEls.push(el);
           });
           if (fadeOutEls.length) {
-            console.log('[fadeOut] count:', fadeOutEls.length, 'keys:', fadeOutEls.map(e => e.dataset.rowKey));
             fadeOutEls.forEach(el => { el.classList.remove('preset-group__enter'); el.style.animationDelay = ''; el.classList.add('preset-group__exit'); });
             _enterAnimBaseDelay = 0;
             await new Promise(r => setTimeout(r, 200));
