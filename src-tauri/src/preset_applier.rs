@@ -304,7 +304,9 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
     // because darken shifts content down by `shift` rows and would otherwise
     // re-fill a row cleared at crop time. osu! draws the LN body up to but not
     // including the very last row; this keeps the body exactly at cropC height.
-    {
+    // Only applies when crop is enabled (Percy LN body); without crop the image
+    // is a regular tint and should not lose its bottom row.
+    if op.crop_enabled {
         let (cw, ch) = rgba.dimensions();
         if ch > 0 {
             let stride = (cw as usize) * 4;

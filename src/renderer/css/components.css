@@ -988,6 +988,13 @@ select.form-input {
   from { opacity: 0; transform: translateX(-10px); }
   to   { opacity: 1; transform: translateX(0); }
 }
+.preset-group__exit {
+  animation: group-row-exit 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes group-row-exit {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(-10px); }
+}
 .preset-group__table-row {
   display: flex;
   align-items: center;

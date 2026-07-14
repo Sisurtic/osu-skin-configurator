@@ -19,8 +19,12 @@
   }
 
   let _suppressRender = false;
-  let _justToggledGid = null;  // group id whose underline should animate this render
-  let _animDepthBase = 0;     // depth of the toggled group (for relative delay)
+  let _justToggledGid = null;
+  let _animDepthBase = 0;
+  // When set, adds this as a base offset to all new-row animation delays.
+  // Used to insert a gap between old rows disappearing and new rows entering
+  // when switching child table groups.
+  let _enterAnimBaseDelay = 0;
   // Row keys (data-row-key) present on the PREVIOUS render. Rows that appear
   // this render but weren't here last render play the slide-in animation —
   // this covers both activating a checkbox group and expanding a child sub-
@@ -528,7 +532,7 @@
     // Two option kinds: 'preset' (select for this row) and 'group' (toggle a
     // nested table group's expansion into a row).
     viewEl.querySelectorAll('.preset-group__table-option[data-table-row]').forEach(opt => {
-      opt.addEventListener('click', () => {
+      opt.addEventListener('click', async () => {
         const gid = parseInt(opt.dataset.tableRow, 10);
         const kind = opt.dataset.kind;
         const rowKey = opt.dataset.rowKey;
@@ -611,6 +615,25 @@
         }
         if (ids.length > 0) current[gid] = ids; else delete current[gid];
 
+        // When switching child groups, fade out the disappearing rows first,
+        // then render (new rows enter with --enter animation + base delay).
+        if (kind === 'group') {
+          // Compute which rows will DISAPPEAR: current visible rows minus the
+          // rows collectTableRows produces with the NEW expanded state.
+          const newRows = collectTableRows(g, groups, expanded, 0, null);
+          const newRowKeys = new Set(newRows.map(r => r.rowKey));
+          const fadeOutEls = [];
+          viewEl.querySelectorAll('.preset-group__table-row[data-row-key]').forEach(el => {
+            if (!newRowKeys.has(el.dataset.rowKey)) fadeOutEls.push(el);
+          });
+          if (fadeOutEls.length) {
+            console.log('[fadeOut] count:', fadeOutEls.length, 'keys:', fadeOutEls.map(e => e.dataset.rowKey));
+            fadeOutEls.forEach(el => { el.classList.remove('preset-group__enter'); el.style.animationDelay = ''; el.classList.add('preset-group__exit'); });
+            _enterAnimBaseDelay = 0;
+            await new Promise(r => setTimeout(r, 200));
+          }
+        }
+
         state.setMultiple({
           tableExpandedChildren: expanded,
           tableRowSelection: allSel,
@@ -679,9 +702,10 @@
     _prevRowKeys = currRowKeys;
     if (newRowEls.length) {
       newRowEls.forEach((row, i) => {
-        row.style.animationDelay = (i * 40) + 'ms';
+        row.style.animationDelay = (_enterAnimBaseDelay + i * 40) + 'ms';
         row.classList.add('preset-group__enter');
       });
+      _enterAnimBaseDelay = 0; // consume
     }
 
     // Clear after all synchronous renders settle (multiple 'groups' listeners
