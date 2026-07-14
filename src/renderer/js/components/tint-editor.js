@@ -1301,8 +1301,40 @@
     });
 
     // ── Bind row selection (unified) ── delegated to OpTable.
-    // opSel.onSelectionChange → refreshDetailAndList() (re-render stages +
-    // re-highlight + recompute preview), so the preview follows the anchor.
+    // Click thumbnail to change source path.
+    container.querySelectorAll('.file-thumb[data-path]').forEach(thumb => {
+      thumb.style.cursor = 'pointer';
+      thumb.addEventListener('click', async (e) => {
+        if (e.target.tagName === 'INPUT') return;
+        const sk = skinName();
+        if (!sk) return;
+        const idx = parseInt(thumb.closest('[data-idx]')?.dataset.idx, 10);
+        if (Number.isNaN(idx)) return;
+        const arr = cur();
+        if (!arr[idx]) return;
+        const skPath = (await skinPath() || '').replace(/\\/g, '/');
+        const result = await api.selectFile([
+          { name: 'Image', extensions: ['png','jpg','jpeg','gif','webp','apng','bmp'] },
+          { name: 'All', extensions: ['*'] },
+        ], skPath);
+        if (!result.success || !result.data || !result.data.length) return;
+        let chosen = result.data[0].replace(/\\/g, '/');
+        if (skPath) {
+          const skNorm = skPath.replace(/\/$/, '');
+          if (chosen.toLowerCase().startsWith(skNorm.toLowerCase())) {
+            chosen = chosen.slice(skNorm.length).replace(/^\//, '');
+          }
+        }
+        arr[idx] = { ...arr[idx], source: chosen };
+        applyTints(arr);
+        // Only delete the old source's thumb if no other row still uses it.
+        const oldSrc = thumb.dataset.path;
+        const stillUsed = arr.some(t => t.source === oldSrc);
+        if (!stillUsed) { thumbCache.delete(oldSrc); sourceImgCache.delete(oldSrc); }
+        render(container);
+      });
+    });
+
     container.querySelectorAll('.tint-row').forEach(row => {
       opSel.bindRow(row);
     });

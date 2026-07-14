@@ -667,7 +667,9 @@
     //   2. next rAF swap to --enter → runs the left→right slide+fade.
     const newRowEls = [];
     const currRowKeys = new Set();
-    viewEl.querySelectorAll('[data-row-key]').forEach(row => {
+    // Only animate ROW-level elements (not option spans inside table rows,
+    // which share the parent's rowKey and would triple-count).
+    viewEl.querySelectorAll('.preset-group__table-row[data-row-key], .preset-group__item[data-row-key], .preset-group__header[data-row-key]').forEach(row => {
       const rk = row.dataset.rowKey;
       currRowKeys.add(rk);
       if (!_prevRowKeys.has(rk)) {
@@ -677,14 +679,8 @@
     _prevRowKeys = currRowKeys;
     if (newRowEls.length) {
       newRowEls.forEach((row, i) => {
-        row.classList.add('preset-group__enter-init');
         row.style.animationDelay = (i * 40) + 'ms';
-      });
-      requestAnimationFrame(() => {
-        newRowEls.forEach(row => {
-          row.classList.remove('preset-group__enter-init');
-          row.classList.add('preset-group__enter');
-        });
+        row.classList.add('preset-group__enter');
       });
     }
 
@@ -857,7 +853,7 @@
     const count = countAllPresets(group, allGroups);
     let html = `<div class="preset-group" style="--depth:${depth}">`;
     html += `<div class="preset-group__header ${isCollapsed ? 'preset-group__header--collapsed' : ''} ${depth > 0 ? 'preset-group__header--nested' : ''}" data-group-id="${group.id}" data-row-key="g:${group.id}">
-      ${(!isCollapsed) ? `<div class="preset-group__header-underline${isAnim ? ' preset-group__header-underline--anim' : ''}" style="${isAnim ? `animation-delay:${(depth - _animDepthBase) * 80}ms;` : ''}background:linear-gradient(90deg, hsl(${140 + depth * 25}deg,60%,65%), hsl(${160 + depth * 25}deg,60%,45%))"></div>` : ''}
+      ${(!isCollapsed) ? `<div class="preset-group__header-underline${isAnim ? ' preset-group__header-underline--anim' : ''}" style="${isAnim ? `animation-delay:${(depth - _animDepthBase) * 40}ms;` : ''}background:linear-gradient(90deg, hsl(${140 + depth * 25}deg,60%,65%), hsl(${160 + depth * 25}deg,60%,45%))"></div>` : ''}
       <span class="preset-tree__collapse-icon">${isCollapsed ? '▶' : '▼'}</span>
       <span class="preset-group__label">${escapeHtml(group.name)}</span>
       ${count > 0 ? `<span class="preset-group__count">[${count}]</span>` : ''}
@@ -865,19 +861,14 @@
 
     if (!isCollapsed && group.children && group.children.length > 0) {
       html += '<div class="preset-group__children">';
-      // Direct presets first
+      // Render children in their stored order (presets + groups interleaved).
       for (const child of group.children) {
         if (child.type === 'preset') {
           const preset = presetMap.get(child.id);
           if (preset) {
             html += renderPresetRow(preset, activePresets, group.id);
           }
-        }
-      }
-      // Sub-groups after direct presets — pass isAnim as inAnimSubtree so
-      // descendants of the toggled group also animate (staggered by depth).
-      for (const child of group.children) {
-        if (child.type === 'group') {
+        } else if (child.type === 'group') {
           const subGroup = allGroups.find(g => g.id === child.id);
           if (subGroup) {
             if (subGroup.type === 'table') {

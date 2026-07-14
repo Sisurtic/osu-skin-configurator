@@ -107,3 +107,15 @@
 - **Use-mode row label truncation** with hover tooltip for the full name.
 - **Skin hover highlight removed** on the selected skin.
 - **Welcome page always shown** when no skin is selected (removed the empty selector state).
+- **Divider position persists** across all re-renders (select preset, switch mode, switch skin).
+- **Refresh skin list** fades the selector out → reloads → fades in.
+- **Edit-mode Space apply** for presets and checkbox-groups; apply button enabled when a table group is selected.
+- **Save suppresses stale dirty** — sub-editor blur/change events during post-save re-render no longer re-mark dirty (the "save twice" bug).
+- **INI value inputs** now mark dirty on every keystroke (not just blur/Enter).
+- **Duplicate fix** — `refreshSkinData` now runs after duplicating (previously `Selection.clear()` made the guard skip it).
+- **Click thumbnail to change source** in file-copy and image-edit tabs.
+- **Checkbox-group enter animation fixed** — option spans were triple-counting rowKeys, inflating the stagger delay 3×. Now only row-level elements animate.
+- **Drag/drop zone consistency** — dragover and drop thresholds unified (25%/75%).
+- **Toolbar buttons blur** after click (no lingering focus).
+- **Group children render in stored order** (presets + groups interleaved), not forced presets-first.
+- **New group creation clears preset selection.**

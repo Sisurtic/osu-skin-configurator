@@ -571,9 +571,12 @@
   });
 
   // ── Toolbar button event handlers ──
+  // Blur after click so the toolbar buttons don't retain focus (they have
+  // tabindex=-1 but mouse click still focuses them in WebView2).
 
   btnSettings.addEventListener('click', () => {
     showShortcutsDialog();
+    btnSettings.blur();
   });
 
   // ── Language switcher ──
@@ -601,6 +604,7 @@
       e.stopPropagation();
       buildLangMenu();
       langMenu.classList.toggle('lang-switch__menu--open');
+      langBtn.blur();
     });
     // Close when clicking elsewhere
     document.addEventListener('click', (e) => {
@@ -610,7 +614,7 @@
     });
   }
 
-  btnRescan.addEventListener('click', () => { actionRefresh(); });
+  btnRescan.addEventListener('click', () => { actionRefresh(); btnRescan.blur(); });
 
   btnToggleMode.addEventListener('click', async () => {
     if (!state.get('selectedSkin')) return;

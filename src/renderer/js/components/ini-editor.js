@@ -488,7 +488,10 @@
     // Value change handlers (color inputs are handled separately below)
     container.querySelectorAll('.ini-value-input').forEach(input => {
       if (input.classList.contains('ini-color-value')) return;
-      input.addEventListener('change', () => {
+      // 'input' fires live (save button lights up immediately). 'change' fires
+      // on blur/Enter — but we DON'T call setActions again (input already did),
+      // avoiding the save-twice bug (blur event after save re-marks dirty).
+      input.addEventListener('input', () => {
         const idx = parseInt(input.dataset.idx);
         iniEdits[idx].value = input.value;
         setActions([...iniEdits]);

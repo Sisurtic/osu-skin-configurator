@@ -416,8 +416,8 @@
       const y = e.clientY - r.top;
       const h = r.height;
       const isGroupHeader = row.classList.contains('preset-tree__group-header');
-      const before = y < h * 0.4;
-      const after = y > h * 0.6;
+      const before = y < h * 0.25;
+      const after = y > h * 0.75;
       const nest = !before && !after && isGroupHeader;
 
       e.preventDefault();
@@ -762,10 +762,7 @@
           if (preset) {
             html += renderPresetNode(preset, selectedPreset, depth + 1);
           }
-        }
-      }
-      for (const child of group.children) {
-        if (child.type === 'group') {
+        } else if (child.type === 'group') {
           const subGroup = allGroups.find(g => g.id === child.id);
           if (subGroup) {
             html += renderGroupNode(subGroup, allGroups, presetMap, selectedPreset, depth + 1);
@@ -1466,9 +1463,9 @@
       for (const pid of Selection.presetIds()) {
         await api.movePresetGroup(skin, pid, newGroupId);
       }
-      state.set('selectedGroup', newGroupId);
-      Selection.clear();
       const totalMoved = allSelGroups.size + Selection.presetIds().length;
+      state.setMultiple({ selectedGroup: newGroupId, selectedPreset: null });
+      Selection.clear();
       Toast.success(isTable
         ? i18n.t('group.createdTable', { name: newName })
         : (totalMoved > 1 ? i18n.t('group.createdWithPresets', { name: newName, count: totalMoved }) : i18n.t('group.createdEmpty', { name: newName })));

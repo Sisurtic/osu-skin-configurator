@@ -796,7 +796,7 @@ select.form-input {
 .preset-group__header-underline--anim {
   transform: scaleX(0);
   transform-origin: left;
-  animation: group-underline-grow 0.25s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  animation: group-underline-grow 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
 }
 @keyframes group-underline-grow {
   from { transform: scaleX(0); }
