@@ -110,7 +110,7 @@
 - **Refresh skin list** fades the selector out → reloads → fades in.
 - **Edit-mode Space apply** for presets and checkbox-groups; apply button enabled when a table group is selected.
 - **Save suppresses stale dirty** — sub-editor blur/change events during post-save re-render no longer re-mark dirty (the "save twice" bug).
-- **INI value inputs** now mark dirty on every keystroke (not just blur/Enter).
+- **INI value inputs** commit on Enter/blur (so ESC can truly cancel an edit); the save button lights up on commit.
 - **Duplicate fix** — `refreshSkinData` now runs after duplicating (previously `Selection.clear()` made the guard skip it).
 - **Duplicate focuses the new item** — the last created preset/group is selected after duplication.
 - **Click thumbnail to change source** in file-copy and image-edit tabs.
@@ -148,6 +148,32 @@
 - **Group header size** — padding and margin aligned with preset items for visual consistency.
 - **Empty-state hint** — merged into a single readable block (was two separate sections), font size 12px, left-aligned with padding.
 - **Warning button** — solid fill with `--warning` color (#e8c878), softer shade.
+
+---
+
+## Editor unification & input behavior (post-1.1.0 polish)
+
+The ini / file-move / image editors used to drift apart — multi-select sync, thumbnails, group headers, and input behavior each had per-editor copies that broke in subtly different ways. These changes consolidate the duplicated cores into shared modules so a fix applies everywhere at once.
+
+- **Shared multi-select value sync (`OpTable.createGroupSync`).** All three row editors now sync an edited value to other selected rows through one skeleton. ini matches by control type (a color row never receives a toggle value); file and tint match by field. A **folded group header is a full virtual row** (sync source + target; multiple folded headers sync to each other); an **expanded header is ignored** (its members are visible sub-rows that sync normally). Type-mismatched rows are never crossed. (Replaces the earlier per-keystroke dirty-write behavior — text/number inputs now commit on Enter/blur so ESC can truly cancel.)
+- **Group header = temporary value.** A perColumn / sequence group header no longer writes its members live. It holds a local value (initialized from the first member) and commits to all members only via the **fill** button. Expanding a group no longer resets the header to the first member's value (expand/collapse stopped re-rendering, so the temp edit survives).
+- **Consistent Shift range-select.** A connect-select across a **folded** group header pulls in the whole group and highlights it; across an **expanded** header it lands on the member rows (header transparent). Single-click on a header still selects the whole group.
+- **Shared thumbnail loader (`OpTable.createThumbLoader`).** The recurring "same-source preview thumbnail gets lost" bug class is fixed structurally: the async fill skips by **DOM state** (not cache state) and **rehydrates from cache**, so two operations sharing one source image both paint in a single pass.
+- **Standalone SourcePicker component.** Click-to-repick a source file (thumbnail/icon) is extracted into `source-picker.js`, paralleling the color picker. Trigger detection (only the `<img>`/icon, never the filename/whitespace) now lets row selection work when clicking the name.
+- **Unified input confirm.** Enter commits the typed value; **Escape restores the pre-edit value and cancels** (no normalize, no multi-select sync). Escape is now **prioritized**: an open input field is restored first, then the operation-table selection is cleared, then the preset selection — one ESC cancels the innermost level only.
+
+### Apply pipeline
+
+- **Destination @2x + extension preserved.** Non-directory copy/tint destinations now re-attach the **source's `@2x` HD marker and extension**, so a byte copy or re-encoded tint to a stem is no longer an extension-less file, and an HD source no longer silently drops to SD. Source has no `@2x` → target gets none; source has no extension → copy keeps the stem as-is, tint falls back to `.png`. Directory/empty destinations keep their existing behavior.
+
+### Post-1.1.0 bug fixes
+
+- ini value sync was effectively dead: it matched by literal key via a `_template` field that was never set, so perColumn columns (Colour0/Colour1…) never matched each other. Now matches by control type.
+- "Skip the first item" when syncing into an expanded perColumn group: a group header and its first member both rendered a control with the first member's index. `pickControl` now prefers the control not inside the collapsed header.
+- ESC cancel no longer leaves the stored data out of sync with the restored input.
+- Color box ESC restores both the text and the swatch.
+- `clearSelection` now clears the anchor too, so no row stays highlighted after ESC (previously the anchor row stayed lit). file ESC no longer skips clearing (was using a return value that was always undefined).
+- Scroll edge-fade layered below the sticky header, above the table border/content.
 
 ---
 
