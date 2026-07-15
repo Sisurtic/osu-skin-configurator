@@ -1198,8 +1198,17 @@
         const data = { ...r.data };
         if (!data.meta) data.meta = {};
         data.meta.name = (data.meta.name || i18n.t('preset.fallbackName', { id: r.data.id })) + i18n.t('preset.copySuffix');
+        // Find the source preset's parent so the copy stays in the same group.
+        const groups0 = state.get('groups') || [];
+        let srcParent = null;
+        for (const g of groups0) {
+          if (g.children && g.children.some(c => c.type === 'preset' && c.id === id)) { srcParent = g.id; break; }
+        }
         const saveResult = await api.savePreset(skin, null, data);
-        if (saveResult.success) { presetCopied++; lastNewId = { kind: "preset", id: saveResult.data }; }
+        if (saveResult.success) {
+          if (srcParent !== null) await api.movePresetGroup(skin, saveResult.data, srcParent);
+          presetCopied++; lastNewId = { kind: "preset", id: saveResult.data };
+        }
       }
     }
 

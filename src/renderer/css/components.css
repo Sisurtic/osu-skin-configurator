@@ -178,16 +178,24 @@ select.form-input {
   pointer-events: none;
   transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), width 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
-/* Tabs dimmed + non-interactive while editing a group (editor--group-mode). */
+/* Tabs dimmed + non-interactive while editing a plain group (basic only). */
 .tabs--disabled .tab {
   opacity: 0.4;
   pointer-events: none;
   cursor: not-allowed;
+  color: var(--text-muted);
 }
 .tabs--disabled .tab--active {
   opacity: 1;
   pointer-events: auto;
   cursor: default;
+  color: var(--accent);
+}
+.tabs--disabled .tab--active:not([data-tab="basic"]) {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: not-allowed;
+  color: var(--text-muted);
 }
 /* Empty editor state: ALL tabs dimmed (including active) + no hover response. */
 .tabs--empty .tab,

@@ -205,8 +205,9 @@
   function bindTabs() {
     viewEl.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        // No tab switching while a multi-select is active (editor is locked).
         if (state.get('multiSelectActive')) return;
+        // Plain groups can only use the basic tab.
+        if (viewEl.querySelector('.tabs').classList.contains('tabs--disabled') && tab.dataset.tab !== 'basic') return;
         viewEl.querySelectorAll('.tab').forEach(t => t.classList.remove('tab--active'));
         viewEl.querySelectorAll('.tab-content').forEach(c => c.classList.remove('tab-content--active'));
         tab.classList.add('tab--active');
@@ -697,6 +698,10 @@
   // Multi-select (groups or presets, >1) locks the editor: tabs disabled + the
   // body is non-interactive so nothing can be edited mid-selection.
   state.on('multiSelectActive', (active) => {
+    // Don't remove tabs--disabled if the editor is showing a plain group —
+    // the plain-group render sets it and multiSelectActive clearing would
+    // wrongly re-enable the tabs.
+    if (!active && editData.kind === 'group' && !editData._isTableGroup) return;
     const tabs = viewEl.querySelector('.tabs');
     if (tabs) tabs.classList.toggle('tabs--disabled', !!active);
     viewEl.classList.toggle('editor--locked', !!active);

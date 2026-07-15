@@ -40,15 +40,7 @@
 
 - `package.json` is now the single source of truth for the version; a pre-commit hook keeps `Cargo.toml` and `tauri.conf.json` in sync.
 
----
-
-**Full changelog:** https://github.com/Sisurtic/osu-skin-configurator/compare/v1.0.0...main
-
----
-
-## Post-release fixes (in-development)
-
-### Checkbox (multi-select) group apply
+## Checkbox (multi-select) group apply
 
 - **Apply semantics reworked.** A checkbox group now applies only the preset chosen **per row** plus any selected child checkbox groups (recursively) — not the entire subtree of presets. The backend `apply_group` reads `tableRowSelection` + `tableExpandedChildren` from config itself, mirroring the renderer's `collectTableRows`, so the applied set always matches what the user sees selected.
 - **Counter fixed.** The toolbar apply counter and the apply-dialog count now use the same recursive count as the backend (group itself + per-row selections + selected child groups). A 5-row nested checkbox group correctly reports 5 instead of 12/16/17.
@@ -56,17 +48,24 @@
 - **Apply-dialog action counts are accurate.** A checkbox group's summary now merges actions from the root group + selected child groups + selected presets (previously only the root's own actions were shown). The dialog shows the total unit count as `(N)`.
 - **Selection clears after apply.** `activePresets` and `activeTableGroups` are now cleared atomically (`setMultiple`) so the checkbox group visibly folds after a successful apply.
 
-### Animations
+## Animations
 
-- **Slide-in animation** for newly-appeared rows/items: checkbox group activation, child sub-group expansion, and plain-group expansion (including sub-table-group headers) now fade + slide in from the left. Two-phase (sync hidden state + next-frame animation class) avoids flash and browser class-coalescing.
-- **Collapse / deselect closes immediately** (the previous upward-shrink exit animation was janky and has been removed).
-- Fixed an issue where no animation played: a duplicate `groups` state listener caused a second re-render that discarded the just-added animation elements before their `requestAnimationFrame` class was applied.
+- Mode switch (use ↔ edit) slide animation.
+- Checkbox group activation / sub-group expansion row slide-in.
+- Checkbox group child switch fade-out → gap → fade-in.
+- Group header underline grow animation.
+- Welcome page fade-in.
+- Skin switch exit/enter transition.
+- Refresh skin list fade-out → reload → fade-in.
+- Editor empty-state hint fade-in.
+- Editor multi-select lock dim transition.
+- Toast parabolic toss animation.
 
 ### Edit mode
 
 - **Group save now reloads the editor**, mirroring the preset-save path: `editData` is refreshed from the freshly-saved group, and the preview cache is invalidated. Previously the editor kept showing the pre-save state.
 
-### Copy / paste & duplication
+## Copy / paste & duplication
 
 - **Duplicate any item (Ctrl+Shift+C).** The old Ctrl+C "duplicate preset" is now Ctrl+Shift+C and works on **presets, groups, and checkbox-groups** — duplicating a group deep-copies its entire subtree (child groups, checkbox-groups, presets, actions, description, preview).
 - **Copy / paste actions (Ctrl+C / Ctrl+V).** Copy the **selected rows of the current tab** (INI edits / file moves / image edits — one category at a time) into an in-app clipboard, then paste them into another preset or checkbox-group. Each copy fully resets the clipboard (no stale residue), and pasting merges with a per-category conflict dialog:
@@ -76,14 +75,14 @@
 - Paste fills the editor and marks it dirty — press Ctrl+S to persist.
 - **Checkbox-group creation merge check.** Creating a checkbox group from a selected group that has nested plain sub-groups now prompts to flatten (same as the drag-into-table path), instead of producing an invalid tree.
 
-### Multi-select & mixed selection (edit mode)
+## Multi-select & mixed selection (edit mode)
 
 - **Standalone `selection.js` module.** All multi-select state (presets + groups + Shift-range anchor) extracted from `preset-list.js` into a dedicated module with a clean API (`toggle`, `setSingle`, `setRangeFromAnchor`, `clear`, `beginDragPresetIds`, `beginDragGroupIds`, `outermostGroups`, `commonAncestor`). Eliminated ~10 dead-code items, 2 latent crash/state bugs, and 6+ duplicated logic blocks.
 - **Mixed selection.** Presets and groups can be selected together (Ctrl/Shift). Shift-range works cross-type. Duplicate/delete/drag/create-parent all handle mixed selections.
 - **ESC to deselect.** ESC clears the current selection (single or multi) in edit mode; in use mode ESC clears preset selection first, then deselects the skin. Only fires when nothing is focused (so input fields keep their own ESC behavior).
 - **Editor locks during multi-select.** Tabs disabled + editor dimmed with a fade transition. Save button disabled.
 
-### Unified drag/drop rewrite
+## Unified drag/drop rewrite
 
 - **Single delegated drag/drop system** replaces the previous 7 binding blocks / 13 handlers / 2 separate pipelines (preset vs group). One zone model: upper 25% = insert before, lower 25% = insert after, middle 50% = nest (group headers only).
 - **`reorderChildren` atomic API** used for all reorder moves — computes the final child order array locally and sets it in one call, eliminating all same-parent index-adjustment bugs.
@@ -94,14 +93,14 @@
 - **Performance fix:** delegated listeners bound once (guarded) instead of re-bound on every render.
 - **Nest highlight scrolls with the header** via a `scroll` listener that updates `--drop-indent`/`--drop-right`.
 
-### Editor empty state
+## Editor empty state
 
 - When nothing is selected, the editor shows **disabled tabs + a fade-in hint** (new preset steps, group/checkbox-group table explanation, editor shortcuts, Esc to deselect) instead of a blank new-preset form.
 - **New Preset placement:** selecting a group → new preset becomes its child; selecting a preset → new preset is a sibling; nothing selected → root.
 - **Save selects the new item.** Saving a new preset now selects it (previously stayed in `__new__` for continuous creation). Same for groups.
 - **Auto-focus name input** on new preset.
 
-### Other fixes
+## Other fixes
 
 - **Stale checkbox-group row selection re-seeded.** Rows whose persisted selection references a deleted/restructured preset now re-seed the leftmost option.
 - **Use-mode row label truncation** with hover tooltip for the full name.
@@ -113,9 +112,45 @@
 - **Save suppresses stale dirty** — sub-editor blur/change events during post-save re-render no longer re-mark dirty (the "save twice" bug).
 - **INI value inputs** now mark dirty on every keystroke (not just blur/Enter).
 - **Duplicate fix** — `refreshSkinData` now runs after duplicating (previously `Selection.clear()` made the guard skip it).
+- **Duplicate focuses the new item** — the last created preset/group is selected after duplication.
 - **Click thumbnail to change source** in file-copy and image-edit tabs.
+- **Same-source cache preserved** when changing an image source (other rows using the same source keep their thumbnails).
 - **Checkbox-group enter animation fixed** — option spans were triple-counting rowKeys, inflating the stagger delay 3×. Now only row-level elements animate.
+- **Checkbox-group child switch animation** — old rows fade out (`--exit` CSS animation) before re-render, new rows fade in (`--enter`) with a visible gap.
 - **Drag/drop zone consistency** — dragover and drop thresholds unified (25%/75%).
 - **Toolbar buttons blur** after click (no lingering focus).
-- **Group children render in stored order** (presets + groups interleaved), not forced presets-first.
+- **Group children render in stored order** (presets + groups interleaved), not forced presets-first. Fixed in both edit and use mode.
 - **New group creation clears preset selection.**
+- **Color picker closes on save** — `.cp-popover` removed before the save IPC.
+- **Bottom pixel crop** only when `cropEnabled` (Percy LN), not for plain tint operations.
+- **StageLight field** added to Mania section in the INI editor.
+- **INI field section order** follows the osu! wiki (General → Fonts → Colours → CatchTheBeat → Mania). Key order within sections unchanged.
+- **Single flatten prompt** when creating a checkbox group from multiple nested groups — prompts once for all sources, not per-group.
+
+### Refactoring
+
+- **selection.js module** — multi-select state extracted from preset-list.js.
+- **Unified drag/drop** — 7 binding blocks / 13 handlers replaced with a single delegated system.
+- **selection.js** + **preset-list.js** dead code removed (~10 items, 2 latent crash bugs).
+- **Render batching** — presets/groups/rootChildren listeners collapsed into one microtask.
+- **apply_group backend** rewritten to read `tableRowSelection` + `tableExpandedChildren` from config (mirrors frontend `collectTableRows`).
+- **Removed** `collect_descendant_preset_ids`, `reorder_children_stable` (dead code).
+
+## UI changes
+
+- **Warning button** — the paste conflict dialog's Skip/Overwrite/Append buttons restyled: Skip = red (`btn--danger`), Append = solid yellow (`btn--warning`), Overwrite = green (`btn--primary`). All right-aligned.
+- **Multi-select highlight** — preset items and group headers use a unified `--multi-selected` class with `box-shadow: inset` (replaces `outline` that overlapped between adjacent rows).
+- **Editor empty state** — disabled tabs (`tabs--empty`) show all tabs dimmed (including active), no hover response, no underline indicator.
+- **Editor multi-select lock** — `editor--locked` dims the whole editor with a fade transition (`opacity` 0.18s).
+- **Drop line** — element-level `::after` CSS (was a `position:fixed` overlay). Moves with the row on scroll.
+- **Nest highlight** — `::before` with `--drop-indent`/`--drop-right` CSS vars (JS-computed from `getBoundingClientRect`). Left edge tracks the header on horizontal scroll via a `scroll` listener.
+- **Row spacing** — preset items and group headers have `margin: 0` (was `1px 0`) so multi-selected rows' highlights sit flush.
+- **Group header size** — padding and margin aligned with preset items for visual consistency.
+- **Empty-state hint** — merged into a single readable block (was two separate sections), font size 12px, left-aligned with padding.
+- **Warning button** — solid fill with `--warning` color (#e8c878), softer shade.
+
+---
+
+**Full changelog:** https://github.com/Sisurtic/osu-skin-configurator/compare/v1.0.0...main
+
+---
