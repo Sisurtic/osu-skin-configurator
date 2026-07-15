@@ -241,6 +241,7 @@
     "desc": "選擇替換檔案並設定目標路徑（在皮膚資料夾內），或標記要刪除的檔案。",
     "copy": "＋ 複製",
     "delete": "＋ 刪除",
+    "clickToChange": "點擊更換來源檔案",
     "deleteZone": "拖曳操作到此處刪除",
     "colAction": "操作",
     "colFile": "檔案",

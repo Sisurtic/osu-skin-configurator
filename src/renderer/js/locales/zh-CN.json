@@ -241,6 +241,7 @@
     "desc": "选择替换文件并设定目标路径（在皮肤文件夹内），或标记要删除的文件。",
     "copy": "＋ 复制",
     "delete": "＋ 删除",
+    "clickToChange": "点击更换源文件",
     "deleteZone": "拖拽操作到此处删除",
     "colAction": "操作",
     "colFile": "文件",

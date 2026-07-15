@@ -1021,13 +1021,22 @@
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'g') { e.preventDefault(); }
   }, true);
 
-  // ── Esc key: blur focused element in edit mode ──
+  // ── Esc/Enter key: blur focused element in edit mode ──
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
+    if (e.key !== 'Escape' && e.key !== 'Enter') return;
     const activeEl = document.activeElement;
     if (!activeEl || activeEl === document.body) return;
     const isModal = !!document.querySelector('.modal-overlay');
     if (isModal) return;
+    // Enter: only blur non-textarea inputs (text/number/etc.), not textareas
+    // (which allow multi-line) or non-input elements (buttons etc.).
+    if (e.key === 'Enter') {
+      if (activeEl.tagName !== 'INPUT') return;
+      e.preventDefault();
+      activeEl.blur();
+      return;
+    }
+    // Escape: blur any focused element.
     if (state.get('appMode') === 'edit') {
       e.preventDefault();
       activeEl.blur();

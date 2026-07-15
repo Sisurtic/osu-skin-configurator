@@ -172,18 +172,19 @@
     const isSel = set.has(idx) || (set.size === 0 && idx === anchor);
     const selCls = isSel ? ' tint-row--selected' : '';
     return `<tr class="tint-row${selCls}" data-idx="${idx}">
-      <td><span class="file-thumb" data-path="${escapeHtml(src)}" title="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(src)}</span></td>
+      <td><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(src)}</span></td>
       <td><input type="text" class="form-input tint-dest" data-idx="${idx}" value="${escapeHtml(t.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>
     </tr>`;
   }
 
   function thumbHtmlFor(src) {
     const label = pathBasename(src);
-    if (!isImagePath(src)) return `📄 ${escapeHtml(label)}`;
+    const labelText = `<span class="file-thumb__name" title="${escapeHtml(src)}">${escapeHtml(label)}</span>`;
+    if (!isImagePath(src)) return `📄 ${labelText}`;
     if (thumbCache.has(src)) {
-      return `<img src="${thumbCache.get(src)}" title="${escapeHtml(src)}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
+      return `<img src="${thumbCache.get(src)}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${labelText}`;
     }
-    return `📄 ${escapeHtml(label)}`;
+    return `📄 ${labelText}`;
   }
 
   // ── Stage controls (right panel, under preview; no fade) ──
@@ -1098,8 +1099,7 @@
       if (result && result.success && result.data) {
         thumbCache.set(raw, result.data);
         const label = escapeHtml(pathBasename(raw));
-        const pathTitle = escapeHtml(raw);
-        span.innerHTML = `<img src="${result.data}" title="${pathTitle}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${label}`;
+        span.innerHTML = `<img src="${result.data}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> <span class="file-thumb__name" title="${escapeHtml(raw)}">${label}</span>`;
       }
     }
   }
@@ -1301,11 +1301,11 @@
     });
 
     // ── Bind row selection (unified) ── delegated to OpTable.
-    // Click thumbnail to change source path.
+    // Click thumbnail image to change source path.
     container.querySelectorAll('.file-thumb[data-path]').forEach(thumb => {
-      thumb.style.cursor = 'pointer';
       thumb.addEventListener('click', async (e) => {
-        if (e.target.tagName === 'INPUT') return;
+        // Only the image (not the text label) triggers the file dialog.
+        if (e.target.tagName !== 'IMG') return;
         const sk = skinName();
         if (!sk) return;
         const idx = parseInt(thumb.closest('[data-idx]')?.dataset.idx, 10);

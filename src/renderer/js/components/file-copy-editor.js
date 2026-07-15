@@ -98,9 +98,7 @@
 
   function layoutColumns(container) {
     measureColumns(container);
-    if (!measured) return;                        // tables not ready yet
-    // Always use BASE_W (minimum window). Fixed layout + width:100% scales
-    // proportionally to the actual table width, keeping proportions stable.
+    if (!measured) return;
     const [wAction, wFile, wDest] = measured;
     const exactW = 120;
     const rest = Math.max(0, BASE_W - wAction - exactW);
@@ -505,11 +503,11 @@
     // ── Load thumbnails for image files ──
     loadThumbnails();
 
-    // ── Click thumbnail to change source path ──
+    // ── Click thumbnail image to change source path ──
     container.querySelectorAll('.file-thumb[data-path]').forEach(thumb => {
-      thumb.style.cursor = 'pointer';
       thumb.addEventListener('click', async (e) => {
-        if (e.target.tagName === 'INPUT') return;
+        // Only the image (not the text label) triggers the file dialog.
+        if (e.target.tagName !== 'IMG') return;
         const sk = skinName();
         if (!sk) return;
         const idx = parseInt(thumb.closest('[data-idx]')?.dataset.idx, 10);
@@ -677,7 +675,7 @@
         const cached = thumbHtmlFor(src, pathBasename(src));
         return `<tr class="file-op-row" data-idx="${idx}" data-type="copy"${parentAttr}${hidden}>
           <td><span class="tag tag--accent">${i18n.t('file.tagCopy')}</span></td>
-          <td><span class="file-thumb" data-path="${escapeHtml(src)}" title="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
+          <td><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
           <td><input type="text" class="form-input copy-dest-input" data-idx="${idx}" value="${escapeHtml(op.destination)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>
           ${exactCell}
         </tr>`;
@@ -686,7 +684,7 @@
         const cached = thumbHtmlFor(p, pathBasename(p), true);
         return `<tr class="file-op-row file-delete-row" data-idx="${idx}" data-type="delete" data-delpath="${escapeHtml(p)}"${parentAttr}${hidden}>
           <td><span class="tag tag--danger">${i18n.t('file.tagDelete')}</span></td>
-          <td><span class="file-thumb file-del-thumb" data-path="${escapeHtml(p)}" title="${escapeHtml(p)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
+          <td><span class="file-thumb file-del-thumb" data-path="${escapeHtml(p)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
           <td style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</td>
           ${exactCell}
         </tr>`;
@@ -758,14 +756,14 @@
   // Build the inner markup for a file cell: cached <img> if available, else a
   // 📄 icon placeholder (loadThumbnails fills it in async on first load).
   function thumbHtmlFor(rawPath, label, isDelete) {
+    const labelText = `<span class="file-thumb__name" title="${escapeHtml(rawPath)}">${escapeHtml(label || '')}</span>`;
     if (isDelete ? !rawPath : !isImagePath(rawPath)) {
-      // Non-image (or empty): plain icon + label, no async load.
-      return isDelete ? escapeHtml(label) : `📄 ${escapeHtml(label || '')}`;
+      return isDelete ? labelText : `📄 ${labelText}`;
     }
     if (thumbCache.has(rawPath)) {
-      return `<img src="${thumbCache.get(rawPath)}" title="${escapeHtml(rawPath)}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
+      return `<img src="${thumbCache.get(rawPath)}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${labelText}`;
     }
-    return `📄 ${escapeHtml(label || '')}`;
+    return `📄 ${labelText}`;
   }
 
   function pathBasename(p) {
@@ -794,7 +792,7 @@
       // Cache keyed by the RAW data-path so re-renders can use it synchronously.
       if (thumbCache.has(raw)) {
         const label = pathBasename(raw);
-        span.innerHTML = `<img src="${thumbCache.get(raw)}" title="${escapeHtml(raw)}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
+        span.innerHTML = `<img src="${thumbCache.get(raw)}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> <span class="file-thumb__name" title="${escapeHtml(raw)}">${escapeHtml(label)}</span>`;
         continue;
       }
       try {
@@ -802,7 +800,7 @@
         if (result.success && result.data) {
           thumbCache.set(raw, result.data);
           const label = pathBasename(raw);
-          span.innerHTML = `<img src="${result.data}" title="${escapeHtml(raw)}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
+          span.innerHTML = `<img src="${result.data}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
         }
       } catch (_) { /* skip failed thumbnails */ }
     }

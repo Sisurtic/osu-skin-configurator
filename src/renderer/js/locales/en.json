@@ -241,6 +241,7 @@
     "desc": "Pick replacement files and set their destination path (inside the skin folder), or mark files for deletion.",
     "copy": "＋ Copy",
     "delete": "＋ Delete",
+    "clickToChange": "Click to change source",
     "deleteZone": "Drag an action here to delete",
     "colAction": "Action",
     "colFile": "File",

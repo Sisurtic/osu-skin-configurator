@@ -1130,7 +1130,7 @@
                 const idx = plan.index;
                 const field = plan.field;
                 const type = field?.type || 'string';
-                const cnLabel = edit._cn || INI_FIELD_LABELS.fieldLabel(field || { key: edit.key });
+                const cnLabel = INI_FIELD_LABELS.fieldLabel(field || { key: edit.key });
                 const rowTitle = field ? `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(field) + ' (' + field.key + ')')}"` : '';
                 if (edit._delete) {
                   return `<tr class="ini-edit-row ini-delete-row" data-idx="${idx}" ${rowTitle}>
@@ -1196,14 +1196,14 @@
                   html += `<tr class="ini-edit-row ini-sub-row ini-delete-row" data-idx="${subIdx}" data-group-parent="${escapeHtml(groupId)}" style="display:none" ${subTitle}>
                     <td><span class="tag tag--danger">${i18n.t('ini.tagDelete')}</span></td>
                     <td><span class="tag">${sectionLabel(subEdit)}</span></td>
-                    <td><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subEdit._cn || subEdit.key)}</span></td>
+                    <td><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></td>
                     <td style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</td>
                   </tr>`;
                 } else {
                   html += `<tr class="ini-edit-row ini-sub-row" data-idx="${subIdx}" data-group-parent="${escapeHtml(groupId)}" style="display:none" ${subTitle}>
                     <td><span class="tag tag--accent">${i18n.t('ini.tagModify')}</span></td>
                     <td><span class="tag">${sectionLabel(subEdit)}</span></td>
-                    <td><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subEdit._cn || subEdit.key)}</span></td>
+                    <td><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></td>
                     <td>${renderValueInput(subType, subEdit, subIdx, subField)}</td>
                   </tr>`;
                 }

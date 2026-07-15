@@ -325,7 +325,13 @@ select.form-input {
   white-space: nowrap;
 }
 
-/* ── Table ── */
+.file-thumb img {
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.file-thumb img:hover {
+  opacity: 0.7;
+}
 .table-wrap {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -361,11 +367,11 @@ select.form-input {
   text-align: left;
   vertical-align: middle;
 }
-/* Text/tag columns clip with ellipsis — EXCEPT section (badge must show fully). */
+/* Text/tag columns clip — EXCEPT section (badge must show fully). */
 .table.ini-table td:nth-child(1),
 .table.ini-table td:nth-child(3) {
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   white-space: nowrap;
 }
 .table.ini-table td:nth-child(2) {
@@ -379,13 +385,14 @@ select.form-input {
   width: 100%;
   min-width: 0;
 }
-/* File table value/dest columns: keep right margin, NO ellipsis (override the
-   generic ini-table ellipsis above), inputs fill width. */
-.table.files-body-table td:nth-child(2),
+.table.files-body-table td:nth-child(2) {
+  padding-right: 12px;
+  overflow: visible;
+  white-space: normal;
+}
 .table.files-body-table td:nth-child(3) {
   padding-right: 12px;
   overflow: visible;
-  text-overflow: clip;
   white-space: normal;
 }
 .table.files-body-table .copy-dest-input {
