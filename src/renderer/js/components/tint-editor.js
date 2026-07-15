@@ -73,7 +73,7 @@
       opSel = OpTable.create({
         container,
         rowSelector: '.tint-row',
-        interactiveSelector: 'input, select, textarea, button',
+        interactiveSelector: 'input, select, textarea, button, label, .toggle, .toggle__slider, .file-thumb, .file-thumb__icon, img',
         deleteMimeType: 'application/tint-indices',
         selectedClass: 'tint-row--selected',
         rowMembers: (row) => {
@@ -180,11 +180,12 @@
   function thumbHtmlFor(src) {
     const label = pathBasename(src);
     const labelText = `<span class="file-thumb__name" title="${escapeHtml(src)}">${escapeHtml(label)}</span>`;
-    if (!isImagePath(src)) return `📄 ${labelText}`;
+    const icon = `<span class="file-thumb__icon" title="${i18n.t('file.clickToChange')}">📄</span>`;
+    if (!isImagePath(src)) return `${icon} ${labelText}`;
     if (thumbCache.has(src)) {
       return `<img src="${thumbCache.get(src)}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${labelText}`;
     }
-    return `📄 ${labelText}`;
+    return `${icon} ${labelText}`;
   }
 
   // ── Stage controls (right panel, under preview; no fade) ──
@@ -1304,8 +1305,8 @@
     // Click thumbnail image to change source path.
     container.querySelectorAll('.file-thumb[data-path]').forEach(thumb => {
       thumb.addEventListener('click', async (e) => {
-        // Only the image (not the text label) triggers the file dialog.
-        if (e.target.tagName !== 'IMG') return;
+        // Only the image or the file-icon (not the text label) triggers the file dialog.
+        if (e.target.tagName !== 'IMG' && !e.target.classList.contains('file-thumb__icon')) return;
         const sk = skinName();
         if (!sk) return;
         const idx = parseInt(thumb.closest('[data-idx]')?.dataset.idx, 10);
@@ -1326,6 +1327,11 @@
           }
         }
         arr[idx] = { ...arr[idx], source: chosen };
+        // Sync source to other selected rows.
+        const srcSet = opSel ? opSel.getSelected() : new Set();
+        if (srcSet.size > 1 && srcSet.has(idx)) {
+          for (const i of srcSet) { if (i !== idx && arr[i]) { arr[i] = { ...arr[i], source: chosen }; } }
+        }
         applyTints(arr);
         // Only delete the old source's thumb if no other row still uses it.
         const oldSrc = thumb.dataset.path;
@@ -1345,19 +1351,36 @@
       return OpTable.appendSrcExt(val, source);
     }
 
-    // Destination input (per row).
+    // Destination input (per row). When multiple rows are selected, the value
+    // is synced to all selected rows.
     container.querySelectorAll('.tint-dest').forEach(input => {
       input.addEventListener('input', () => {
         const idx = parseInt(input.dataset.idx, 10);
         const arr = cur();
         if (arr[idx]) { arr[idx] = { ...arr[idx], destination: input.value }; applyTints(arr); }
+        // Sync to other selected rows.
+        const set = opSel ? opSel.getSelected() : new Set();
+        if (set.size > 1 && set.has(idx)) {
+          for (const i of set) {
+            if (i !== idx && arr[i]) { arr[i] = { ...arr[i], destination: input.value }; }
+          }
+          applyTints(arr);
+        }
       });
       input.addEventListener('change', async () => {
         const idx = parseInt(input.dataset.idx, 10);
         const arr = cur();
         if (!arr[idx]) return;
         let val = input.value.trim().replace(/^["']|["']$/g, '');
-        if (!val) { arr[idx] = { ...arr[idx], destination: '' }; applyTints(arr); input.value = ''; return; }
+        if (!val) {
+          arr[idx] = { ...arr[idx], destination: '' }; applyTints(arr); input.value = '';
+          const set = opSel ? opSel.getSelected() : new Set();
+          if (set.size > 1 && set.has(idx)) {
+            for (const i of set) { if (i !== idx && arr[i]) { arr[i] = { ...arr[i], destination: '' }; } }
+            applyTints(arr);
+          }
+          return;
+        }
         // Absolute path: try to convert to skin-relative; reject if outside skin
         // (mirrors file-copy-editor so both tabs share the same destination format).
         if (/^[a-zA-Z]:[\\/]?/.test(val)) {
@@ -1379,6 +1402,11 @@
         val = appendSrcExt(val, arr[idx].source || '');
         if (val !== input.value) input.value = val;
         arr[idx] = { ...arr[idx], destination: val };
+        // Sync final normalized value to other selected rows.
+        const set2 = opSel ? opSel.getSelected() : new Set();
+        if (set2.size > 1 && set2.has(idx)) {
+          for (const i of set2) { if (i !== idx && arr[i]) { arr[i] = { ...arr[i], destination: val }; } }
+        }
         applyTints(arr);
       });
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });

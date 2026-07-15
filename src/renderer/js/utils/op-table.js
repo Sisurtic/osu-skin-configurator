@@ -106,6 +106,9 @@
 
     function bindRow(row) {
       row.addEventListener('click', (e) => {
+        // Skip if an input is focused (text selection drag, typing, etc.)
+        const ae = document.activeElement;
+        if (ae && ae.closest('input, textarea, select')) return;
         if (e.target.closest(interactiveSel)) return;
         const members = A.rowMembers(row);
         if (members.length === 0) return;
@@ -342,16 +345,22 @@
   // any extension the user typed, then append the source's. Copies/tints are
   // byte-for-byte, so a mismatched extension would corrupt the file. Directory
   // dests (trailing /) are left untouched.
-  function appendSrcExt(val, source) {
+  // Format a destination path: strip the user's file extension and trailing
+  // @2x (keep only the stem). The SOURCE file's full suffix (@2x + extension)
+  // is used at apply time by the backend, so the stored destination should be
+  // just the directory + stem with no suffix.
+  // e.g. dest=mania/custom@2x.png → mania/custom (stem only, no suffix)
+  function appendSrcExt(val) {
     if (!val || val.endsWith('/')) return val;
     const slash = val.lastIndexOf('/');
     const base = val.slice(slash + 1);
+    // Strip extension (everything from the first dot).
     const dotPos = base.indexOf('.');
-    const stem = dotPos >= 0 ? base.slice(0, dotPos) : base;
-    const srcBase = (source || '').split(/[/\\]/).pop() || '';
-    const sDot = srcBase.lastIndexOf('.');
-    if (sDot < 0) return dotPos >= 0 ? val.slice(0, slash + 1) + stem : val;
-    return val.slice(0, slash + 1) + stem + srcBase.slice(sDot);
+    let stem = dotPos >= 0 ? base.slice(0, dotPos) : base;
+    // Strip trailing @2x.
+    stem = stem.replace(/@2x$/i, '');
+    const dir = val.slice(0, slash + 1);
+    return dir + stem;
   }
 
   // Reorder `arr`: move the items at `fromIndices` (in original-array positions)

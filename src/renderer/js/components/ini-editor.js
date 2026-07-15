@@ -488,13 +488,29 @@
     // Value change handlers (color inputs are handled separately below)
     container.querySelectorAll('.ini-value-input').forEach(input => {
       if (input.classList.contains('ini-color-value')) return;
-      // 'input' fires live (save button lights up immediately). 'change' fires
-      // on blur/Enter — but we DON'T call setActions again (input already did),
-      // avoiding the save-twice bug (blur event after save re-marks dirty).
+      // 'input' fires live (save button lights up immediately).
       input.addEventListener('input', () => {
         const idx = parseInt(input.dataset.idx);
         iniEdits[idx].value = input.value;
+        // Sync to other selected rows with the same key — update data + DOM in-place.
+        const set = sel ? sel.getSelected() : new Set();
+        if (set.size > 1 && set.has(idx)) {
+          const editKey = iniEdits[idx]._template || iniEdits[idx].key;
+          const editSection = iniEdits[idx].section;
+          for (const i of set) {
+            if (i !== idx && iniEdits[i]) {
+              const iKey = iniEdits[i]._template || iniEdits[i].key;
+              if (iniEdits[i].section === editSection && iKey === editKey) {
+                iniEdits[i].value = input.value;
+                // Update DOM directly (no render = selection preserved).
+                const otherInput = container.querySelector(`.ini-value-input[data-idx="${i}"]`);
+                if (otherInput) otherInput.value = input.value;
+              }
+            }
+          }
+        }
         setActions([...iniEdits]);
+        lastActionsRef = iniEdits;
       });
     });
     // Live color value box: commit per keystroke, update swatch, forward to open popover.
@@ -517,6 +533,13 @@
           ? `${parsed.r},${parsed.g},${parsed.b},${parsed.a}`
           : `${parsed.r},${parsed.g},${parsed.b}`;
         iniEdits[idx].value = normalized;
+        // Sync to other selected rows with the same key.
+        const set = sel ? sel.getSelected() : new Set();
+        if (set.size > 1 && set.has(idx)) {
+          const editKey = iniEdits[idx]._template || iniEdits[idx].key;
+          const editSection = iniEdits[idx].section;
+          for (const i of set) { if (i !== idx && iniEdits[i] && iniEdits[i].section === editSection && (iniEdits[i]._template || iniEdits[i].key) === editKey) iniEdits[i].value = normalized; }
+        }
         setActions([...iniEdits]);
         const swatch = input.parentElement.querySelector('.ini-color-swatch');
         if (swatch) swatch.style.background = type === 'rgba'
@@ -545,13 +568,25 @@
       cb.addEventListener('change', () => {
         const idx = parseInt(cb.dataset.idx);
         iniEdits[idx].value = cb.checked ? '1' : '0';
+        const set = sel ? sel.getSelected() : new Set();
+        if (set.size > 1 && set.has(idx)) {
+          const editKey = iniEdits[idx]._template || iniEdits[idx].key;
+          const editSection = iniEdits[idx].section;
+          for (const i of set) { if (i !== idx && iniEdits[i] && iniEdits[i].section === editSection && (iniEdits[i]._template || iniEdits[i].key) === editKey) iniEdits[i].value = cb.checked ? '1' : '0'; }
+        }
         setActions([...iniEdits]);
       });
     });
-    container.querySelectorAll('.ini-value-section').forEach(sel => {
-      sel.addEventListener('change', () => {
-        const idx = parseInt(sel.dataset.idx);
-        iniEdits[idx].value = sel.value;
+    container.querySelectorAll('.ini-value-section').forEach(s => {
+      s.addEventListener('change', () => {
+        const idx = parseInt(s.dataset.idx);
+        iniEdits[idx].value = s.value;
+        const set = sel ? sel.getSelected() : new Set();
+        if (set.size > 1 && set.has(idx)) {
+          const editKey = iniEdits[idx]._template || iniEdits[idx].key;
+          const editSection = iniEdits[idx].section;
+          for (const i of set) { if (i !== idx && iniEdits[i] && iniEdits[i].section === editSection && (iniEdits[i]._template || iniEdits[i].key) === editKey) iniEdits[i].value = s.value; }
+        }
         setActions([...iniEdits]);
       });
     });

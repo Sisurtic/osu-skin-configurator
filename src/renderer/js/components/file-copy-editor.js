@@ -46,7 +46,10 @@
     ];
   }
 
-  function applyFileOps(fileOps) {
+  // Apply file ops WITHOUT re-rendering (preserves selection + input focus).
+  // Use this for live sync (typing/Enter); use applyFileOps+rerenderTable for
+  // structural changes (add/delete/reorder).
+  function applyFileOpsNoRender(fileOps) {
     const copies = fileOps
       .filter(op => op._type === 'copy')
       .map(op => ({ source: op.source, destination: op.destination, exact: !!op.exact }));
@@ -55,6 +58,18 @@
       .map(op => ({ path: op.path, exact: !!op.exact }));
     setCopies(copies);
     setDeletes(deletes);
+    // Update currentFileOps in-place so display stays consistent without rebuild.
+    if (currentFileOps) {
+      for (let i = 0; i < currentFileOps.length && i < fileOps.length; i++) {
+        if (fileOps[i]._type === 'copy') {
+          currentFileOps[i].destination = fileOps[i].destination;
+        }
+      }
+    }
+  }
+
+  function applyFileOps(fileOps) {
+    applyFileOpsNoRender(fileOps);
   }
 
   function opFile(op) { return op._type === 'copy' ? (op.source || '') : (op.path || ''); }
@@ -139,7 +154,7 @@
       sel = OpTable.create({
         container,
         rowSelector: '.file-op-row',
-        interactiveSelector: 'input, button',
+        interactiveSelector: 'input, button, label, .toggle, .toggle__slider, .file-thumb__icon, img',
         deleteMimeType: 'application/file-indices',
         rowMembers: (row) => rowMemberIndices(row),
         rowAnchor: (row) => rowAnchorIndex(row),
@@ -306,22 +321,50 @@
     //    and NO input.value rewrite here — that would reset the caret mid-typing.
     //  • 'change' / Enter (blur or commit): run the conversion — absolute path inside the
     //    skin → relative; outside the skin → toast + clear — and rewrite the displayed text.
+    // Sync a field change to all selected rows: update data + DOM inputs in-place
+    // (no render = selection preserved). Toggling switches etc. also update directly.
+    function syncField(ops, idx, field, val) {
+      const set = sel ? sel.getSelected() : new Set();
+      if (set.size > 1) {
+        for (const i of set) {
+          if (i !== idx && i >= 0 && i < ops.length) ops[i][field] = val;
+        }
+      }
+      applyFileOpsNoRender(ops);
+      // Update other selected rows' DOM directly (no re-render = selection preserved).
+      if (set.size > 1) {
+        const container2 = document.getElementById('tab-files');
+        for (const i of set) {
+          if (i === idx) continue;
+          if (field === 'destination') {
+            const otherInput = container2.querySelector(`.copy-dest-input[data-idx="${i}"]`);
+            if (otherInput) otherInput.value = val;
+          } else if (field === 'exact') {
+            const otherCb = container2.querySelector(`.file-exact-toggle[data-idx="${i}"]`);
+            if (otherCb) otherCb.checked = !!val;
+          }
+        }
+      }
+    }
+
     function commitDestRaw(input) {
       const idx = parseInt(input.dataset.idx);
+      if (isNaN(idx)) return;
       const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
       if (idx >= 0 && idx < ops.length && ops[idx]._type === 'copy') {
         const val = input.value.trim().replace(/^["']|["']$/g, '');
         ops[idx].destination = val;
-        applyFileOps(ops);
+        syncField(ops, idx, 'destination', val);
       }
     }
     // Normalize a file dest's extension to the SOURCE's extension (shared impl
     // in OpTable.appendSrcExt — see the comment there).
-    function appendSrcExt(val, source) {
-      return OpTable.appendSrcExt(val, source);
+    function appendSrcExt(val) {
+      return OpTable.appendSrcExt(val);
     }
 
-    function convertDestDisplay(input) {
+    function convertDestDisplay(input) { return convertDestDisplayImpl(input); }
+    async function convertDestDisplayImpl(input) {
       const idx = parseInt(input.dataset.idx);
       const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
       if (idx < 0 || idx >= ops.length || ops[idx]._type !== 'copy') return;
@@ -341,22 +384,22 @@
               val = '';
             }
           }
-          val = appendSrcExt(val, source);
+          val = appendSrcExt(val);
           input.value = val;
           ops[idx].destination = val;
-          applyFileOps(ops);
+          syncField(ops, idx, 'destination', val);
         });
         return;
       }
       // Already relative: normalize separators for display.
       val = val.replace(/\\/g, '/');
-      val = appendSrcExt(val, source);
+      val = appendSrcExt(val);
       if (val !== input.value) input.value = val;
       ops[idx].destination = val;
-      applyFileOps(ops);
+      syncField(ops, idx, 'destination', val);
     }
     container.querySelectorAll('.copy-dest-input').forEach(input => {
-      input.addEventListener('input', () => commitDestRaw(input));
+      // Sync only on change/Enter — not per keystroke.
       input.addEventListener('change', () => convertDestDisplay(input));
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); convertDestDisplay(input); }
@@ -369,7 +412,7 @@
       cb.addEventListener('change', () => {
         const idx = parseInt(cb.dataset.idx);
         const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-        if (idx >= 0 && idx < ops.length) { ops[idx].exact = cb.checked; applyFileOps(ops); }
+        if (idx >= 0 && idx < ops.length) { ops[idx].exact = cb.checked; syncField(ops, idx, 'exact', cb.checked); }
       });
     });
 
@@ -435,7 +478,7 @@
               const valNorm = val.replace(/\\/g, '/').toLowerCase();
               val = valNorm.startsWith(skNorm) ? val.replace(/\\/g, '/').slice(sp.length).replace(/^\//, '') : val;
             }
-            val = appendSrcExt(val, source);
+            val = appendSrcExt(val);
             input.value = val;
             for (const k of idxs) ops[k].destination = val;
             applyFileOps(ops);
@@ -443,7 +486,7 @@
           return;
         }
         val = val.replace(/\\/g, '/');
-        val = appendSrcExt(val, source);
+        val = appendSrcExt(val);
         if (val !== input.value) input.value = val;
         for (const k of idxs) ops[k].destination = val;
         applyFileOps(ops);
@@ -500,14 +543,13 @@
       });
     }
 
-    // ── Load thumbnails for image files ──
     loadThumbnails();
 
-    // ── Click thumbnail image to change source path ──
+    // ── Click thumbnail/icon to change source path ──
     container.querySelectorAll('.file-thumb[data-path]').forEach(thumb => {
       thumb.addEventListener('click', async (e) => {
-        // Only the image (not the text label) triggers the file dialog.
-        if (e.target.tagName !== 'IMG') return;
+        // Only the image or the file-icon (not the text label) triggers the file dialog.
+        if (e.target.tagName !== 'IMG' && !e.target.classList.contains('file-thumb__icon')) return;
         const sk = skinName();
         if (!sk) return;
         const idx = parseInt(thumb.closest('[data-idx]')?.dataset.idx, 10);
@@ -529,12 +571,17 @@
         }
         if (op._type === 'copy') op.source = chosen;
         else op.path = chosen;
-        applyFileOps(currentFileOps);
+        const field = op._type === 'copy' ? 'source' : 'path';
+        syncField(currentFileOps, idx, field, chosen);
         // Only delete the old source's thumb if no other op still uses it.
         const oldPath = thumb.dataset.path;
         const stillUsed = currentFileOps.some(o => (o._type === 'copy' ? o.source : o.path) === oldPath);
         if (!stillUsed) thumbCache.delete(oldPath);
+        // Save selection before rerender (which clears it).
+        const savedSel = sel ? [...sel.getSelected()] : [];
+        const savedAnchor = sel ? sel.getAnchor() : -1;
         rerenderTable(container);
+        if (sel && savedSel.length > 1) sel.setSelected(new Set(savedSel), savedAnchor);
       });
     });
 
@@ -758,7 +805,8 @@
   function thumbHtmlFor(rawPath, label, isDelete) {
     const labelText = `<span class="file-thumb__name" title="${escapeHtml(rawPath)}">${escapeHtml(label || '')}</span>`;
     if (isDelete ? !rawPath : !isImagePath(rawPath)) {
-      return isDelete ? labelText : `📄 ${labelText}`;
+      const icon = isDelete ? '' : `<span class="file-thumb__icon" title="${i18n.t('file.clickToChange')}">📄</span>`;
+      return isDelete ? labelText : `${icon} ${labelText}`;
     }
     if (thumbCache.has(rawPath)) {
       return `<img src="${thumbCache.get(rawPath)}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${labelText}`;

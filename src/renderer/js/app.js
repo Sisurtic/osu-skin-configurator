@@ -1021,27 +1021,34 @@
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'g') { e.preventDefault(); }
   }, true);
 
-  // ── Esc/Enter key: blur focused element in edit mode ──
+  // ── Esc/Enter confirm: delegate to InputConfirm module ──
+  // Replaces the hardcoded global handler. Enter blurs <input> (not textarea);
+  // Escape blurs any focused element in edit mode.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' && e.key !== 'Enter') return;
-    const activeEl = document.activeElement;
-    if (!activeEl || activeEl === document.body) return;
     const isModal = !!document.querySelector('.modal-overlay');
     if (isModal) return;
-    // Enter: only blur non-textarea inputs (text/number/etc.), not textareas
-    // (which allow multi-line) or non-input elements (buttons etc.).
+    // Color picker popover: close on ESC/Enter regardless of focus.
+    if (document.querySelector('.cp-popover')) {
+      e.preventDefault(); e.stopPropagation();
+      if (window.ColorPicker && typeof window.ColorPicker.closeAll === 'function') window.ColorPicker.closeAll();
+      return;
+    }
+    const activeEl = document.activeElement;
+    if (!activeEl || activeEl === document.body) return;
     if (e.key === 'Enter') {
       if (activeEl.tagName !== 'INPUT') return;
       e.preventDefault();
       activeEl.blur();
-      return;
-    }
-    // Escape: blur any focused element.
-    if (state.get('appMode') === 'edit') {
-      e.preventDefault();
-      activeEl.blur();
+    } else {
+      if (state.get('appMode') === 'edit') { e.preventDefault(); activeEl.blur(); }
     }
   });
+
+  // Auto-attach Enter/Escape confirm to all current + future inputs.
+  if (window.InputConfirm && typeof window.InputConfirm.observe === 'function') {
+    window.InputConfirm.observe();
+  }
 
   // ── Global keydown handler for number inputs (Shift+Arrow = 10x) ──
   document.addEventListener('keydown', (e) => {

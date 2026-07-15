@@ -454,8 +454,11 @@
       applyValue(textInput.value, false);
     });
     textInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { closePopover(); }
-      if (e.key === 'Enter') { closePopover(); }
+      if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); closePopover(); }
+    });
+    // Also handle on the popover itself (focus may be on a canvas/child, not textInput).
+    popover.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); closePopover(); }
     });
 
     // Close on outside click
@@ -496,5 +499,10 @@
     }
   }
 
-  window.ColorPicker = { attach, forwardInput, parseColor, formatOutput };
+  window.ColorPicker = { attach, forwardInput, parseColor, formatOutput, closeAll };
+  // Close any open popover (called by the global ESC/Enter handler).
+  function closeAll() {
+    const pop = document.querySelector('.cp-popover');
+    if (pop) closePopover();
+  }
 })();

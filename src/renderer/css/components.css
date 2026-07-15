@@ -325,12 +325,26 @@ select.form-input {
   white-space: nowrap;
 }
 
-.file-thumb img {
+.file-thumb img,
+.file-thumb__icon {
   cursor: pointer;
   flex-shrink: 0;
+  transition: box-shadow 0.15s, opacity 0.15s;
 }
-.file-thumb img:hover {
-  opacity: 0.7;
+.file-thumb img:hover,
+.file-thumb__icon:hover {
+  opacity: 0.85;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.file-thumb__icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
 }
 .table-wrap {
   border: 1px solid var(--border);
@@ -1272,6 +1286,14 @@ select.form-input {
 .row--selected {
   background: rgba(102, 204, 136, 0.12) !important;
   outline: 1px solid var(--accent-dim);
+}
+.row--selected input,
+.row--selected select,
+.row--selected button,
+.row--selected label,
+.row--selected .toggle {
+  position: relative;
+  z-index: 1;
 }
 .row--dragging {
   opacity: 0.4;
