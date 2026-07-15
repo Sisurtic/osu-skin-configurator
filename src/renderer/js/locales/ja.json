@@ -106,6 +106,8 @@
     "tintCropCount": "{n} 個の画像を切り抜き",
     "noActions": "⚠ このプリセットには操作がありません",
     "confirmApply": "適用",
+    "saveAndApply": "保存して適用",
+    "applyUnsaved": "保存せず適用",
     "applying": "適用中…",
     "noSkinOrPreset": "スキンまたはプリセットが選択されていません",
     "appliedSummary": "プリセットを適用しました! INI 編集 {ini}、ファイル移動 {file}、画像編集 {tint}",
@@ -128,7 +130,8 @@
     "totalColor": "合計 {n} 個の画像を調色",
     "totalCrop": "合計 {n} 個の画像を切り抜き",
     "noActionsMulti": "⚠ 選択したプリセットには操作がありません",
-    "dedupHint": "⚠ 同一 INI 項目の変更は、後に適用したプリセットが優先されます"
+    "dedupHint": "⚠ 同一 INI 項目の変更は、後に適用したプリセットが優先されます",
+    "saveFirst": "現在の編集は未保存です — 適用前に保存する"
   },
   "editor": {
     "emptyHint": "何も選択されていません — 左のプリセットまたはグループを選んで編集するか、新規作成してください。\n\n▸ 新規プリセット：「+ 新規プリセット」（Ctrl+N）→ 基本タブで名前 → INI / ファイル / 画像編集を追加 → 💾 保存（Ctrl+S）。\n▸ グループとネスト：Ctrl+G でグループ作成。プリセットをドラッグでグループへ、グループを別のグループへドラッグしてネスト。Ctrl+Shift+G で複数選択グループ表を作成。\n▸ 複数選択グループ表：各行の左側の行名は普通サブグループの名前。各行の選択肢はその行から1つ選ぶプリセット（またはネストした複数選択グループ）。\n▸ エディターショートカット：Ctrl+N 新規、Ctrl+S 保存、Ctrl+C / Ctrl+V 選択操作のコピー/貼り付け、Ctrl+Shift+C 選択項目の複製、1-4 タブ切替、Esc 選択解除。\n\n編集モードでプリセットを構築し、使用モード（✏️ / Ctrl+E）で選択・適用します。"
@@ -204,7 +207,7 @@
     "keySearchPlaceholder": "先にセクションを選択",
     "add": "+ 追加",
     "deleteKeyTitle": "選択した INI キーを削除",
-    "deleteBtn": "- 削除",
+    "deleteBtn": "+ 削除",
     "deleteZone": "操作をここにドラッグして削除",
     "colAction": "操作",
     "colSection": "セクション",

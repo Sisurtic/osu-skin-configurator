@@ -122,7 +122,7 @@
    * Show multi-preset apply dialog from use mode.
    * @param {{presetIds?: number[], groupIds?: number[]}} args
    */
-  async function showMulti({ presetIds = [], groupIds = [] } = {}) {
+  async function showMulti({ presetIds = [], groupIds = [], dirty = false } = {}) {
     if (document.querySelector('.modal-overlay')) return;
     const skin = state.get('selectedSkin');
     if (!skin || (presetIds.length === 0 && groupIds.length === 0)) {
@@ -258,10 +258,15 @@
           </div>
           ${!hasAny ? `<p style="color:var(--warning);margin-top:8px">${i18n.t('apply.noActionsMulti')}</p>` : ''}
           <p style="font-size:11px;color:var(--text-muted);margin-top:8px">${i18n.t('apply.dedupHint')}</p>
+          ${dirty ? `<p style="color:var(--warning);margin-top:8px;font-size:12px">${i18n.t('apply.saveFirst')}</p>` : ''}
         </div>
         <div class="modal__actions">
-          <button class="btn btn--primary" id="apply-confirm">${i18n.t('apply.confirmApply')}</button>
-          <button class="btn btn--secondary" id="apply-cancel">${i18n.t('dialog.cancel')}</button>
+          ${dirty
+            ? `<button class="btn btn--primary" data-apply="save">${i18n.t('apply.saveAndApply')}</button>
+               <button class="btn btn--danger" data-apply="nosave">${i18n.t('apply.applyUnsaved')}</button>
+               <button class="btn btn--secondary" id="apply-cancel">${i18n.t('dialog.cancel')}</button>`
+            : `<button class="btn btn--primary" data-apply="plain">${i18n.t('apply.confirmApply')}</button>
+               <button class="btn btn--secondary" id="apply-cancel">${i18n.t('dialog.cancel')}</button>`}
         </div>
       </div>
     `;
@@ -274,10 +279,23 @@
     });
     bindEsc();
 
-    overlay.querySelector('#apply-confirm').addEventListener('click', async () => {
-      const btn = overlay.querySelector('#apply-confirm');
-      btn.textContent = i18n.t('apply.applying');
-      btn.disabled = true;
+    // Apply buttons (delegated by data-apply). In edit mode with unsaved edits
+    // the actions are: save (save then apply) / nosave (apply the saved state
+    // as-is) / cancel. Otherwise a plain apply / cancel.
+    overlay.querySelectorAll('[data-apply]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const mode = btn.dataset.apply;
+        // Save first if requested. On save failure, abort so nothing is applied
+        // from a stale state; re-enable the buttons so the user can retry.
+        if (mode === 'save') {
+          if (window.PresetEditor && typeof window.PresetEditor.doSave === 'function') {
+            const ok = await window.PresetEditor.doSave();
+            if (!ok) return;
+          }
+        }
+        // Disable all apply buttons + show "applying…" on the clicked one.
+        overlay.querySelectorAll('[data-apply]').forEach(b => { b.disabled = true; });
+        btn.textContent = i18n.t('apply.applying');
 
       // Apply loose presets first, then each active table group (group's own
       // actions + its subtree, applied once by the backend). The two sets are
@@ -323,7 +341,13 @@
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
         const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0);
         Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
+        // "Apply without saving" applied the SAVED state; reload it into the
+        // editor so the editor matches (discards the unsaved edits).
+        if (mode === 'nosave' && window.PresetEditor && typeof window.PresetEditor.reloadCurrent === 'function') {
+          await window.PresetEditor.reloadCurrent();
+        }
       }
+    });
     });
   }
 

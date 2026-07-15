@@ -613,86 +613,65 @@
     }
     if (!sk) return;
 
-    const result = await api.loadPreset(sk, preset);
-    if (result.success && result.data) {
-      editData = {
-        kind: 'preset',
-        meta: result.data.meta || { name: i18n.t('preset.fallbackName', { id: preset }), description: '' },
-        actions: normalizeActions(result.data.actions),
-        _previewPath: result.data.meta?.previewPath || null,
-        _previewKind: result.data.meta?.previewKind || 'image',
-        _previewFrames: result.data.meta?.previewFrames || null,
-        _previewFps: result.data.meta?.previewFps || 12,
-        _groupId: null,
-    _isTableGroup: false,
-        _originalName: '',
-      };
-      state.set('presetDirty', false);
-      IniEditor.init(getSkinIniActions, setSkinIniActions, async () => {
-        const sn = skinName();
-        if (!sn) return null;
-        const r = await api.getSkinPath(sn);
-        return r.success ? r.data : null;
-      });
-      FileCopyEditor.init(getFileCopies, setFileCopies, getFileDeletes, setFileDeletes, skinName, () => state.get('selectedPreset'), async () => {
-        const sn = skinName();
-        if (!sn) return null;
-        const r = await api.getSkinPath(sn);
-        return r.success ? r.data : null;
-      });
-      PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => editData._groupId ?? state.get('selectedPreset'));
-      TintEditor.init(getFileTints, setFileTints, skinName, () => state.get('selectedPreset'), async () => {
-        const sn = skinName();
-        if (!sn) return null;
-        const r = await api.getSkinPath(sn);
-        return r.success ? r.data : null;
-      });
-      render();
-      playEditorEnter();
-    }
+    if (await loadPresetIntoEditor(preset)) playEditorEnter();
   });
+  // Reload the currently selected preset/group into the editor from its saved
+  // state on disk — used by confirmApplyIfDirty's "don't save" branch so the
+  // editor discards unsaved edits (apply reads the SAVED state).
+  async function reloadCurrent() {
+    const preset = state.get('selectedPreset');
+    const group = state.get('selectedGroup');
+    if (group != null) { loadGroupIntoEditor(group); return true; }
+    if (preset && preset !== '__new__') return loadPresetIntoEditor(preset);
+    return false;
+  }
+  // Fetch the preset from disk and populate editData + sub-editors. Returns
+  // true on success. Shared by the selectedPreset/appMode listeners + reloadCurrent.
+  async function loadPresetIntoEditor(preset) {
+    const sk = skinName();
+    if (!sk) return false;
+    const result = await api.loadPreset(sk, preset);
+    if (!result.success || !result.data) return false;
+    editData = {
+      kind: 'preset',
+      meta: result.data.meta || { name: i18n.t('preset.fallbackName', { id: preset }), description: '' },
+      actions: normalizeActions(result.data.actions),
+      _previewPath: result.data.meta?.previewPath || null,
+      _previewKind: result.data.meta?.previewKind || 'image',
+      _previewFrames: result.data.meta?.previewFrames || null,
+      _previewFps: result.data.meta?.previewFps || 12,
+      _groupId: null,
+    _isTableGroup: false,
+      _originalName: '',
+    };
+    state.set('presetDirty', false);
+    IniEditor.init(getSkinIniActions, setSkinIniActions, async () => {
+      const sn = skinName();
+      if (!sn) return null;
+      const r = await api.getSkinPath(sn);
+      return r.success ? r.data : null;
+    });
+    FileCopyEditor.init(getFileCopies, setFileCopies, getFileDeletes, setFileDeletes, skinName, () => state.get('selectedPreset'), async () => {
+      const sn = skinName();
+      if (!sn) return null;
+      const r = await api.getSkinPath(sn);
+      return r.success ? r.data : null;
+    });
+    PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => editData._groupId ?? state.get('selectedPreset'));
+    TintEditor.init(getFileTints, setFileTints, skinName, () => state.get('selectedPreset'), async () => {
+      const sn = skinName();
+      if (!sn) return null;
+      const r = await api.getSkinPath(sn);
+      return r.success ? r.data : null;
+    });
+    render();
+    return true;
+  }
   state.on('appMode', async (mode) => {
     if (mode !== 'edit') return;
     const preset = state.get('selectedPreset');
     if (!preset || preset === '__new__') return;
-    const sk = skinName();
-    if (!sk) return;
-    const result = await api.loadPreset(sk, preset);
-    if (result.success && result.data) {
-      editData = {
-        kind: 'preset',
-        meta: result.data.meta || { name: i18n.t('preset.fallbackName', { id: preset }), description: '' },
-        actions: normalizeActions(result.data.actions),
-        _previewPath: result.data.meta?.previewPath || null,
-        _previewKind: result.data.meta?.previewKind || 'image',
-        _previewFrames: result.data.meta?.previewFrames || null,
-        _previewFps: result.data.meta?.previewFps || 12,
-        _groupId: null,
-    _isTableGroup: false,
-        _originalName: '',
-      };
-      state.set('presetDirty', false);
-      IniEditor.init(getSkinIniActions, setSkinIniActions, async () => {
-        const sn = skinName();
-        if (!sn) return null;
-        const r = await api.getSkinPath(sn);
-        return r.success ? r.data : null;
-      });
-      FileCopyEditor.init(getFileCopies, setFileCopies, getFileDeletes, setFileDeletes, skinName, () => state.get('selectedPreset'), async () => {
-        const sn = skinName();
-        if (!sn) return null;
-        const r = await api.getSkinPath(sn);
-        return r.success ? r.data : null;
-      });
-      PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => editData._groupId ?? state.get('selectedPreset'));
-      TintEditor.init(getFileTints, setFileTints, skinName, () => state.get('selectedPreset'), async () => {
-        const sn = skinName();
-        if (!sn) return null;
-        const r = await api.getSkinPath(sn);
-        return r.success ? r.data : null;
-      });
-      render();
-    }
+    await loadPresetIntoEditor(preset);
   });
 
   // Multi-select (groups or presets, >1) locks the editor: tabs disabled + the
@@ -881,5 +860,5 @@
     });
   }
 
-  window.PresetEditor = { render, getCurrentEditData, doSave, doSaveGroup, doDelete, resetNew, moveTabIndicator, copyActions, pasteActions, set newPresetTargetParent(v) { _newPresetTargetParent = v; } };
+  window.PresetEditor = { render, getCurrentEditData, doSave, doSaveGroup, doDelete, resetNew, reloadCurrent, moveTabIndicator, copyActions, pasteActions, set newPresetTargetParent(v) { _newPresetTargetParent = v; } };
 })();

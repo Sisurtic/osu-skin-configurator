@@ -712,14 +712,16 @@
       ApplyDialog.showMulti({ presetIds: loosePresetIds, groupIds: activeGroupIds });
     } else {
       // Edit mode: apply the currently selected (saved) preset, OR a selected
-      // checkbox-group's own actions only (not its subtree).
+      // checkbox-group's own actions only (not its subtree). Pass dirty so the
+      // apply dialog can offer "save before applying" inline (no separate prompt).
+      const dirty = !!state.get('presetDirty');
       const preset = state.get('selectedPreset');
       const selGroup = state.get('selectedGroup');
       if (selGroup != null) {
         const groups = state.get('groups') || [];
         const g = groups.find(x => x.id === selGroup);
         if (g && g.type === 'table') {
-          ApplyDialog.showMulti({ groupIds: [selGroup] });
+          ApplyDialog.showMulti({ groupIds: [selGroup], dirty });
           return;
         }
       }
@@ -727,7 +729,7 @@
         Toast.warning(i18n.t('toast.selectPresetFirst'));
         return;
       }
-      ApplyDialog.showMulti({ presetIds: [preset] });
+      ApplyDialog.showMulti({ presetIds: [preset], dirty });
     }
   }
 

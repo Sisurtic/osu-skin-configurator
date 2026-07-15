@@ -1494,7 +1494,7 @@
     const confirmed = await ApplyDialog.showConfirmDialog(
       i18n.t('ini.deleteRowsConfirm', { n: sorted.length }),
       [
-        { label: `${i18n.t('ini.deleteBtn').replace(/^- ?/, '')} (${sorted.length})`, cls: 'btn--danger', value: 'delete' },
+        { label: `${i18n.t('ini.deleteBtn').replace(/^[-+] ?/, '')} (${sorted.length})`, cls: 'btn--danger', value: 'delete' },
         { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
       ]
     );
