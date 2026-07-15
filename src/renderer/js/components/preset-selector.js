@@ -700,8 +700,12 @@
     });
     _prevRowKeys = currRowKeys;
     if (newRowEls.length) {
-      newRowEls.forEach((row, i) => {
-        row.style.animationDelay = (_enterAnimBaseDelay + i * 40) + 'ms';
+      newRowEls.forEach((row) => {
+        // Use the element's CSS --depth var (set on its ancestor .preset-group
+        // as inline style) to stagger by depth — matching the underline animation.
+        const depthGroup = row.closest('.preset-group');
+        const depth = depthGroup ? (parseInt(depthGroup.style.getPropertyValue('--depth'), 10) || 0) : 0;
+        row.style.animationDelay = (_enterAnimBaseDelay + depth * 40) + 'ms';
         row.classList.add('preset-group__enter');
       });
       _enterAnimBaseDelay = 0; // consume
