@@ -1,179 +1,126 @@
 # v1.1.0
 
-## New features
+## 编辑 / 操作
 
-- **Image editor tab** — a tint → crop → darken pipeline with a real-time WebGL tint preview. Generate long-note (Percy LN) slider bodies from a short source via crop + tile, with on-canvas guide lines for the tail / blank / extended body. Per-source tint color and blend mode, plus an optional darken stage.
-- **Preview image sequences & animated images** — pick multiple frames as an image sequence (with an FPS input; `-1` plays all frames within 1 second, like osu!'s `AnimationFramerate`), or use animated GIF / APNG / WebP. Works in both edit mode and the use-mode hover panel.
-- **Compact `config.osp` storage** — disabled stages are dropped; enabled stages keep their full parameter set. A migration script (`scripts/migrate-osp.{js,bat}`) converts older pretty-printed files.
-- **Inline group rename** — double-click a group header in the preset tree to rename it in place.
-- **Batch collapse/expand** — collapse or expand a group and all its descendants in one batched operation (no per-group stalls on large trees).
-- **Borderless window** — custom titlebar (via `tauri-plugin-decorum`) with the native resize frame kept, so edge-drag resizing stays smooth. Drag the titlebar to move, double-click to maximize; Windows 11 Snap Layout is retained.
-- **Update download with progress ring** — clicking the update dot streams the release exe and turns the dot into a spinning progress ring (head-extends / tail-retracts, color graduates yellow → green). Right-click cancels the in-flight download and discards the partial file.
+- **图片编辑器(image tab)** — 染色 → 裁剪 → 加深的流水线,带实时 WebGL 染色预览。可用短素材通过裁剪 + 平铺生成长条(LN)滑条身体,画布上有尾部 / 空白 / 延伸身体的引导线。支持逐素材染色与混合模式,以及可选的加深阶段。
+- **预览图序列 & 动图** — 可选多帧作为图片序列(带 FPS 输入;`-1` 表示 1 秒内播完所有帧,类似 osu! 的 `AnimationFramerate`),或使用 GIF / APNG / WebP 动图。编辑模式与 use 模式悬停面板均可用。
+- **复制 / 粘贴操作 (Ctrl+C / Ctrl+V)** — 复制**当前 tab 的选中行**(INI / 文件移动 / 图片编辑,一次一类)到应用内剪贴板,再粘贴到其他预设或勾选组。每次复制完全重置剪贴板(无残留),粘贴时按类别合并并弹出冲突对话框:
+  - INI 编辑:**跳过 / 覆盖**(按 `section + maniaKeys + key` 去重)。
+  - 文件复制 / 删除 / 图片编辑:**跳过 / 覆盖 / 追加**(按 `source` / `path` 去重)。追加允许同路径副本共存。
+  - 无冲突类别静默合并;仅在确有冲突时弹窗。
+  - 粘贴后填入编辑器并标记为 dirty,Ctrl+S 持久化。
+- **复制任意项 (Ctrl+Shift+C)** — 原 Ctrl+C "复制预设" 改为 Ctrl+Shift+C,作用于**预设、组、勾选组**;复制组会深拷贝整个子树(子组、勾选组、预设、操作、描述、预览)。
+- **勾选组应用语义重做** — 勾选组现在只应用**逐行选择的预设**加上选中的子勾选组(递归),而不是整棵预设子树。后端 `apply_group` 直接从 config 读取 `tableRowSelection` + `tableExpandedChildren`,镜像渲染端的 `collectTableRows`,应用集合始终与所见一致。
+- **混合多选** — 预设与组可一起选中(Ctrl/Shift),Shift 范围跨类型生效。复制 / 删除 / 拖拽 / 创建父级均支持混合选择。多选时编辑器锁定(tab 禁用 + 渐隐,保存按钮禁用)。
+- **统一操作列表选择** — ini / 文件移动 / 图片编辑共享同一套选择 + 拖拽删除引擎(`OpTable`):普通 / Ctrl / Shift 范围选择、组头感知、拖拽删除在三个 tab 行为一致。修复点统一生效,不再各自漂移。
+- **多选值同步** — 选中多行编辑一行,值同步到其他选中行(`OpTable.createGroupSync`):ini 按控件类型匹配(颜色行不会收到开关值),file/tint 按字段匹配。**折叠组头 = 完整虚拟行**(可作同步源与目标,多个折叠组头互相同步);**展开组头忽略**(其成员作为可见子行正常同步)。绝不跨类型串扰。
+- **组头 = 临时值** — perColumn / 序列组头不再实时写入成员,持有本地值(从第一个成员初始化),仅通过**填充(fill)**按钮提交到全部成员。展开组不再把组头重置回首成员值(展开/折叠改为只切换 display,临时编辑得以保留)。
+- **统一的输入确认** — Enter 提交输入值;**Escape 恢复编辑前的值并取消**(不归一化、不同步给多选项)。Escape 现在**分层**:先恢复聚焦的输入框 → 再清操作列表选区 → 再清预设选区,一次 ESC 只取消最内层。
+- **ESC 清空选区** — edit 模式 ESC 清当前选区(单/多);use 模式 ESC 先清预设选择,再取消选中皮肤。仅在无聚焦元素时触发(输入框保留自身 ESC 行为)。
+- **行内组重命名** — 双击预设树的组头即可原地重命名。
+- **批量折叠/展开** — 一次操作折叠或展开一个组及其全部后代(大树无逐组卡顿)。
+- **拖拽改源** — 文件移动与图片编辑 tab 点击缩略图改源文件;独立 `SourcePicker` 组件(类比取色器)拥有触发检测(仅 `<img>`/图标,不含文件名/空白,故点文件名仍能选中行)+ 文件对话框 + 皮肤相对路径归一化。
+- **编辑模式空状态** — 未选中任何项时,编辑器显示**禁用 tab + 渐隐提示**(新建预设步骤、组/勾选组说明、快捷键、ESC 取消选择),而非空白表单。新建预设按当前选择决定放置(组内/同级/根);保存后选中新项;新建预设自动聚焦名称输入。
+- **应用对话框 & toast** — 单一/多选应用统一为一个对话框,三组摘要(INI / 文件 / 图片)。成功 toast 显示紧凑的 `[INI×N, files×N, image×N]` 摘要。
+- **edit 模式 Space 应用** — 预设与勾选组支持空格应用;选中表组时应用按钮可用。
 
-## Performance
+## 拖放重写
 
-- **Smooth crop/darken preview at any output height.** The crop output (e.g. a 32800px-tall Percy LN body) is now rendered **virtualized** — only the visible viewport is painted each frame, with the full height still driving the scrollbar. Tint is rasterised on the GPU (off-screen WebGL) so dragging the color picker stays at ~1ms/frame regardless of source size or `cropC`. Previously each frame rebuilt the entire multi-million-pixel output (~200ms).
-- Image processing parallelized with rayon: crop went from ~5.6s to ~2.5ms; tint and darken now run in parallel. Release builds use `opt-level = 3`.
+- **单一委托式拖放系统** 取代原先 7 个绑定块 / 13 个处理器 / 2 套管线(预设 vs 组)。统一分区:上 25% = 插入之前,下 25% = 插入之后,中间 50% = 嵌套(仅组头)。
+- **`reorderChildren` 原子 API** 用于所有重排——本地计算最终子顺序数组并一次性设置,消除所有同父索引调整 bug。
+- **跨父拖拽修复** — 从一个父拖到另一个父不再产生副本(先 `movePresetGroup`/`moveGroup` 再重排)。
+- **环形引用守卫** — Rust `reorder_children` 防止组放入自身 → 栈溢出。
+- **普通组可自由重排** — 移除表组中"普通子组必须在底部"的强制约束。
+- **拖放区域一致** — dragover 与 drop 阈值统一(25%/75%)。
 
-## UX & polish
+## UI / 视觉
 
-- **Toast redesign** — toasts are now click-to-dismiss and animate out with a per-frame **parabolic toss** (arc + spin) instead of a plain fade.
-- **Unified operation-list selection** — the ini / file-move / image editors now share one selection + drag-to-delete engine (`OpTable`): plain / Ctrl / Shift range select, group-header awareness, and drag-to-delete behave identically across all three tabs, and edge-fade scroll indicators are consistent. Selection fixes now apply everywhere at once instead of drifting between copies.
-- **Preset list edge-fade** — top/bottom fade overlays show scroll position in the preset tree.
-- HSV color picker repositioned to the left of its trigger.
-- Disabled stages dim their controls; Tab cycling now reaches the edit-FPS button.
-- Distinct destination-path placeholders for file moves vs. image edits.
+- **Toast 重设计** — toast 可点击关闭,以逐帧**抛物线抛掷**(弧线 + 旋转)动画退出,而非简单淡出。
+- **无边框窗口** — 自定义标题栏(`tauri-plugin-decorum`),保留原生缩放边框使边缘拖拽缩放保持流畅。拖标题栏移动,双击最大化;保留 Windows 11 贴靠布局。
+- **更新下载进度环** — 点击更新点流式下载 release exe,该点变为旋转进度环(头延伸/尾收缩,颜色由黄渐绿)。右键取消进行中的下载并丢弃未完成文件。
+- **警告按钮** — 粘贴冲突对话框的 跳过/覆盖/追加 按钮重新样式化:跳过=红(`btn--danger`),追加=实心黄(`btn--warning`),覆盖=绿(`btn--primary`),全部右对齐。
+- **多选高亮** — 预设项与组头用统一的 `--multi-selected` 类 + `box-shadow: inset`(替代相邻行重叠的 `outline`)。
+- **行间距** — 预设项与组头 `margin: 0`(原 `1px 0`),使多选高亮紧贴。
+- **组头尺寸** — padding/margin 与预设项对齐,视觉一致。
+- **编辑器空状态** — 禁用 tab(`tabs--empty`)全部暗化(含活动 tab),无悬停响应,无下划线指示。空状态提示合并为单块易读文本(原为两节),字号 12px,左对齐带 padding。
+- **编辑器多选锁定** — `editor--locked` 渐隐整个编辑器(`opacity` 0.18s)。
+- **放置线** — 元素级 `::after` CSS(原为 `position:fixed` 覆盖层),随行滚动。
+- **嵌套高亮** — `::before` + `--drop-indent`/`--drop-right` CSS 变量(JS 用 `getBoundingClientRect` 计算),左边缘通过 `scroll` 监听随头部水平滚动。
+- **预设列表边缘渐变** — 顶部/底部渐变覆盖层显示预设树滚动位置。
+- **滚动边缘渐变分层** — 操作列表顶部/底部渐变位于固定表头之下、表格边框/内容之上,三个 tab 一致。
+- **use 模式行标签截断** + 悬停显示完整名 tooltip。
+- **HSV 取色器** 重定位到触发元素左侧。
+- **区分占位符** — 文件移动 vs 图片编辑的目标路径占位符区分。
+- **禁用阶段暗化** 其控件;Tab 循环可达编辑 FPS 按钮。
+- **选中皮肤的悬停高亮移除**。
+- **无皮肤选中时始终显示欢迎页**(移除空选择器状态)。
 
-## Apply dialog & toasts
+## 动画
 
-- Unified single/multi apply into one dialog with a three-group summary (INI edits / file moves / image edits). The success toast shows a compact `[INI×N, files×N, image×N]` summary.
+- 模式切换(use ↔ edit)滑动。
+- 勾选组激活 / 子组展开行滑入。
+- 勾选组子项切换淡出 → 间隙 → 淡入。
+- 组头下划线增长。
+- 欢迎页淡入。
+- 皮肤切换退出/进入过渡。
+- 刷新皮肤列表淡出 → 重载 → 淡入。
+- 编辑器空状态提示淡入。
+- 编辑器多选锁定渐隐。
+- toast 抛物线抛掷。
 
-## Bug fixes
+## 应用流水线 (后端)
 
-- `FPS = -1` now persists (previously clamped to 12).
-- Switching from a sequence preset to an image preset no longer leaks the sequence preview; the first click on a sequence preset now shows its preview. Replaced the per-`<img>` timer with a single shared timer guarded by a view-generation token.
-- Fixed the top edge-fade gap; marked a non-passive wheel listener as passive.
-- Stale sequence fields no longer persist when switching back to a single image.
-- Cropped image export now clears the bottom output row (transparent) so the long-note body stops exactly at `cropC` height instead of running one row past.
+- **目标 @2x + 扩展名保留** — 非目录的复制/染色目标现在重新附加**源的 `@2x` HD 标记与扩展名**(`apply_source_suffix`),故字节复制或重新编码的染色到 stem 不再是无扩展名的无用文件,HD 源也不再静默降为 SD。源无 `@2x` → 目标不带;源无扩展名 → 复制保留 stem,染色回退 `.png`。目录/空目标保持原行为(全源名;tint 空 dest 仍原地覆盖源)。
+- **勾选组应用** — 计数器与对话框计数使用与后端相同的递归计数(组本身 + 逐行选择 + 选中子组);5 行嵌套勾选组正确报 5 而非 12/16/17。应用后 `activePresets`/`activeTableGroups` 原子清空(`setMultiple`),勾选组成功应用后可见收起。仅组应用不再报"无法加载预设数据"——中止守卫同时检查 loose-preset 与 group 列表。
+- **图片处理并行化(rayon)** — 裁剪从 ~5.6s 降到 ~2.5ms;染色与加深并行。release 构建用 `opt-level = 3`。
 
-## Project
+## 性能
 
-- `package.json` is now the single source of truth for the version; a pre-commit hook keeps `Cargo.toml` and `tauri.conf.json` in sync.
+- **任意输出高度下流畅的裁剪/加深预览。** 裁剪输出(如 32800px 高的 LN 身体)现在**虚拟化**渲染——每帧只绘制可见视口,完整高度仍驱动滚动条。染色在 GPU 上栅格化(离屏 WebGL),拖动取色器保持 ~1ms/帧,与源大小或 `cropC` 无关。此前每帧重建整张数百万像素输出(~200ms)。
+- **拖放性能** — 委托监听只绑定一次(带守卫),而非每次渲染重绑。
+- **渲染批处理** — presets/groups/rootChildren 监听合并到一个微任务。
 
-## Checkbox (multi-select) group apply
+## 架构 / 重构
 
-- **Apply semantics reworked.** A checkbox group now applies only the preset chosen **per row** plus any selected child checkbox groups (recursively) — not the entire subtree of presets. The backend `apply_group` reads `tableRowSelection` + `tableExpandedChildren` from config itself, mirroring the renderer's `collectTableRows`, so the applied set always matches what the user sees selected.
-- **Counter fixed.** The toolbar apply counter and the apply-dialog count now use the same recursive count as the backend (group itself + per-row selections + selected child groups). A 5-row nested checkbox group correctly reports 5 instead of 12/16/17.
-- **Group-only apply no longer fails** with "无法加载预设数据" — the abort guard now checks both the loose-preset list and the group list.
-- **Apply-dialog action counts are accurate.** A checkbox group's summary now merges actions from the root group + selected child groups + selected presets (previously only the root's own actions were shown). The dialog shows the total unit count as `(N)`.
-- **Selection clears after apply.** `activePresets` and `activeTableGroups` are now cleared atomically (`setMultiple`) so the checkbox group visibly folds after a successful apply.
+- **`selection.js` 模块** — 多选状态(预设 + 组 + Shift 范围锚点)从 `preset-list.js` 抽出到专用模块,清晰 API(`toggle`、`setSingle`、`setRangeFromAnchor`、`clear`、`beginDragPresetIds`、`beginDragGroupIds`、`outermostGroups`、`commonAncestor`)。消除 ~10 项死代码、2 个潜在崩溃/状态 bug、6+ 处重复逻辑。
+- **`OpTable` 共享模块** — 选择 + 拖拽删除 + 重排统一。新增 `createGroupSync`(多选值同步骨架)与 `createThumbLoader`(缩略图缓存 + 同步渲染 + 异步填充不变量),ini/file/tint 通过 adapter 注入差异。
+- **`SourcePicker` 独立组件**(`source-picker.js`)— 点击改源逻辑独立,平行于取色器。
+- **统一拖放** — 7 绑定块 / 13 处理器替换为单一委托系统。
+- **`apply_group` 后端重写** — 从 config 读取 `tableRowSelection` + `tableExpandedChildren`(镜像前端 `collectTableRows`)。
+- **移除死代码** — `collect_descendant_preset_ids`、`reorder_children_stable`,以及 selection.js + preset-list.js 中 ~10 项 / 2 崩溃 bug。
+- **版本单一真源** — `package.json` 为版本唯一真源,pre-commit 钩子保持 `Cargo.toml` 与 `tauri.conf.json` 同步。
 
-## Animations
+## Bug 修复
 
-- Mode switch (use ↔ edit) slide animation.
-- Checkbox group activation / sub-group expansion row slide-in.
-- Checkbox group child switch fade-out → gap → fade-in.
-- Group header underline grow animation.
-- Welcome page fade-in.
-- Skin switch exit/enter transition.
-- Refresh skin list fade-out → reload → fade-in.
-- Editor empty-state hint fade-in.
-- Editor multi-select lock dim transition.
-- Toast parabolic toss animation.
-
-### Edit mode
-
-- **Group save now reloads the editor**, mirroring the preset-save path: `editData` is refreshed from the freshly-saved group, and the preview cache is invalidated. Previously the editor kept showing the pre-save state.
-
-## Copy / paste & duplication
-
-- **Duplicate any item (Ctrl+Shift+C).** The old Ctrl+C "duplicate preset" is now Ctrl+Shift+C and works on **presets, groups, and checkbox-groups** — duplicating a group deep-copies its entire subtree (child groups, checkbox-groups, presets, actions, description, preview).
-- **Copy / paste actions (Ctrl+C / Ctrl+V).** Copy the **selected rows of the current tab** (INI edits / file moves / image edits — one category at a time) into an in-app clipboard, then paste them into another preset or checkbox-group. Each copy fully resets the clipboard (no stale residue), and pasting merges with a per-category conflict dialog:
-  - INI edits: **Skip / Overwrite** (duplicates by `section + maniaKeys + key`).
-  - File copies / deletes / image edits: **Skip / Overwrite / Append** (duplicates by `source` / `path`). Append allows a same-path duplicate to coexist.
-  - No-conflict categories merge silently; the dialog only appears for categories with actual conflicts.
-- Paste fills the editor and marks it dirty — press Ctrl+S to persist.
-- **Checkbox-group creation merge check.** Creating a checkbox group from a selected group that has nested plain sub-groups now prompts to flatten (same as the drag-into-table path), instead of producing an invalid tree.
-
-## Multi-select & mixed selection (edit mode)
-
-- **Standalone `selection.js` module.** All multi-select state (presets + groups + Shift-range anchor) extracted from `preset-list.js` into a dedicated module with a clean API (`toggle`, `setSingle`, `setRangeFromAnchor`, `clear`, `beginDragPresetIds`, `beginDragGroupIds`, `outermostGroups`, `commonAncestor`). Eliminated ~10 dead-code items, 2 latent crash/state bugs, and 6+ duplicated logic blocks.
-- **Mixed selection.** Presets and groups can be selected together (Ctrl/Shift). Shift-range works cross-type. Duplicate/delete/drag/create-parent all handle mixed selections.
-- **ESC to deselect.** ESC clears the current selection (single or multi) in edit mode; in use mode ESC clears preset selection first, then deselects the skin. Only fires when nothing is focused (so input fields keep their own ESC behavior).
-- **Editor locks during multi-select.** Tabs disabled + editor dimmed with a fade transition. Save button disabled.
-
-## Unified drag/drop rewrite
-
-- **Single delegated drag/drop system** replaces the previous 7 binding blocks / 13 handlers / 2 separate pipelines (preset vs group). One zone model: upper 25% = insert before, lower 25% = insert after, middle 50% = nest (group headers only).
-- **`reorderChildren` atomic API** used for all reorder moves — computes the final child order array locally and sets it in one call, eliminating all same-parent index-adjustment bugs.
-- **Drop line follows scroll.** Replaced the `position:fixed` overlay with element-level `::after` CSS classes that move naturally with the row.
-- **Cross-parent drag fixed.** Dragging an item from one parent to another no longer duplicates it (the item is moved via `movePresetGroup`/`moveGroup` first, then reordered).
-- **Circular-reference guard** in `reorder_children` (Rust) prevents a group from being placed inside itself → stack overflow.
-- **Plain groups can be freely reordered** — removed the forced "plain sub-groups at bottom" constraint in table groups.
-- **Performance fix:** delegated listeners bound once (guarded) instead of re-bound on every render.
-- **Nest highlight scrolls with the header** via a `scroll` listener that updates `--drop-indent`/`--drop-right`.
-
-## Editor empty state
-
-- When nothing is selected, the editor shows **disabled tabs + a fade-in hint** (new preset steps, group/checkbox-group table explanation, editor shortcuts, Esc to deselect) instead of a blank new-preset form.
-- **New Preset placement:** selecting a group → new preset becomes its child; selecting a preset → new preset is a sibling; nothing selected → root.
-- **Save selects the new item.** Saving a new preset now selects it (previously stayed in `__new__` for continuous creation). Same for groups.
-- **Auto-focus name input** on new preset.
-
-## Other fixes
-
-- **Stale checkbox-group row selection re-seeded.** Rows whose persisted selection references a deleted/restructured preset now re-seed the leftmost option.
-- **Use-mode row label truncation** with hover tooltip for the full name.
-- **Skin hover highlight removed** on the selected skin.
-- **Welcome page always shown** when no skin is selected (removed the empty selector state).
-- **Divider position persists** across all re-renders (select preset, switch mode, switch skin).
-- **Refresh skin list** fades the selector out → reloads → fades in.
-- **Edit-mode Space apply** for presets and checkbox-groups; apply button enabled when a table group is selected.
-- **Save suppresses stale dirty** — sub-editor blur/change events during post-save re-render no longer re-mark dirty (the "save twice" bug).
-- **INI value inputs** commit on Enter/blur (so ESC can truly cancel an edit); the save button lights up on commit.
-- **Duplicate fix** — `refreshSkinData` now runs after duplicating (previously `Selection.clear()` made the guard skip it).
-- **Duplicate focuses the new item** — the last created preset/group is selected after duplication.
-- **Click thumbnail to change source** in file-copy and image-edit tabs.
-- **Same-source cache preserved** when changing an image source (other rows using the same source keep their thumbnails).
-- **Checkbox-group enter animation fixed** — option spans were triple-counting rowKeys, inflating the stagger delay 3×. Now only row-level elements animate.
-- **Checkbox-group child switch animation** — old rows fade out (`--exit` CSS animation) before re-render, new rows fade in (`--enter`) with a visible gap.
-- **Drag/drop zone consistency** — dragover and drop thresholds unified (25%/75%).
-- **Toolbar buttons blur** after click (no lingering focus).
-- **Group children render in stored order** (presets + groups interleaved), not forced presets-first. Fixed in both edit and use mode.
-- **New group creation clears preset selection.**
-- **Color picker closes on save** — `.cp-popover` removed before the save IPC.
-- **Bottom pixel crop** only when `cropEnabled` (Percy LN), not for plain tint operations.
-- **StageLight field** added to Mania section in the INI editor.
-- **INI field section order** follows the osu! wiki (General → Fonts → Colours → CatchTheBeat → Mania). Key order within sections unchanged.
-- **Single flatten prompt** when creating a checkbox group from multiple nested groups — prompts once for all sources, not per-group.
-
-### Refactoring
-
-- **selection.js module** — multi-select state extracted from preset-list.js.
-- **Unified drag/drop** — 7 binding blocks / 13 handlers replaced with a single delegated system.
-- **selection.js** + **preset-list.js** dead code removed (~10 items, 2 latent crash bugs).
-- **Render batching** — presets/groups/rootChildren listeners collapsed into one microtask.
-- **apply_group backend** rewritten to read `tableRowSelection` + `tableExpandedChildren` from config (mirrors frontend `collectTableRows`).
-- **Removed** `collect_descendant_preset_ids`, `reorder_children_stable` (dead code).
-
-## UI changes
-
-- **Warning button** — the paste conflict dialog's Skip/Overwrite/Append buttons restyled: Skip = red (`btn--danger`), Append = solid yellow (`btn--warning`), Overwrite = green (`btn--primary`). All right-aligned.
-- **Multi-select highlight** — preset items and group headers use a unified `--multi-selected` class with `box-shadow: inset` (replaces `outline` that overlapped between adjacent rows).
-- **Editor empty state** — disabled tabs (`tabs--empty`) show all tabs dimmed (including active), no hover response, no underline indicator.
-- **Editor multi-select lock** — `editor--locked` dims the whole editor with a fade transition (`opacity` 0.18s).
-- **Drop line** — element-level `::after` CSS (was a `position:fixed` overlay). Moves with the row on scroll.
-- **Nest highlight** — `::before` with `--drop-indent`/`--drop-right` CSS vars (JS-computed from `getBoundingClientRect`). Left edge tracks the header on horizontal scroll via a `scroll` listener.
-- **Row spacing** — preset items and group headers have `margin: 0` (was `1px 0`) so multi-selected rows' highlights sit flush.
-- **Group header size** — padding and margin aligned with preset items for visual consistency.
-- **Empty-state hint** — merged into a single readable block (was two separate sections), font size 12px, left-aligned with padding.
-- **Warning button** — solid fill with `--warning` color (#e8c878), softer shade.
-
----
-
-## Editor unification & input behavior (post-1.1.0 polish)
-
-The ini / file-move / image editors used to drift apart — multi-select sync, thumbnails, group headers, and input behavior each had per-editor copies that broke in subtly different ways. These changes consolidate the duplicated cores into shared modules so a fix applies everywhere at once.
-
-- **Shared multi-select value sync (`OpTable.createGroupSync`).** All three row editors now sync an edited value to other selected rows through one skeleton. ini matches by control type (a color row never receives a toggle value); file and tint match by field. A **folded group header is a full virtual row** (sync source + target; multiple folded headers sync to each other); an **expanded header is ignored** (its members are visible sub-rows that sync normally). Type-mismatched rows are never crossed. (Replaces the earlier per-keystroke dirty-write behavior — text/number inputs now commit on Enter/blur so ESC can truly cancel.)
-- **Group header = temporary value.** A perColumn / sequence group header no longer writes its members live. It holds a local value (initialized from the first member) and commits to all members only via the **fill** button. Expanding a group no longer resets the header to the first member's value (expand/collapse stopped re-rendering, so the temp edit survives).
-- **Consistent Shift range-select.** A connect-select across a **folded** group header pulls in the whole group and highlights it; across an **expanded** header it lands on the member rows (header transparent). Single-click on a header still selects the whole group.
-- **Shared thumbnail loader (`OpTable.createThumbLoader`).** The recurring "same-source preview thumbnail gets lost" bug class is fixed structurally: the async fill skips by **DOM state** (not cache state) and **rehydrates from cache**, so two operations sharing one source image both paint in a single pass.
-- **Standalone SourcePicker component.** Click-to-repick a source file (thumbnail/icon) is extracted into `source-picker.js`, paralleling the color picker. Trigger detection (only the `<img>`/icon, never the filename/whitespace) now lets row selection work when clicking the name.
-- **Unified input confirm.** Enter commits the typed value; **Escape restores the pre-edit value and cancels** (no normalize, no multi-select sync). Escape is now **prioritized**: an open input field is restored first, then the operation-table selection is cleared, then the preset selection — one ESC cancels the innermost level only.
-
-### Apply pipeline
-
-- **Destination @2x + extension preserved.** Non-directory copy/tint destinations now re-attach the **source's `@2x` HD marker and extension**, so a byte copy or re-encoded tint to a stem is no longer an extension-less file, and an HD source no longer silently drops to SD. Source has no `@2x` → target gets none; source has no extension → copy keeps the stem as-is, tint falls back to `.png`. Directory/empty destinations keep their existing behavior.
-
-### Post-1.1.0 bug fixes
-
-- ini value sync was effectively dead: it matched by literal key via a `_template` field that was never set, so perColumn columns (Colour0/Colour1…) never matched each other. Now matches by control type.
-- "Skip the first item" when syncing into an expanded perColumn group: a group header and its first member both rendered a control with the first member's index. `pickControl` now prefers the control not inside the collapsed header.
-- ESC cancel no longer leaves the stored data out of sync with the restored input.
-- Color box ESC restores both the text and the swatch.
-- `clearSelection` now clears the anchor too, so no row stays highlighted after ESC (previously the anchor row stayed lit). file ESC no longer skips clearing (was using a return value that was always undefined).
-- Scroll edge-fade layered below the sticky header, above the table border/content.
+- ini 值同步此前实际失效:按字面 key 经从未设置的 `_template` 字段匹配,故 perColumn 列(Colour0/Colour1…)互不匹配。现按控件类型匹配。
+- 同步到展开 perColumn 组时"跳过第一个":组头与其首成员都渲染了同首成员索引的控件,`querySelector` 更新了组头而非成员。`pickControl` 现优先选不在折叠组头内的控件。
+- ESC 取消不再使存储数据与恢复的输入不一致(文本/数字输入不再逐字符写数据,镜像 file-copy)。
+- 颜色框 ESC 同时恢复文本与色块。
+- `clearSelection` 现也清锚点,ESC 后无行残留高亮(此前锚点行仍亮)。file ESC 不再跳过清选(此前用了恒为 undefined 的返回值判断)。
+- `FPS = -1` 现持久化(此前被钳到 12)。
+- 从序列预设切到图片预设不再泄漏序列预览;首次点击序列预设即显示预览。用单共享计时器(带视图生成 token)替代每 `<img>` 计时器。
+- 切回单图时残留序列字段不再持久。
+- 裁剪图导出现在清空底部输出行(透明),长条身体精确停在 `cropC` 高度而非多跑一行。
+- **底部像素裁剪** 仅在 `cropEnabled`(LN)时,普通染色操作不裁。
+- 修复顶部边缘渐变缺口;非被动 wheel 监听标记为被动。
+- 残留勾选组行选择重置——其持久选择引用已删/重构的预设时重置为最左选项。
+- 分隔条位置跨所有重渲染持久(选预设、切模式、切皮肤)。
+- **保存抑制 stale dirty** — 保存后重渲染期间的子编辑器 blur/change 不再重标 dirty("保存两次"bug)。
+- **INI 值输入** 现在在 Enter/blur 时提交(ESC 才能真正取消);保存按钮在提交时亮。
+- **组保存现重载编辑器** — `editData` 从新保存的组刷新,预览缓存失效(此前显示保存前状态)。
+- **复制修复** — 复制后运行 `refreshSkinData`(此前 `Selection.clear()` 使守卫跳过)。
+- **复制聚焦新项** — 复制后选中最后创建的预设/组。
+- 改图片源时**保留同源缓存**(用同一源的其他行保留缩略图)。
+- **同源预览缩略图不再丢失** — 异步填充按 DOM 状态跳过 + 缓存重填,共享同一源的两个操作一次 pass 内都绘制。
+- **勾选组进入动画修复** — 选项 span 三次计数 rowKeys,交错延迟膨胀 3×。现仅行级元素动画。
+- **勾选组子项切换动画** — 旧行重渲染前淡出(`--exit`),新行淡入(`--enter`)带可见间隙。
+- **工具栏按钮** 点击后 blur(无残留焦点)。
+- **组子项按存储顺序渲染**(预设 + 组交错),不强制预设在前。edit 与 use 模式均修。
+- **新建组清预设选择**。
+- **取色器保存时关闭** — `.cp-popover` 在保存 IPC 前移除。
+- **StageLight 字段** 加入 INI 编辑器 Mania 节。
+- **INI 字段节顺序** 遵循 osu! wiki(General → Fonts → Colours → CatchTheBeat → Mania)。节内 key 顺序不变。
+- 从多个嵌套组创建勾选组时**单次展平提示**——对所有源提示一次,而非逐组。
 
 ---
 
