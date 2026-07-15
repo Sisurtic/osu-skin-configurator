@@ -464,6 +464,7 @@
     "StageRight": "Right Stage Image Path",
     "StageBottom": "Stage Covered Image Path",
     "StageHint": "Stage Hint Image Path",
+    "StageLight": "Stage Light Image Path",
     "LightingN": "Note Lighting Image Path",
     "LightingL": "Hold Lighting Image Path",
     "WarningArrow": "Warning Arrow Image Path",

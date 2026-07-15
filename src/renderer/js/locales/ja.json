@@ -441,6 +441,7 @@
     "StageRight": "ステージ右端の画像パス",
     "StageBottom": "ステージ下部の画像パス",
     "StageHint": "判定線の画像パス",
+    "StageLight": "ステージライト画像パス",
     "LightingN": "ノートライトの画像パス",
     "LightingL": "ホールドライトの画像パス",
     "WarningArrow": "警告矢印の画像パス",

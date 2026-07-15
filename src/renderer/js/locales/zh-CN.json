@@ -484,6 +484,7 @@
     "StageRight": "轨道右边缘图片路径",
     "StageBottom": "轨道覆盖图片路径",
     "StageHint": "判定线图片路径",
+    "StageLight": "舞台灯光图片路径",
     "LightingN": "短按闪光图片路径",
     "LightingL": "长按闪光图片路径",
     "WarningArrow": "警告箭头图片路径",

@@ -441,6 +441,7 @@
     "StageRight": "스테이지 오른쪽 가장자리 이미지 경로",
     "StageBottom": "스테이지 하단 덮개 이미지 경로",
     "StageHint": "판정선 이미지 경로",
+    "StageLight": "스테이지 라이트 이미지 경로",
     "LightingN": "Note 라이트 이미지 경로",
     "LightingL": "Hold 라이트 이미지 경로",
     "WarningArrow": "경고 화살표 이미지 경로",

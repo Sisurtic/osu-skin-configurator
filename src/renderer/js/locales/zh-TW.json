@@ -441,6 +441,7 @@
     "StageRight": "軌道右邊緣圖片路徑",
     "StageBottom": "軌道覆蓋圖片路徑",
     "StageHint": "判定線圖片路徑",
+    "StageLight": "舞台燈光圖片路徑",
     "LightingN": "短按閃光圖片路徑",
     "LightingL": "長按閃光圖片路徑",
     "WarningArrow": "警告箭頭圖片路徑",
