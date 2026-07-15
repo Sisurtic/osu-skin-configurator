@@ -311,6 +311,7 @@
 
     function clearSelection() {
       selectedIndices.clear();
+      anchorIndex = -1;
       lastClickedRow = null;
       highlightAll();
       fireChange();

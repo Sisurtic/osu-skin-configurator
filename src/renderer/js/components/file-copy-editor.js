@@ -932,5 +932,5 @@
     return JSON.parse(JSON.stringify({ fileCopies, fileDeletes }));
   }
 
-  window.FileCopyEditor = { init, render, layoutColumns, getSelectedActions, invalidateCache: () => thumbCache.clear() };
+  window.FileCopyEditor = { init, render, layoutColumns, getSelectedActions, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection(), invalidateCache: () => thumbCache.clear() };
 })();

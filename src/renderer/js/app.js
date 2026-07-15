@@ -1100,6 +1100,16 @@
       && e.target.matches && e.target.matches('input, textarea, select, button, [contenteditable], [tabindex]');
     // Don't clear selection while a color picker popover is open.
     if (e.key === 'Escape' && state.get('appMode') === 'edit' && !isModal && !escTargetIsFocusable && !document.querySelector('.cp-popover')) {
+      // First ESC: clear the active operation-table selection (ini/file/tint
+      // rows), if any. Only when none is selected does ESC proceed to clear the
+      // preset selection — so a single ESC cancels the innermost selection first.
+      const activeTabEl = document.querySelector('.tab-content--active');
+      const editorFor = (id, name) => id && document.getElementById(id) === activeTabEl ? window[name] : null;
+      const ed = editorFor('tab-ini', 'IniEditor') || editorFor('tab-files', 'FileCopyEditor') || editorFor('tab-tint', 'TintEditor');
+      if (ed && typeof ed.hasSelection === 'function' && ed.hasSelection()) {
+        if (typeof ed.clearSelection === 'function') ed.clearSelection();
+        return;
+      }
       const proceed = async () => {
         if (window.PresetList && typeof window.PresetList.confirmSwitchIfDirty === 'function') {
           if (!await window.PresetList.confirmSwitchIfDirty()) return;

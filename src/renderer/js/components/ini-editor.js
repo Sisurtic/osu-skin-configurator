@@ -1535,5 +1535,5 @@
     return JSON.parse(JSON.stringify(out));
   }
 
-  window.IniEditor = { init, render, deleteSelected, layoutColumns, getSelectedActions };
+  window.IniEditor = { init, render, deleteSelected, layoutColumns, getSelectedActions, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection() };
 })();

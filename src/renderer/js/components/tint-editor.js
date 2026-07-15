@@ -1666,5 +1666,5 @@
     return JSON.parse(JSON.stringify(out));
   }
 
-  window.TintEditor = { init, render, layoutColumns, deleteSelected, getSelectedActions, invalidateCache: () => { thumbCache.clear(); sourceImgCache.clear(); } };
+  window.TintEditor = { init, render, layoutColumns, deleteSelected, getSelectedActions, hasSelection: () => !!(opSel && opSel.getSelected().size > 0), clearSelection: () => opSel && opSel.clearSelection(), invalidateCache: () => { thumbCache.clear(); sourceImgCache.clear(); } };
 })();
