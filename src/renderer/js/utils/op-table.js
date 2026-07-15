@@ -132,9 +132,15 @@
           let bRow = rows.find(r => r === row);
           if (!bRow) bRow = rows.find(r => A.rowAnchor(r) === anchor);
           if (aRow && bRow) {
+            // `rowRangeMembers` (optional adapter hook) lets an editor make a group
+            // header TRANSPARENT in range selection: it reports only the in-range
+            // member set (e.g. just the first member) so the header neither forces
+            // its whole group in as an endpoint nor skews the numeric span. Click
+            // selection still uses rowMembers (whole group). Defaults to rowMembers.
+            const rangeMembers = (rr) => (typeof A.rowRangeMembers === 'function') ? A.rowRangeMembers(rr) : A.rowMembers(rr);
             // Endpoint groups → select whole group (selecting a header = the group).
-            const aMembers = A.rowMembers(aRow);
-            const bMembers = A.rowMembers(bRow);
+            const aMembers = rangeMembers(aRow);
+            const bMembers = rangeMembers(bRow);
             const aIsGroup = aMembers.length > 1 || (aRow.classList.contains('file-seq-group') || !!aRow.dataset.seqKey);
             const bIsGroup = bMembers.length > 1 || (bRow.classList.contains('file-seq-group') || !!bRow.dataset.seqKey);
             if (aIsGroup) aMembers.forEach(m => selectedIndices.add(m));
@@ -152,7 +158,7 @@
             // group in (handled above via aIsGroup/bIsGroup); a middle header
             // contributes just the in-span members, not the entire group.
             for (const r of rows) {
-              const rm = A.rowMembers(r);
+              const rm = rangeMembers(r);
               if (rm.length === 0) continue;
               for (const m of rm) {
                 if (m >= lo && m <= hi) selectedIndices.add(m);
@@ -341,14 +347,10 @@
     return (p || '').split(/[/\\]/).pop() || p;
   }
 
-  // Normalize a file destination's extension to the SOURCE's extension: strip
-  // any extension the user typed, then append the source's. Copies/tints are
-  // byte-for-byte, so a mismatched extension would corrupt the file. Directory
-  // dests (trailing /) are left untouched.
   // Format a destination path: strip the user's file extension and trailing
   // @2x (keep only the stem). The SOURCE file's full suffix (@2x + extension)
-  // is used at apply time by the backend, so the stored destination should be
-  // just the directory + stem with no suffix.
+  // is re-attached at apply time by the backend (apply_source_suffix), so the
+  // stored destination is just the directory + stem with no suffix.
   // e.g. dest=mania/custom@2x.png → mania/custom (stem only, no suffix)
   function appendSrcExt(val) {
     if (!val || val.endsWith('/')) return val;
@@ -384,5 +386,160 @@
     return { arr: rest, insertAt: target, count: moved.length };
   }
 
-  window.OpTable = { create, escapeHtml, pathBasename, appendSrcExt, reorderArray };
+  // ── createGroupSync: shared multi-select value-sync skeleton ──
+  // Both the ini and file-copy editors sync an edited value to other selected
+  // rows, treating a FOLDED group header as a virtual row (sync source + target)
+  // and ignoring expanded headers. The control flow is identical; only the
+  // data shape, control selectors, and type-matching differ. This factory takes
+  // an adapter and returns { syncField }.
+  //
+  // Adapter contract:
+  //   getSelected()           -> Set<number>          current selection indices
+  //   isHeaderControl(el)     -> bool                 el is a group-header control
+  //   headerRowOf(el)         -> element|null         the header row for el
+  //   headerIdOf(headerEl)    -> string               stable id for the header
+  //   foldedHeaderForIndex(i) -> element|null         folded header containing i, else null
+  //   sourceTypeKey(isHeader, headerEl|idx) -> string type-match key for the source
+  //   nodeTypeKey(node)       -> string               type-match key for a target node
+  //   skipDataNode(idx)       -> bool                 skip this data node (e.g. _delete)
+  //   writeSourceData(idx, field, val)                write the source data row value
+  //   writeTargetData(idx, field, val)                write a target data row value
+  //   applyToHeader(headerEl, field, val, color)      DOM update on a header control
+  //   applyToData(idx, field, val, color)             DOM update on a data row control
+  //   commit(touched)                                commit data to the store
+  function createGroupSync(A) {
+    function collectSyncNodes() {
+      const set = A.getSelected();
+      const nodes = [];
+      const seenHeader = new Set();
+      for (const i of set) {
+        const h = A.foldedHeaderForIndex(i);
+        if (h) {
+          const id = 'h:' + A.headerIdOf(h);
+          if (!seenHeader.has(id)) { seenHeader.add(id); nodes.push({ kind: 'header', id, headerEl: h }); }
+        } else {
+          nodes.push({ kind: 'data', id: 'i:' + i, idx: i });
+        }
+      }
+      return nodes;
+    }
+    // Sync an edit to other selected rows. `source` is the edited element.
+    function syncField(source, field, val, color) {
+      const isHeaderSource = A.isHeaderControl(source);
+      let sourceId, sourceTypeKey;
+      if (isHeaderSource) {
+        const headerEl = A.headerRowOf(source);
+        sourceId = headerEl ? ('h:' + A.headerIdOf(headerEl)) : null;
+        sourceTypeKey = A.sourceTypeKey(true, headerEl);
+      } else {
+        const idx = parseInt(source.dataset.idx);
+        if (isNaN(idx)) { A.commit(false); return; }
+        A.writeSourceData(idx, field, val);
+        sourceId = 'i:' + idx;
+        sourceTypeKey = A.sourceTypeKey(false, idx);
+      }
+      const set = A.getSelected();
+      if (!set || set.size <= 1) { A.commit(false); return; }
+      const nodes = collectSyncNodes();
+      let touched = false;
+      for (const n of nodes) {
+        if (n.id === sourceId) continue;
+        if (n.kind === 'header') {
+          if (A.nodeTypeKey(n) !== sourceTypeKey) continue;
+          A.applyToHeader(n.headerEl, field, val, color);
+        } else {
+          if (A.skipDataNode(n.idx) || A.nodeTypeKey(n) !== sourceTypeKey) continue;
+          A.writeTargetData(n.idx, field, val);
+          A.applyToData(n.idx, field, val, color);
+          touched = true;
+        }
+      }
+      A.commit(isHeaderSource ? touched : true);
+    }
+    return { syncField };
+  }
+
+  // ── createThumbLoader: shared thumbnail cache + render/fill invariant ──
+  // Both the ini (n/a), file-copy, and tint editors render a small thumbnail per
+  // row from a source path, caching the fetched dataURL keyed by the RAW path so
+  // re-renders paint synchronously. The bug-prone part is the async fill: it must
+  // (a) skip spans that already show an <img> (DOM state, NOT cache state — cache
+  // state skips same-source siblings and leaves them as placeholders), and
+  // (b) rehydrate a placeholder span from the cache when the DOM lacks the img.
+  // Centralizing this here stops the "same-source preview lost" class of bugs
+  // from recurring whenever one editor's fill logic drifts from the other's.
+  //
+  // Adapter contract:
+  //   cache                 Map<rawPath, dataURL>   shared, mutated in place
+  //   isImage(raw)          -> bool                 raw is a loadable image
+  //   skinPath()            -> Promise<string>      (optional) skin root for resolving
+  //   resolveDiskPath(raw, skPath) -> string        (optional) raw → on-disk path; default: prepend skPath if relative
+  //   getPreview(diskPath)  -> Promise<{success,data}> (optional) default api.getPreviewDataUrl
+  //   imgHtml(dataUrl)      -> string               (optional) <img> markup (shared default style)
+  //   placeholderHtml(raw)  -> string               (optional) non-image / not-yet-cached markup (default '📄')
+  // Returns { htmlFor(raw, label), load(root) }:
+  //   htmlFor — synchronous inner HTML (cached <img> + label, or placeholder + label)
+  //   load    — async fill over `.file-thumb[data-path]` under `root` (container or document)
+  function createThumbLoader(A) {
+    const cache = A.cache;
+    const isImage = A.isImage;
+    const skinPath = A.skinPath || (async () => '');
+    const resolveDiskPath = A.resolveDiskPath || ((raw, skPath) => {
+      let p = raw;
+      const isAbs = /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('/');
+      if (!isAbs && skPath) p = skPath.replace(/\\/g, '/').replace(/\/$/, '') + '/' + p.replace(/\\/g, '/');
+      return p;
+    });
+    const getPreview = A.getPreview || ((p) => api.getPreviewDataUrl(p));
+    const esc = escapeHtml;
+    const imgHtml = A.imgHtml || ((dataUrl) => `<img src="${dataUrl}" title="change" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0">`);
+    const placeholderHtml = A.placeholderHtml || (() => '📄');
+
+    // Synchronous inner HTML for a thumbnail cell. `label` is the visible name
+    // (basename) the caller chose. Cached → <img>; not-an-image → placeholder;
+    // image-but-uncached → placeholder (load() fills it).
+    function htmlFor(raw, label) {
+      const labelText = `<span class="file-thumb__name" title="${esc(raw)}">${esc(label || '')}</span>`;
+      if (!isImage(raw)) return `${placeholderHtml(raw)} ${labelText}`;
+      if (cache.has(raw)) return `${imgHtml(cache.get(raw))} ${labelText}`;
+      return `${placeholderHtml(raw)} ${labelText}`;
+    }
+
+    // Async-fill every `.file-thumb[data-path]` under `root`. `root` may be an
+    // element or a function returning the (possibly reassigned) element — a
+    // function is resolved AFTER the skinPath await so a re-render during the
+    // await doesn't leave us iterating a detached container.
+    // Invariants:
+    //   • skip by DOM state (span already shows an <img>), never by cache state;
+    //   • if the cache already has the entry, rehydrate the span from cache;
+    //   • otherwise fetch, cache (keyed by raw), then fill.
+    async function load(root) {
+      const skPath = await skinPath() || '';
+      const el = typeof root === 'function' ? root() : root;
+      if (!el) return;
+      const spans = el.querySelectorAll('.file-thumb[data-path]');
+      for (const span of spans) {
+        const raw = span.dataset.path || '';
+        if (span.querySelector('img')) continue;       // DOM state — already shown
+        if (!isImage(raw)) continue;
+        const label = pathBasename(raw);
+        if (cache.has(raw)) {                           // rehydrate from cache (fixes same-source siblings)
+          span.innerHTML = `${imgHtml(cache.get(raw))} <span class="file-thumb__name" title="${esc(raw)}">${esc(label)}</span>`;
+          continue;
+        }
+        const p = resolveDiskPath(raw, skPath);
+        try {
+          const result = await getPreview(p);
+          if (result && result.success && result.data) {
+            cache.set(raw, result.data);
+            span.innerHTML = `${imgHtml(result.data)} <span class="file-thumb__name" title="${esc(raw)}">${esc(label)}</span>`;
+          }
+        } catch (_) { /* skip failed thumbnail */ }
+      }
+    }
+
+    return { htmlFor, load };
+  }
+
+  window.OpTable = { create, createGroupSync, createThumbLoader, escapeHtml, pathBasename, appendSrcExt, reorderArray };
 })();

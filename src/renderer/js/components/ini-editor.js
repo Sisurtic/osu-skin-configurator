@@ -39,6 +39,11 @@
         deleteMimeType: 'application/ini-indices',
         rowMembers: (row) => rowMemberIndices(row),
         rowAnchor: (row) => rowAnchorIndex(row),
+        // Group header is TRANSPARENT in range (Shift) selection: report only its
+        // first member so a connect-select into the group lands on the members
+        // cleanly (header neither forces the whole group in nor skews the span).
+        // Single-click on the header still selects the whole group via rowMembers.
+        rowRangeMembers: (row) => rowRangeMemberIndices(row),
         applyDelete: (indicesDesc) => {
           const updated = [...(getActions ? getActions() : [])];
           for (const i of indicesDesc) updated.splice(i, 1);
@@ -485,32 +490,135 @@
       });
     }
 
+    // ── Multi-select sync helpers ──
+    // Match siblings by CONTROL TYPE (field.type), not field identity — so two
+    // single-instance fields of the same type sync (e.g. [Colours] Combo1 +
+    // Combo2, both rgb; two [General] bool toggles; two text rows), regardless of
+    // key or section. rgb and rgba share the color control (swatch + value box).
+    // Mirrors file-copy's "sync all selected rows", but the type guard prevents
+    // pushing a string into a numeric toggle etc. Reuses findFieldByTemplate.
+    function editTypeKey(edit) {
+      const field = findFieldByTemplate(edit.section, edit.key);
+      const type = (field && field.type) || 'string';
+      return (type === 'rgb' || type === 'rgba') ? 'color' : type;
+    }
+    // Sync a value edit to other selected rows of the same type (同类项). Updates
+    // data + each sibling's DOM in-place (no render → preserves focus/selection).
+    // `field` selects the DOM update: 'value'→.value (text/number/color box),
+    // 'toggle'→.checked, 'section'→<select>.value. Optional `color` restyles a
+    // sibling color swatch alongside its input box. Mirrors file-copy-editor's
+    // syncField, scoped to same-type rows (ini is heterogeneous).
+    // pickControl: a perColumn group HEADER also renders a control for its FIRST
+    // member (data-idx = that member's index), so a member index can match BOTH
+    // the header's control and the member's own sub-row control. When the group is
+    // expanded we must update the sub-row control (not the header's), else the
+    // first member appears "skipped". Prefer the control NOT inside the collapsed
+    // header row; fall back to the header's control (collapsed group) if none.
+    function pickControl(selector, i) {
+      const all = container.querySelectorAll(`${selector}[data-idx="${i}"]`);
+      for (const el of all) {
+        if (!el.closest('.ini-collapsed-row')) return el;
+      }
+      return all[0] || null;
+    }
+    // If member index `i` belongs to a COLLAPSED perColumn group, return that
+    // group's header element; otherwise null. (A collapsed header has the
+    // ini-collapsed-row class but NOT the --expanded modifier.)
+    function collapsedGroupHeaderFor(i) {
+      const headers = container.querySelectorAll('.ini-collapsed-row');
+      for (const h of headers) {
+        if (h.classList.contains('ini-collapsed-row--expanded')) continue; // expanded
+        let members = [];
+        try { members = JSON.parse(h.dataset.groupIndices || '[]'); } catch (_) {}
+        if (members.includes(i)) return h;
+      }
+      return null;
+    }
+    // The control-type key for a folded group header node: derived from its first
+    // member's field (all members share type). Used so folded headers match data
+    // rows / other headers of the same control type.
+    function headerTypeKey(headerEl) {
+      let members = [];
+      try { members = JSON.parse(headerEl.dataset.groupIndices || '[]'); } catch (_) {}
+      const first = iniEdits[members[0]];
+      return first ? editTypeKey(first) : '';
+    }
+    // Multi-select sync: delegate the shared skeleton to OpTable.createGroupSync,
+    // injecting ini-specific data/controls/type-matching via the adapter. Folded
+    // group headers are virtual rows (source + target); expanded headers ignored.
+    const { syncField } = OpTable.createGroupSync({
+      getSelected: () => sel ? sel.getSelected() : new Set(),
+      isHeaderControl: (el) => !!el.dataset.groupHeader,
+      headerRowOf: (el) => el.closest('.ini-collapsed-row'),
+      headerIdOf: (headerEl) => headerEl.dataset.group,
+      foldedHeaderForIndex: (i) => collapsedGroupHeaderFor(i),
+      // Type-match key: ini syncs by control type (field.type), so a toggle row
+      // never receives a color value etc.
+      sourceTypeKey: (isHeader, headerOrIdx) => isHeader ? headerTypeKey(headerOrIdx) : (iniEdits[headerOrIdx] ? editTypeKey(iniEdits[headerOrIdx]) : ''),
+      nodeTypeKey: (n) => n.kind === 'header' ? headerTypeKey(n.headerEl) : (iniEdits[n.idx] ? editTypeKey(iniEdits[n.idx]) : ''),
+      skipDataNode: (idx) => !iniEdits[idx] || iniEdits[idx]._delete,
+      writeSourceData: (idx, field, val) => { if (iniEdits[idx]) iniEdits[idx].value = val; },
+      writeTargetData: (idx, field, val) => { if (iniEdits[idx]) iniEdits[idx].value = val; },
+      applyToHeader: (headerEl, field, val, color) => {
+        const g = CSS.escape(headerEl.dataset.group);
+        if (field === 'toggle') {
+          const el = headerEl.querySelector(`.ini-value-toggle[data-group="${g}"]`);
+          if (el && el.checked !== (val === '1')) el.checked = (val === '1');
+        } else if (field === 'section') {
+          const el = headerEl.querySelector(`.ini-value-section[data-group="${g}"]`);
+          if (el && el.value !== val) el.value = val;
+        } else {
+          const el = headerEl.querySelector(`.ini-value-input[data-group="${g}"]`);
+          if (el) el.value = val;
+          if (color) {
+            const sw = headerEl.querySelector(`.ini-color-swatch[data-group="${g}"]`);
+            if (sw) sw.style.background = color;
+          }
+        }
+      },
+      applyToData: (idx, field, val, color) => {
+        if (field === 'toggle') {
+          const el = pickControl('.ini-value-toggle', idx);
+          if (el && el.checked !== (val === '1')) el.checked = (val === '1');
+        } else if (field === 'section') {
+          const el = pickControl('.ini-value-section', idx);
+          if (el && el.value !== val) el.value = val;
+        } else {
+          const el = pickControl('.ini-value-input', idx);
+          if (el) el.value = val;
+          if (color) {
+            const sw = pickControl('.ini-color-swatch', idx);
+            if (sw) sw.style.background = color;
+          }
+        }
+      },
+      commit: () => { setActions([...iniEdits]); lastActionsRef = iniEdits; },
+    });
+
     // Value change handlers (color inputs are handled separately below)
     container.querySelectorAll('.ini-value-input').forEach(input => {
       if (input.classList.contains('ini-color-value')) return;
-      // 'input' fires live (save button lights up immediately).
-      input.addEventListener('input', () => {
-        const idx = parseInt(input.dataset.idx);
-        iniEdits[idx].value = input.value;
-        // Sync to other selected rows with the same key — update data + DOM in-place.
-        const set = sel ? sel.getSelected() : new Set();
-        if (set.size > 1 && set.has(idx)) {
-          const editKey = iniEdits[idx]._template || iniEdits[idx].key;
-          const editSection = iniEdits[idx].section;
-          for (const i of set) {
-            if (i !== idx && iniEdits[i]) {
-              const iKey = iniEdits[i]._template || iniEdits[i].key;
-              if (iniEdits[i].section === editSection && iKey === editKey) {
-                iniEdits[i].value = input.value;
-                // Update DOM directly (no render = selection preserved).
-                const otherInput = container.querySelector(`.ini-value-input[data-idx="${i}"]`);
-                if (otherInput) otherInput.value = input.value;
-              }
-            }
-          }
+      // Group-header controls hold a TEMPORARY value. A FOLDED header acts as a
+      // full sync node (source + target); an EXPANDED header edit stays local.
+      const isGroupHeader = !!input.dataset.groupHeader;
+      if (isGroupHeader) {
+        const folded = !input.closest('.ini-collapsed-row')?.classList.contains('ini-collapsed-row--expanded');
+        if (folded) {
+          input.addEventListener('change', () => {
+            if (window.InputConfirm && window.InputConfirm.wasEscCancel(input)) return;
+            syncField(input, 'value', input.value);
+          });
         }
-        setActions([...iniEdits]);
-        lastActionsRef = iniEdits;
+        return; // temporary value — no per-keystroke data write
+      }
+      const idx = parseInt(input.dataset.idx);
+      // No per-keystroke data write (mirrors file-copy): the value commits on
+      // change (Enter/blur). This keeps the DOM and stored data in sync so ESC
+      // (which restores the DOM) truly cancels — no stale typed value lingers in
+      // the data. Siblings sync on change/Enter via syncField.
+      input.addEventListener('change', () => {
+        if (window.InputConfirm && window.InputConfirm.wasEscCancel(input)) return;
+        syncField(input, 'value', input.value);
       });
     });
     // Live color value box: commit per keystroke, update swatch, forward to open popover.
@@ -518,6 +626,8 @@
     // and normalizes the stored INI value back to "r,g,b[,a]".
     const isBlackLiteral = v => /^(0,0,0(,0)?|#0{3,8}|black|rgba?\(\s*0\s*,\s*0\s*,\s*0\b|hsla?\(\s*[\d.]+\s*,\s*[\d.]+%\s*,\s*0%\b)/i.test(v || '');
     container.querySelectorAll('.ini-color-value').forEach(input => {
+      // Group-header color box: temporary value, local only (no data write).
+      const isGroupHeader = !!input.dataset.groupHeader;
       input.addEventListener('input', () => {
         const idx = parseInt(input.dataset.idx);
         const type = input.dataset.type;
@@ -532,27 +642,41 @@
         const normalized = type === 'rgba'
           ? `${parsed.r},${parsed.g},${parsed.b},${parsed.a}`
           : `${parsed.r},${parsed.g},${parsed.b}`;
-        iniEdits[idx].value = normalized;
-        // Sync to other selected rows with the same key.
-        const set = sel ? sel.getSelected() : new Set();
-        if (set.size > 1 && set.has(idx)) {
-          const editKey = iniEdits[idx]._template || iniEdits[idx].key;
-          const editSection = iniEdits[idx].section;
-          for (const i of set) { if (i !== idx && iniEdits[i] && iniEdits[i].section === editSection && (iniEdits[i]._template || iniEdits[i].key) === editKey) iniEdits[i].value = normalized; }
-        }
-        setActions([...iniEdits]);
         const swatch = input.parentElement.querySelector('.ini-color-swatch');
-        if (swatch) swatch.style.background = type === 'rgba'
+        const bg = type === 'rgba'
           ? `rgba(${parsed.r},${parsed.g},${parsed.b},${parsed.a/255})`
           : `rgb(${parsed.r},${parsed.g},${parsed.b})`;
+        if (swatch) swatch.style.background = bg;
+        if (isGroupHeader) return; // temporary — don't write data or sync
+        // Commit the edited row's own value live (siblings sync on change/Enter).
+        iniEdits[idx].value = normalized;
+        setActions([...iniEdits]);
+        lastActionsRef = iniEdits;
         // Forward the parsed value into the popover bound to this swatch, if it's open.
         if (swatch && window.ColorPicker && typeof window.ColorPicker.forwardInput === 'function') {
           window.ColorPicker.forwardInput(swatch, normalized);
         }
       });
-      // On blur/Enter: normalize the box's displayed text to canonical "r,g,b[,a]".
-      // (Done on commit, not per keystroke, so typing isn't interrupted by cursor resets.)
+      // On blur/Enter: normalize the box's displayed text to canonical "r,g,b[,a]"
+      // and sync to same-type selected rows (value + swatch). Done on commit, not
+      // per keystroke, so typing isn't interrupted by cursor resets. A FOLDED
+      // header syncs as a virtual row; an EXPANDED header stays local.
+      //
+      // ESC: restore the original color (value + swatch) and cancel — no sync.
+      // Handled locally (not just via InputConfirm) so the swatch is reset too.
       input.addEventListener('change', () => {
+        // ESC restored the pre-edit color — reset the swatch to match, skip sync.
+        if (window.InputConfirm && window.InputConfirm.wasEscCancel(input)) {
+          const type = input.dataset.type;
+          const parsed = window.ColorPicker && window.ColorPicker.parseColor
+            ? window.ColorPicker.parseColor(input.value)
+            : { r: 0, g: 0, b: 0, a: 255 };
+          const swatch = input.parentElement.querySelector('.ini-color-swatch');
+          if (swatch) swatch.style.background = type === 'rgba'
+            ? `rgba(${parsed.r},${parsed.g},${parsed.b},${parsed.a/255})`
+            : `rgb(${parsed.r},${parsed.g},${parsed.b})`;
+          return;
+        }
         const type = input.dataset.type;
         const raw = input.value;
         const parsed = window.ColorPicker && window.ColorPicker.parseColor
@@ -562,32 +686,39 @@
           ? `${parsed.r},${parsed.g},${parsed.b},${parsed.a}`
           : `${parsed.r},${parsed.g},${parsed.b}`;
         if (normalized !== raw) input.value = normalized;
+        const bg = type === 'rgba'
+          ? `rgba(${parsed.r},${parsed.g},${parsed.b},${parsed.a/255})`
+          : `rgb(${parsed.r},${parsed.g},${parsed.b})`;
+        if (isGroupHeader) {
+          const folded = !input.closest('.ini-collapsed-row')?.classList.contains('ini-collapsed-row--expanded');
+          if (folded) syncField(input, 'value', normalized, bg);
+          return; // temporary — no data write
+        }
+        syncField(input, 'value', normalized, bg);
       });
     });
     container.querySelectorAll('.ini-value-toggle').forEach(cb => {
       cb.addEventListener('change', () => {
-        const idx = parseInt(cb.dataset.idx);
-        iniEdits[idx].value = cb.checked ? '1' : '0';
-        const set = sel ? sel.getSelected() : new Set();
-        if (set.size > 1 && set.has(idx)) {
-          const editKey = iniEdits[idx]._template || iniEdits[idx].key;
-          const editSection = iniEdits[idx].section;
-          for (const i of set) { if (i !== idx && iniEdits[i] && iniEdits[i].section === editSection && (iniEdits[i]._template || iniEdits[i].key) === editKey) iniEdits[i].value = cb.checked ? '1' : '0'; }
+        // Group-header toggle: a FOLDED header syncs as a virtual row; an
+        // EXPANDED header stays local. Temporary value either way (no data write).
+        if (cb.dataset.groupHeader) {
+          const folded = !cb.closest('.ini-collapsed-row')?.classList.contains('ini-collapsed-row--expanded');
+          if (folded) syncField(cb, 'toggle', cb.checked ? '1' : '0');
+          return;
         }
-        setActions([...iniEdits]);
+        syncField(cb, 'toggle', cb.checked ? '1' : '0');
       });
     });
     container.querySelectorAll('.ini-value-section').forEach(s => {
       s.addEventListener('change', () => {
-        const idx = parseInt(s.dataset.idx);
-        iniEdits[idx].value = s.value;
-        const set = sel ? sel.getSelected() : new Set();
-        if (set.size > 1 && set.has(idx)) {
-          const editKey = iniEdits[idx]._template || iniEdits[idx].key;
-          const editSection = iniEdits[idx].section;
-          for (const i of set) { if (i !== idx && iniEdits[i] && iniEdits[i].section === editSection && (iniEdits[i]._template || iniEdits[i].key) === editKey) iniEdits[i].value = s.value; }
+        // Group-header select: FOLDED header syncs as a virtual row; EXPANDED
+        // stays local. Temporary value either way.
+        if (s.dataset.groupHeader) {
+          const folded = !s.closest('.ini-collapsed-row')?.classList.contains('ini-collapsed-row--expanded');
+          if (folded) syncField(s, 'section', s.value);
+          return;
         }
-        setActions([...iniEdits]);
+        syncField(s, 'section', s.value);
       });
     });
     // Color picker binding
@@ -595,19 +726,31 @@
       swatch.addEventListener('click', () => {
         const idx = parseInt(swatch.dataset.idx);
         const type = swatch.dataset.type;
+        const isGroupHeader = !!swatch.dataset.groupHeader;
+        // Initial value: group header uses its own (temporary) box text; a data
+        // row uses the stored value.
+        const headerInput = isGroupHeader ? swatch.parentElement.querySelector('.ini-color-value') : null;
         ColorPicker.attach(swatch, {
           type,
-          value: iniEdits[idx].value,
+          value: isGroupHeader ? (headerInput ? headerInput.value : '') : iniEdits[idx].value,
           onChange(newValue) {
-            iniEdits[idx].value = newValue;
-            setActions([...iniEdits]);
             const parsed = newValue.split(',').map(Number);
             const r = parsed[0]||0, g = parsed[1]||0, b = parsed[2]||0, a = parsed[3] !== undefined ? parsed[3] : 255;
-            swatch.style.background = type === 'rgba'
+            const bg = type === 'rgba'
               ? `rgba(${r},${g},${b},${a/255})`
               : `rgb(${r},${g},${b})`;
+            // Update the edited row's swatch + input box.
+            swatch.style.background = bg;
             const input = swatch.parentElement.querySelector('.ini-color-value');
             if (input) input.value = newValue;
+            if (isGroupHeader) {
+              // A FOLDED header syncs as a virtual row; EXPANDED stays local.
+              const folded = !swatch.closest('.ini-collapsed-row')?.classList.contains('ini-collapsed-row--expanded');
+              if (folded) syncField(swatch, 'value', newValue, bg);
+              return; // temporary — no data write
+            }
+            // Sync to same-type selected rows (value + swatch + input box).
+            syncField(swatch, 'value', newValue, bg);
           }
         });
       });
@@ -619,13 +762,21 @@
         // Find all sub-rows belonging to this group
         const subRows = container.querySelectorAll(`.ini-sub-row[data-group-parent="${CSS.escape(groupId)}"]`);
         if (subRows.length === 0) return;
-        // Get the first sub-row's value
-        const firstSubIdx = parseInt(subRows[0].dataset.idx);
-        const firstValue = iniEdits[firstSubIdx]?.value || '';
-        // Set all sub-rows' values
+        // Read the group HEADER's current (temporary) value — the header holds a
+        // local value initialized from the first sub-row; the user may have edited
+        // it. Committing (fill) writes that value to every sub-row.
+        const headerInput = container.querySelector(`.ini-value-input[data-group-header="1"][data-group="${CSS.escape(groupId)}"]`);
+        const headerToggle = container.querySelector(`.ini-value-toggle[data-group-header="1"][data-group="${CSS.escape(groupId)}"]`);
+        const headerSelect = container.querySelector(`.ini-value-section[data-group-header="1"][data-group="${CSS.escape(groupId)}"]`);
+        let fillValue;
+        if (headerToggle) fillValue = headerToggle.checked ? '1' : '0';
+        else if (headerSelect) fillValue = headerSelect.value;
+        else if (headerInput) fillValue = headerInput.value;
+        else fillValue = '';
+        // Set all sub-rows' values to the header's current value.
         for (const sr of subRows) {
           const si = parseInt(sr.dataset.idx);
-          if (iniEdits[si]) iniEdits[si].value = firstValue;
+          if (iniEdits[si]) iniEdits[si].value = fillValue;
         }
         setActions([...iniEdits]);
         render(container);
@@ -725,6 +876,7 @@
     // Path picker buttons
     container.querySelectorAll('.ini-path-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
+        const isGroupHeader = !!btn.dataset.groupHeader;
         const idx = parseInt(btn.dataset.idx);
         const skPath = skinPathFn ? await skinPathFn() : '';
         const result = await api.selectFile([
@@ -735,6 +887,15 @@
         const edit = iniEdits[idx];
         const field = findFieldByTemplate(edit.section, edit.key);
         const converted = convertToSkinIniPath(selectedPath, skPath, edit, field);
+        // Group-header path button: temporary value. A FOLDED header also syncs
+        // as a virtual row; EXPANDED stays local. No data write.
+        if (isGroupHeader) {
+          const headerInput = btn.parentElement.querySelector('.ini-value-input');
+          if (headerInput) headerInput.value = converted;
+          const folded = !btn.closest('.ini-collapsed-row')?.classList.contains('ini-collapsed-row--expanded');
+          if (folded) syncField(headerInput, 'value', converted);
+          return;
+        }
         iniEdits[idx].value = converted;
         setActions([...iniEdits]);
         const input = container.querySelector(`.ini-value-input[data-idx="${idx}"]`);
@@ -764,6 +925,9 @@
     // Edge-fade overlays: added to the scroll element's PARENT (container)
     // so they stay fixed at the scroll viewport edges regardless of scroll
     // position. Position is computed via getBoundingClientRect.
+    // Layering: sticky header (z 10) > fades (z 9) > table border/content.
+    // The fades cover the border + content (rows fade out at the edge), but the
+    // sticky header occludes the fades' top edge.
     const scrollEl = container.querySelector('.ini-table-body-scroll');
     if (scrollEl && !scrollEl._fadeBound) {
       scrollEl._fadeBound = true;
@@ -829,6 +993,27 @@
     const groupIndicesRaw = row.dataset.groupIndices;
     if (groupIndicesRaw && !row.dataset.groupParent) {
       return JSON.parse(groupIndicesRaw);
+    }
+    const ri = parseInt(row.dataset.idx);
+    return isNaN(ri) ? [] : [ri];
+  }
+  // Range (Shift) selection member set for a row. A group header is treated
+  // differently by expansion state so highlighting matches the file editor:
+  //   • FOLDED header → all members (a connect-select across it pulls in the
+  //     whole group, so the header highlights — matches file editor).
+  //   • EXPANDED header → only its FIRST member (transparent: a connect-select
+  //     INTO the expanded group lands on the member rows, not the whole group;
+  //     fixes the "header vs first member mis-judged" bug).
+  // Single-click on a header still selects the whole group via rowMemberIndices.
+  // See op-table.js rowRangeMembers hook.
+  function rowRangeMemberIndices(row) {
+    const groupIndicesRaw = row.dataset.groupIndices;
+    if (groupIndicesRaw && !row.dataset.groupParent) {
+      const arr = JSON.parse(groupIndicesRaw);
+      if (row.classList.contains('ini-collapsed-row--expanded')) {
+        return arr.length ? [arr[0]] : []; // expanded → transparent
+      }
+      return arr; // folded → whole group (highlights like the file editor)
     }
     const ri = parseInt(row.dataset.idx);
     return isNaN(ri) ? [] : [ri];
@@ -1216,7 +1401,7 @@
                 <td><span class="tag">${sectionLabel(firstEdit)}</span></td>
                 <td><span class="ini-key-name">${escapeHtml(templateKey)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(fieldCn)}</span></td>
                 <td style="display:flex;align-items:center;gap:8px;padding-right:12px">
-                  <span style="flex:1;min-width:0">${hasModify ? renderValueInput(firstType, firstEdit, plan.indices[0], firstField) : `<span style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</span>`}</span>
+                  <span style="flex:1;min-width:0">${hasModify ? renderValueInput(firstType, firstEdit, plan.indices[0], firstField, `data-group-header="1" data-group="${escapeHtml(groupId)}"`) : `<span style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</span>`}</span>
                   ${hasModify ? `<button type="button" class="btn btn--secondary btn--sm ini-fill-btn" data-group="${escapeHtml(groupId)}" title="${i18n.t('ini.fillAllTitle')}" data-full="${escapeHtml(i18n.t('ini.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('ini.fillAll')}</button>` : ''}
                 </td>
               </tr>`;
@@ -1252,16 +1437,17 @@
     `;
   }
 
-  function renderValueInput(type, edit, i, field) {
+  function renderValueInput(type, edit, i, field, extraAttr) {
+    const x = extraAttr ? (' ' + extraAttr) : '';
     switch (type) {
       case 'bool':
         return `<label class="toggle">
-          <input type="checkbox" class="ini-value-toggle" data-idx="${i}" ${edit.value === '1' ? 'checked' : ''}>
+          <input type="checkbox" class="ini-value-toggle" data-idx="${i}"${x} ${edit.value === '1' ? 'checked' : ''}>
           <span class="toggle__slider"></span>
         </label>`;
       case 'section': {
         const opts = field?.options || [];
-        return `<select class="form-input ini-value-section" data-idx="${i}" style="width:100%;max-width:200px">
+        return `<select class="form-input ini-value-section" data-idx="${i}"${x} style="width:100%;max-width:200px">
           ${opts.map(o => `<option value="${o.value}" ${edit.value === o.value ? 'selected' : ''}>${INI_FIELD_LABELS.optionLabel(field, o)}</option>`).join('')}
         </select>`;
       }
@@ -1272,14 +1458,14 @@
         const parts = val.split(',').map(Number);
         const r = parts[0]||0, g = parts[1]||0, b = parts[2]||0, a = parts[3] !== undefined ? parts[3] : 255;
         return `<div class="color-row" style="display:flex;align-items:center;gap:6px">
-          <button type="button" class="color-swatch ini-color-swatch" data-idx="${i}" data-type="${type}" tabindex="0" style="flex:0 0 auto;background:${isRgba ? `rgba(${r},${g},${b},${a/255})` : `rgb(${r},${g},${b})`}"></button>
-          <input type="text" class="form-input ini-value-input ini-color-value" data-idx="${i}" data-type="${type}" value="${escapeHtml(val)}" autocomplete="off" spellcheck="false" style="flex:1;min-width:0">
+          <button type="button" class="color-swatch ini-color-swatch" data-idx="${i}" data-type="${type}"${x} tabindex="0" style="flex:0 0 auto;background:${isRgba ? `rgba(${r},${g},${b},${a/255})` : `rgb(${r},${g},${b})`}"></button>
+          <input type="text" class="form-input ini-value-input ini-color-value" data-idx="${i}" data-type="${type}"${x} value="${escapeHtml(val)}" autocomplete="off" spellcheck="false" style="flex:1;min-width:0">
         </div>`;
       }
       case 'path':
         return `<div class="path-input-row" style="display:flex;gap:8px;align-items:center">
-          <input type="text" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" autocomplete="off" spellcheck="false" style="flex:1;min-width:0">
-          <button type="button" class="btn btn--secondary btn--sm ini-path-btn" data-idx="${i}" title="${i18n.t('ini.pickFileTitle')}" style="flex:0 0 auto">📂</button>
+          <input type="text" class="form-input ini-value-input" data-idx="${i}"${x} value="${escapeHtml(edit.value)}" autocomplete="off" spellcheck="false" style="flex:1;min-width:0">
+          <button type="button" class="btn btn--secondary btn--sm ini-path-btn" data-idx="${i}"${x} title="${i18n.t('ini.pickFileTitle')}" style="flex:0 0 auto">📂</button>
         </div>`;
       case 'integer':
       case 'number': {
@@ -1287,10 +1473,10 @@
         const minAttr = field && field.min != null ? ` min="${field.min}"` : '';
         const maxAttr = field && field.max != null ? ` max="${field.max}"` : '';
         const forbiddenAttr = field && Array.isArray(field.forbidden) ? ` data-forbidden="${field.forbidden.join(',')}"` : '';
-        return `<input type="number" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" step="${step}"${minAttr}${maxAttr}${forbiddenAttr} autocomplete="off" style="width:100%">`;
+        return `<input type="number" class="form-input ini-value-input" data-idx="${i}"${x} value="${escapeHtml(edit.value)}" step="${step}"${minAttr}${maxAttr}${forbiddenAttr} autocomplete="off" style="width:100%">`;
       }
       default:
-        return `<input type="text" class="form-input ini-value-input" data-idx="${i}" value="${escapeHtml(edit.value)}" autocomplete="off" spellcheck="false" style="width:100%">`;
+        return `<input type="text" class="form-input ini-value-input" data-idx="${i}"${x} value="${escapeHtml(edit.value)}" autocomplete="off" spellcheck="false" style="width:100%">`;
     }
   }
 

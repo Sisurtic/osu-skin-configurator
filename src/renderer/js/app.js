@@ -1030,7 +1030,7 @@
     if (isModal) return;
     // Color picker popover: close on ESC/Enter regardless of focus.
     if (document.querySelector('.cp-popover')) {
-      e.preventDefault(); e.stopPropagation();
+      e.preventDefault(); e.stopImmediatePropagation();
       if (window.ColorPicker && typeof window.ColorPicker.closeAll === 'function') window.ColorPicker.closeAll();
       return;
     }
@@ -1041,6 +1041,8 @@
       e.preventDefault();
       activeEl.blur();
     } else {
+      // <input> Escape (restore + cancel) is handled by InputConfirm; skip here.
+      if (activeEl.tagName === 'INPUT') return;
       if (state.get('appMode') === 'edit') { e.preventDefault(); activeEl.blur(); }
     }
   });
@@ -1096,7 +1098,8 @@
     // discarding the selection.
     const escTargetIsFocusable = e.target && e.target !== document.body
       && e.target.matches && e.target.matches('input, textarea, select, button, [contenteditable], [tabindex]');
-    if (e.key === 'Escape' && state.get('appMode') === 'edit' && !isModal && !escTargetIsFocusable) {
+    // Don't clear selection while a color picker popover is open.
+    if (e.key === 'Escape' && state.get('appMode') === 'edit' && !isModal && !escTargetIsFocusable && !document.querySelector('.cp-popover')) {
       const proceed = async () => {
         if (window.PresetList && typeof window.PresetList.confirmSwitchIfDirty === 'function') {
           if (!await window.PresetList.confirmSwitchIfDirty()) return;
@@ -1110,7 +1113,7 @@
     }
     // Use mode: Escape clears selected preset(s)/checkbox-group(s); if none are
     // selected, it deselects the skin (back to welcome/selector).
-    if (e.key === 'Escape' && state.get('appMode') === 'use' && !isModal && !escTargetIsFocusable) {
+    if (e.key === 'Escape' && state.get('appMode') === 'use' && !isModal && !escTargetIsFocusable && !document.querySelector('.cp-popover')) {
       const ap = state.get('activePresets') || {};
       const atg = state.get('activeTableGroups') || {};
       const hasSel = Object.keys(ap).length > 0 || Object.keys(atg).length > 0;

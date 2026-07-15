@@ -1986,13 +1986,16 @@ select.form-input {
   transform: none;
 }
 /* Edge fade overlays: JS creates fixed-position <div>s at the top/bottom
-   of the scroll container's visible area. CSS just styles them. */
+   of the scroll container's visible area. CSS just styles them.
+   Layering: sticky header (z 10) > fades (z 9) > table border/content.
+   The fades cover the table border + rows (content fades out at the edge), but
+   the sticky header occludes the fades' top edge. */
 .scroll-edge-fade {
   position: absolute;
   left: 0; right: 0;
   height: 30px;
   pointer-events: none;
-  z-index: 10;
+  z-index: 9;
   opacity: 0;
   transition: opacity 0.4s ease;
 }

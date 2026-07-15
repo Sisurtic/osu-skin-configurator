@@ -76,6 +76,53 @@ fn without_2x(p: &Path) -> Option<PathBuf> {
     Some(p.with_file_name(new_fname))
 }
 
+// The trailing suffix of a source filename to carry onto a non-directory
+// destination: the "@2x" HD marker (if present) plus the extension (if present).
+//   "cursor@2x.png" → "@2x.png"
+//   "cursor.png"    → ".png"
+//   "cursor@2x"     → "@2x"
+//   "cursor"        → ""   (no suffix — don't append anything)
+// Used so a copy/tint destination keeps the source's HD marker and format
+// (a byte copy to a stem with no extension is useless to osu!). Returns "" when
+// the source has neither, so callers append nothing.
+fn source_suffix(source_name: &str) -> String {
+    let base = Path::new(source_name).file_name().and_then(|n| n.to_str()).unwrap_or(source_name);
+    // Start of the suffix = earliest of the "@2x" marker or the first '.'.
+    let at = base.rfind("@2x");
+    let dot = base.find('.');
+    let start = match (at, dot) {
+        (Some(a), Some(d)) => a.min(d),
+        (Some(a), None) => a,
+        (None, Some(d)) => d,
+        (None, None) => return String::new(),
+    };
+    base[start..].to_string()
+}
+
+// Apply the source's suffix (@2x + ext) to a non-directory destination stem.
+// `dest_rel` is the stored stem (e.g. "mania/custom" or "mania/sub/custom");
+// returns "mania/custom@2x.png". If the source has no suffix, the stem is
+// returned unchanged. Directory dests (trailing '/') are returned as-is.
+fn apply_source_suffix(dest_rel: &str, source_name: &str) -> String {
+    if dest_rel.is_empty() || dest_rel.ends_with('/') || dest_rel.ends_with('\\') {
+        return dest_rel.to_string();
+    }
+    let suffix = source_suffix(source_name);
+    if suffix.is_empty() {
+        return dest_rel.to_string();
+    }
+    // Strip any user-typed suffix from the last segment before re-attaching the
+    // source's, so "custom.gif" + source "x@2x.png" → "custom@2x.png".
+    let p = PathBuf::from(dest_rel);
+    let stem = p.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string()).unwrap_or_else(|| dest_rel.to_string());
+    // file_stem already strips "@2x"/extension, so just re-attach the suffix.
+    let base = format!("{}{}", stem, suffix);
+    match p.parent().filter(|pp| !pp.as_os_str().is_empty()) {
+        Some(pp) => pp.join(base).to_string_lossy().to_string(),
+        None => base,
+    }
+}
+
 // Parse a "r,g,b[,a]" color string into (r,g,b,a) u8. Defaults to opaque white.
 fn parse_color(s: &str) -> (u8, u8, u8, u8) {
     let parts: Vec<f64> = s.split(',').filter_map(|t| t.trim().parse::<f64>().ok()).collect();
@@ -379,7 +426,10 @@ fn apply_one_set(
         let dest_path = if is_dir_only {
             PathBuf::from(skin_path).join(dest_rel).join(&source_name)
         } else {
-            PathBuf::from(skin_path).join(dest_rel)
+            // Non-directory dest is a stem (frontend stripped ext + @2x): re-attach
+            // the SOURCE's "@2x" + extension so osu! can find the file. If the
+            // source has neither, the stem is used as-is.
+            PathBuf::from(skin_path).join(apply_source_suffix(dest_rel, &source_name))
         };
         let dest_str = dest_path.to_string_lossy().to_string();
         if !is_within(&dest_str, skin_path) {
@@ -462,25 +512,25 @@ fn apply_one_set(
             PathBuf::from(skin_path).join(source).to_string_lossy().to_string()
         };
         let is_dir_only = dest_rel.is_empty() || dest_rel.ends_with('/') || dest_rel.ends_with('\\');
-        // Normalize the dest's extension to the SOURCE's extension: ignore any
-        // extension the user typed and use the source's (tint re-encodes via
-        // image::save, which infers the format from the extension). A bare
-        // directory → use the full source name.
-        let src_ext = Path::new(&source_name).extension().and_then(|e| e.to_str());
+        // Re-attach the SOURCE's "@2x" + extension to a non-directory stem (tint
+        // re-encodes via image::save, which infers format from the extension;
+        // keeping @2x preserves HD resolution). A bare directory → full source
+        // name. If the source has no suffix, fall back to ".png" so image::save
+        // has a format to infer.
         let dest_name = if is_dir_only {
             source_name.clone()
         } else {
-            // Strip any typed extension from the last path segment, then re-attach the source's.
-            let p = PathBuf::from(dest_rel);
-            let stem = p.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string()).unwrap_or_else(|| dest_rel.to_string());
-            let parent = p.parent().filter(|pp| !pp.as_os_str().is_empty());
-            let base = match src_ext {
-                Some(e) => format!("{}.{}", stem, e),
-                None => format!("{}.png", stem),
-            };
-            match parent {
-                Some(pp) => pp.join(base).to_string_lossy().to_string(),
-                None => base,
+            let with_suffix = apply_source_suffix(dest_rel, &source_name);
+            if Path::new(&with_suffix).extension().is_some() {
+                with_suffix
+            } else {
+                // Source had no extension: tint still needs one for image::save.
+                let p = PathBuf::from(&with_suffix);
+                let base = format!("{}.png", p.file_stem().and_then(|s| s.to_str()).unwrap_or(&with_suffix));
+                match p.parent().filter(|pp| !pp.as_os_str().is_empty()) {
+                    Some(pp) => pp.join(base).to_string_lossy().to_string(),
+                    None => base,
+                }
             }
         };
         let dest_path = if dest_rel.is_empty() {

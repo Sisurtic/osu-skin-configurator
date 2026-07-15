@@ -158,6 +158,10 @@
         deleteMimeType: 'application/file-indices',
         rowMembers: (row) => rowMemberIndices(row),
         rowAnchor: (row) => rowAnchorIndex(row),
+        // Group header in range (Shift) selection: FOLDED → whole group (header
+        // highlights, matches ini); EXPANDED → only its first member (transparent:
+        // a connect-select into an expanded group lands on the members).
+        rowRangeMembers: (row) => rowRangeMemberIndices(row),
         applyDelete: (indicesDesc) => {
           const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
           for (const i of indicesDesc) ops.splice(i, 1);
@@ -321,31 +325,67 @@
     //    and NO input.value rewrite here — that would reset the caret mid-typing.
     //  • 'change' / Enter (blur or commit): run the conversion — absolute path inside the
     //    skin → relative; outside the skin → toast + clear — and rewrite the displayed text.
-    // Sync a field change to all selected rows: update data + DOM inputs in-place
-    // (no render = selection preserved). Toggling switches etc. also update directly.
-    function syncField(ops, idx, field, val) {
-      const set = sel ? sel.getSelected() : new Set();
-      if (set.size > 1) {
-        for (const i of set) {
-          if (i !== idx && i >= 0 && i < ops.length) ops[i][field] = val;
-        }
+    // ── Multi-select sync (shared skeleton via OpTable.createGroupSync) ──
+    // If member index `i` belongs to a FOLDED sequence group, return that group's
+    // header element; otherwise null. (A group is folded when its key is NOT in
+    // expandedSeqGroups.) A folded header is treated as a virtual sync row.
+    function collapsedGroupHeaderFor(i) {
+      const headers = container.querySelectorAll('.file-seq-group');
+      const ops = currentFileOps ? currentFileOps : buildFileOps();
+      for (const h of headers) {
+        const key = h.dataset.seqKey;
+        if (expandedSeqGroups.has(key)) continue; // expanded
+        // Members of this group: ops indices with this seqKey that are frames.
+        let members = [];
+        for (let k = 0; k < ops.length; k++) if (isFrame(ops[k]) && seqKey(ops[k]) === key) members.push(k);
+        if (members.includes(i)) return h;
       }
-      applyFileOpsNoRender(ops);
-      // Update other selected rows' DOM directly (no re-render = selection preserved).
-      if (set.size > 1) {
-        const container2 = document.getElementById('tab-files');
-        for (const i of set) {
-          if (i === idx) continue;
-          if (field === 'destination') {
-            const otherInput = container2.querySelector(`.copy-dest-input[data-idx="${i}"]`);
-            if (otherInput) otherInput.value = val;
-          } else if (field === 'exact') {
-            const otherCb = container2.querySelector(`.file-exact-toggle[data-idx="${i}"]`);
-            if (otherCb) otherCb.checked = !!val;
-          }
-        }
-      }
+      return null;
     }
+    // Inject file-copy specifics into the shared sync skeleton. Folded group
+    // headers are virtual rows (source + target); expanded headers ignored.
+    // file rows are homogeneous per field, so type-match is a constant (no gate).
+    const { syncField } = OpTable.createGroupSync({
+      getSelected: () => sel ? sel.getSelected() : new Set(),
+      isHeaderControl: (el) => !!el.dataset.groupHeader,
+      headerRowOf: (el) => el.closest('.file-seq-group'),
+      headerIdOf: (headerEl) => headerEl.dataset.seqKey,
+      foldedHeaderForIndex: (i) => collapsedGroupHeaderFor(i),
+      sourceTypeKey: () => '',   // no type gate (homogeneous per field)
+      nodeTypeKey: () => '',
+      skipDataNode: (idx) => {
+        const ops = currentFileOps ? currentFileOps : buildFileOps();
+        return idx < 0 || idx >= ops.length;
+      },
+      writeSourceData: (idx, field, val) => {
+        const ops = currentFileOps ? currentFileOps : buildFileOps();
+        if (ops[idx]) ops[idx][field] = val;
+      },
+      writeTargetData: (idx, field, val) => {
+        const ops = currentFileOps ? currentFileOps : buildFileOps();
+        if (ops[idx]) ops[idx][field] = val;
+      },
+      applyToHeader: (headerEl, field, val) => {
+        if (field === 'destination') {
+          const el = headerEl.querySelector('.file-seq-dest');
+          if (el) el.value = val;
+        } else if (field === 'exact') {
+          const el = headerEl.querySelector('.file-seq-exact-toggle');
+          if (el) el.checked = !!val;
+        }
+      },
+      applyToData: (idx, field, val) => {
+        const container2 = document.getElementById('tab-files');
+        if (field === 'destination') {
+          const el = container2.querySelector(`.copy-dest-input[data-idx="${idx}"]`);
+          if (el) el.value = val;
+        } else if (field === 'exact') {
+          const el = container2.querySelector(`.file-exact-toggle[data-idx="${idx}"]`);
+          if (el) el.checked = !!val;
+        }
+      },
+      commit: (touched) => { if (touched) applyFileOpsNoRender(currentFileOps ? [...currentFileOps] : buildFileOps()); },
+    });
 
     function commitDestRaw(input) {
       const idx = parseInt(input.dataset.idx);
@@ -354,7 +394,7 @@
       if (idx >= 0 && idx < ops.length && ops[idx]._type === 'copy') {
         const val = input.value.trim().replace(/^["']|["']$/g, '');
         ops[idx].destination = val;
-        syncField(ops, idx, 'destination', val);
+        syncField(input, 'destination', val);
       }
     }
     // Normalize a file dest's extension to the SOURCE's extension (shared impl
@@ -365,6 +405,8 @@
 
     function convertDestDisplay(input) { return convertDestDisplayImpl(input); }
     async function convertDestDisplayImpl(input) {
+      // ESC restored the original value — keep it, skip normalize + sync.
+      if (window.InputConfirm && window.InputConfirm.wasEscCancel(input)) return;
       const idx = parseInt(input.dataset.idx);
       const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
       if (idx < 0 || idx >= ops.length || ops[idx]._type !== 'copy') return;
@@ -387,7 +429,7 @@
           val = appendSrcExt(val);
           input.value = val;
           ops[idx].destination = val;
-          syncField(ops, idx, 'destination', val);
+          syncField(input, 'destination', val);
         });
         return;
       }
@@ -396,14 +438,12 @@
       val = appendSrcExt(val);
       if (val !== input.value) input.value = val;
       ops[idx].destination = val;
-      syncField(ops, idx, 'destination', val);
+      syncField(input, 'destination', val);
     }
     container.querySelectorAll('.copy-dest-input').forEach(input => {
-      // Sync only on change/Enter — not per keystroke.
+      // Sync only on commit (Enter/blur → change), not per keystroke.
+      // Enter/Escape→blur is provided globally by InputConfirm (app.js).
       input.addEventListener('change', () => convertDestDisplay(input));
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); convertDestDisplay(input); }
-      });
     });
 
     // Exact-match toggles (@2x fallback on/off). State is per-op, so toggles
@@ -412,7 +452,7 @@
       cb.addEventListener('change', () => {
         const idx = parseInt(cb.dataset.idx);
         const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-        if (idx >= 0 && idx < ops.length) { ops[idx].exact = cb.checked; syncField(ops, idx, 'exact', cb.checked); }
+        if (idx >= 0 && idx < ops.length) { ops[idx].exact = cb.checked; syncField(cb, 'exact', cb.checked); }
       });
     });
 
@@ -428,26 +468,31 @@
         if (e.target.closest('.copy-dest-input, .file-seq-fill-btn, .file-seq-exact-toggle, .toggle, .toggle__slider')) return;
         const now = Date.now();
         if (now - last < 250) {
+          // Toggle expansion WITHOUT re-rendering (mirrors ini-editor): flip the
+          // sub-rows' display + the header's --expanded class. No rerender means
+          // the header's temporary value (edited while folded) is preserved,
+          // instead of being reset to the first member's value on rebuild.
           const key = tr.dataset.seqKey;
           if (key) {
             if (expandedSeqGroups.has(key)) expandedSeqGroups.delete(key);
             else expandedSeqGroups.add(key);
-            rerenderTable(container);
+            const subRows = container.querySelectorAll(`.file-op-row[data-group-parent="${CSS.escape(key)}"]`);
+            const expand = expandedSeqGroups.has(key);
+            for (const sr of subRows) sr.style.display = expand ? '' : 'none';
+            tr.classList.toggle('file-seq-group--expanded', expand);
           }
           last = 0;
         } else { last = now; }
       });
     });
 
-    // Group-level exact toggle: apply to all members of the group.
+    // Group-level exact toggle: TEMPORARY value — local only; a FOLDED header
+    // also syncs as a virtual row, an EXPANDED header stays local. Commits to
+    // members via the fill button.
     container.querySelectorAll('.file-seq-exact-toggle').forEach(cb => {
       cb.addEventListener('change', () => {
-        const key = cb.dataset.seqKey;
-        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-        for (let k = 0; k < ops.length; k++) {
-          if (isFrame(ops[k]) && seqKey(ops[k]) === key) ops[k].exact = cb.checked;
-        }
-        applyFileOps(ops);
+        if (expandedSeqGroups.has(cb.dataset.seqKey)) return; // expanded → local only
+        syncField(cb, 'exact', cb.checked);
       });
     });
 
@@ -458,18 +503,15 @@
       return out;
     };
     container.querySelectorAll('.file-seq-dest').forEach(input => {
+      // Group-header destination = TEMPORARY value. 'input' is local-only (no
+      // member writes). 'change' normalizes the header's own text; a FOLDED
+      // header also syncs as a virtual row, an EXPANDED header stays local.
+      const isGroupHeader = !!input.dataset.groupHeader;
+      const isFolded = () => !expandedSeqGroups.has(input.dataset.seqKey);
       input.addEventListener('input', () => {
-        const key = input.dataset.seqKey;
-        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-        for (const k of groupMemberIdx(key, ops)) ops[k].destination = input.value;
-        applyFileOps(ops);
+        // Temporary: no data write per keystroke.
       });
       input.addEventListener('change', () => {
-        const key = input.dataset.seqKey;
-        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-        const idxs = groupMemberIdx(key, ops);
-        if (idxs.length === 0) return;
-        const source = ops[idxs[0]].source || ''; // frame members share an extension
         let val = input.value.trim().replace(/^["']|["']$/g, '');
         if (val && /^[a-zA-Z]:[\\/]?/.test(val)) {
           skinPath().then(sp => {
@@ -480,7 +522,10 @@
             }
             val = appendSrcExt(val);
             input.value = val;
-            for (const k of idxs) ops[k].destination = val;
+            if (isGroupHeader) { if (isFolded()) syncField(input, 'destination', val); return; }
+            const key = input.dataset.seqKey;
+            const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+            for (const k of groupMemberIdx(key, ops)) ops[k].destination = val;
             applyFileOps(ops);
           });
           return;
@@ -488,14 +533,18 @@
         val = val.replace(/\\/g, '/');
         val = appendSrcExt(val);
         if (val !== input.value) input.value = val;
-        for (const k of idxs) ops[k].destination = val;
+        if (isGroupHeader) { if (isFolded()) syncField(input, 'destination', val); return; }
+        const key = input.dataset.seqKey;
+        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+        for (const k of groupMemberIdx(key, ops)) ops[k].destination = val;
         applyFileOps(ops);
       });
-      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+      // Enter/Escape→blur is provided globally by InputConfirm (app.js).
     });
 
-    // Fill button on copy sequence groups: copy the first member's destination
-    // and exact-match state to every member of the group.
+    // Fill button on copy sequence groups: commit the group HEADER's current
+    // TEMPORARY value (destination + exact) to every member. The header holds a
+    // local value (init from first member); the user may have edited it.
     container.querySelectorAll('.file-seq-fill-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation(); // don't toggle group expansion
@@ -506,9 +555,15 @@
           if (isFrame(ops[k]) && seqKey(ops[k]) === key) memberIdx.push(k);
         }
         if (memberIdx.length < 2) return;
-        const first = ops[memberIdx[0]];
-        const dest = first.destination || '';
-        const exact = !!first.exact;
+        // Read the header's current temp controls.
+        const headerEl = container.querySelector(`.file-seq-group[data-seq-key="${CSS.escape(key)}"]`);
+        const headerDest = headerEl ? headerEl.querySelector('.file-seq-dest') : null;
+        const headerExact = headerEl ? headerEl.querySelector('.file-seq-exact-toggle') : null;
+        // Normalize the header destination (relative branch: strip quotes, \→/, appendSrcExt).
+        let dest = headerDest ? headerDest.value.trim().replace(/^["']|["']$/g, '') : '';
+        dest = dest.replace(/\\/g, '/');
+        dest = appendSrcExt(dest);
+        const exact = headerExact ? !!headerExact.checked : false;
         for (const k of memberIdx) { ops[k].destination = dest; ops[k].exact = exact; }
         applyFileOps(ops);
         rerenderTable(container);
@@ -546,42 +601,32 @@
     loadThumbnails();
 
     // ── Click thumbnail/icon to change source path ──
+    // SourcePicker owns trigger detection (img/icon only) + the file dialog +
+    // path normalization; onPick does the editor-specific data write/sync/render.
     container.querySelectorAll('.file-thumb[data-path]').forEach(thumb => {
-      thumb.addEventListener('click', async (e) => {
-        // Only the image or the file-icon (not the text label) triggers the file dialog.
-        if (e.target.tagName !== 'IMG' && !e.target.classList.contains('file-thumb__icon')) return;
-        const sk = skinName();
-        if (!sk) return;
-        const idx = parseInt(thumb.closest('[data-idx]')?.dataset.idx, 10);
-        if (Number.isNaN(idx)) return;
-        const op = currentFileOps[idx];
-        if (!op) return;
-        const skPath = (await skinPath() || '').replace(/\\/g, '/');
-        const result = await api.selectFile([
-          { name: 'Image', extensions: ['png','jpg','jpeg','gif','webp','apng','bmp'] },
-          { name: 'All', extensions: ['*'] },
-        ], skPath);
-        if (!result.success || !result.data || !result.data.length) return;
-        let chosen = result.data[0].replace(/\\/g, '/');
-        if (skPath) {
-          const skNorm = skPath.replace(/\/$/, '');
-          if (chosen.toLowerCase().startsWith(skNorm.toLowerCase())) {
-            chosen = chosen.slice(skNorm.length).replace(/^\//, '');
-          }
-        }
-        if (op._type === 'copy') op.source = chosen;
-        else op.path = chosen;
-        const field = op._type === 'copy' ? 'source' : 'path';
-        syncField(currentFileOps, idx, field, chosen);
-        // Only delete the old source's thumb if no other op still uses it.
-        const oldPath = thumb.dataset.path;
-        const stillUsed = currentFileOps.some(o => (o._type === 'copy' ? o.source : o.path) === oldPath);
-        if (!stillUsed) thumbCache.delete(oldPath);
-        // Save selection before rerender (which clears it).
-        const savedSel = sel ? [...sel.getSelected()] : [];
-        const savedAnchor = sel ? sel.getAnchor() : -1;
-        rerenderTable(container);
-        if (sel && savedSel.length > 1) sel.setSelected(new Set(savedSel), savedAnchor);
+      SourcePicker.attach(thumb, {
+        getSkinPath: () => skinPath(),
+        onPick: (chosen) => {
+          if (!skinName()) return;
+          const idx = parseInt(thumb.closest('[data-idx]')?.dataset.idx, 10);
+          if (Number.isNaN(idx)) return;
+          const op = currentFileOps[idx];
+          if (!op) return;
+          if (op._type === 'copy') op.source = chosen;
+          else op.path = chosen;
+          const field = op._type === 'copy' ? 'source' : 'path';
+          // source/path has no group-header control, so sync targets data rows only.
+          syncField(thumb.closest('[data-idx]') || thumb, field, chosen);
+          // Only delete the old source's thumb if no other op still uses it.
+          const oldPath = thumb.dataset.path;
+          const stillUsed = currentFileOps.some(o => (o._type === 'copy' ? o.source : o.path) === oldPath);
+          if (!stillUsed) thumbCache.delete(oldPath);
+          // Save selection before rerender (which clears it).
+          const savedSel = sel ? [...sel.getSelected()] : [];
+          const savedAnchor = sel ? sel.getAnchor() : -1;
+          rerenderTable(container);
+          if (sel && savedSel.length > 1) sel.setSelected(new Set(savedSel), savedAnchor);
+        },
       });
     });
 
@@ -598,6 +643,7 @@
 
     // Edge-fade overlays: added to the scroll element's PARENT (container)
     // so they stay fixed at the scroll viewport edges regardless of scroll.
+    // Layering: sticky header (z 10) > fades (z 9) > table border/content.
     const scrollEl = container.querySelector('.files-table-body-scroll');
     if (scrollEl && !scrollEl._fadeBound) {
       scrollEl._fadeBound = true;
@@ -637,6 +683,20 @@
         if (isFrame(ops[k]) && seqKey(ops[k]) === key) out.push(k);
       }
       return out;
+    }
+    const ri = parseInt(row.dataset.idx);
+    return isNaN(ri) ? [] : [ri];
+  }
+  // Range (Shift) selection member set. A FOLDED group header returns ALL members
+  // (a connect-select across it pulls in the whole group, so the header highlights
+  // — matches the ini editor); an EXPANDED header returns only its FIRST member
+  // (transparent: a connect-select INTO an expanded group lands on the members).
+  function rowRangeMemberIndices(row) {
+    const key = row.dataset.seqKey;
+    if (key && row.classList.contains('file-seq-group')) {
+      const members = rowMemberIndices(row);
+      if (expandedSeqGroups.has(key)) return members.length ? [members[0]] : []; // expanded → transparent
+      return members; // folded → whole group
     }
     const ri = parseInt(row.dataset.idx);
     return isNaN(ri) ? [] : [ri];
@@ -747,15 +807,18 @@
       const groupHas2x = members.every(m => has2x(m));
       const tagCls = isCopy ? 'tag--accent' : 'tag--danger';
       const tagKey = isCopy ? 'file.tagCopy' : 'file.tagDelete';
-      // Group-level destination (copy only): show first member's value.
+      // Group-level destination (copy only): TEMPORARY value — init from first
+      // member, edits stay local, commits to members via the fill button.
+      // data-group-header marks it as a virtual-row control for multi-select sync.
+      const ghAttr = `data-group-header="1" data-group="${escapeHtml(g.key)}"`;
       const destCell = isCopy
-        ? `<td style="padding-right:12px"><input type="text" class="form-input copy-dest-input file-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" value="${escapeHtml(first.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>`
+        ? `<td style="padding-right:12px"><input type="text" class="form-input copy-dest-input file-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} value="${escapeHtml(first.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>`
         : `<td style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</td>`;
       // Group-level exact toggle (only if the group has @2x files) + fill button.
       const fillBtn = `<button type="button" class="btn btn--secondary btn--sm file-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" data-full="${escapeHtml(i18n.t('file.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap;margin-left:auto">${i18n.t('file.fillAll')}</button>`;
       const exactToggle = groupHas2x
         ? `<label class="toggle">
-            <input type="checkbox" class="file-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${first.exact ? 'checked' : ''}>
+            <input type="checkbox" class="file-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${first.exact ? 'checked' : ''}>
             <span class="toggle__slider"></span>
           </label>`
         : '';
@@ -800,18 +863,26 @@
   // file-icon placeholder first.
   const thumbCache = new Map();
 
+  // Shared thumbnail loader (OpTable.createThumbLoader): owns the cache + the
+  // synchronous htmlFor + the async load invariant (DOM-state skip + cache
+  // rehydrate) so same-source previews can't be lost the way a per-editor fill
+  // loop could drift. Editors pass their own img/placeholder markup for style.
+  const thumbLoader = OpTable.createThumbLoader({
+    cache: thumbCache,
+    isImage: (raw) => isImagePath(raw),
+    skinPath: () => skinPath(),
+    imgHtml: (dataUrl) => `<img src="${dataUrl}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0">`,
+    placeholderHtml: () => `<span class="file-thumb__icon" title="${i18n.t('file.clickToChange')}">📄</span>`,
+  });
+
   // Build the inner markup for a file cell: cached <img> if available, else a
   // 📄 icon placeholder (loadThumbnails fills it in async on first load).
+  // Delete rows (no source / not an image) render a bare label with no icon.
   function thumbHtmlFor(rawPath, label, isDelete) {
-    const labelText = `<span class="file-thumb__name" title="${escapeHtml(rawPath)}">${escapeHtml(label || '')}</span>`;
-    if (isDelete ? !rawPath : !isImagePath(rawPath)) {
-      const icon = isDelete ? '' : `<span class="file-thumb__icon" title="${i18n.t('file.clickToChange')}">📄</span>`;
-      return isDelete ? labelText : `${icon} ${labelText}`;
+    if (isDelete) {
+      return `<span class="file-thumb__name" title="${escapeHtml(rawPath)}">${escapeHtml(label || '')}</span>`;
     }
-    if (thumbCache.has(rawPath)) {
-      return `<img src="${thumbCache.get(rawPath)}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${labelText}`;
-    }
-    return `📄 ${labelText}`;
+    return thumbLoader.htmlFor(rawPath, label);
   }
 
   function pathBasename(p) {
@@ -824,34 +895,11 @@
   }
 
   async function loadThumbnails() {
-    const skPath = await skinPath() || '';
-    const thumbs = document.querySelectorAll('.file-thumb[data-path]');
-    for (const span of thumbs) {
-      const raw = span.dataset.path;
-      // Skip spans that already show an image (rendered from cache synchronously).
-      if (span.querySelector('img')) continue;
-      // Resolve the on-disk path to fetch (both copy and delete use skin-relative paths).
-      let p = raw;
-      const isAbs = /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('/');
-      if (!isAbs && skPath) {
-        p = skPath.replace(/\\/g, '/').replace(/\/$/, '') + '/' + p.replace(/\\/g, '/');
-      }
-      if (!isImagePath(p)) continue;
-      // Cache keyed by the RAW data-path so re-renders can use it synchronously.
-      if (thumbCache.has(raw)) {
-        const label = pathBasename(raw);
-        span.innerHTML = `<img src="${thumbCache.get(raw)}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> <span class="file-thumb__name" title="${escapeHtml(raw)}">${escapeHtml(label)}</span>`;
-        continue;
-      }
-      try {
-        const result = await api.getPreviewDataUrl(p);
-        if (result.success && result.data) {
-          thumbCache.set(raw, result.data);
-          const label = pathBasename(raw);
-          span.innerHTML = `<img src="${result.data}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${escapeHtml(label)}`;
-        }
-      } catch (_) { /* skip failed thumbnails */ }
-    }
+    // Delegated to the shared loader (OpTable.createThumbLoader): DOM-state
+    // skip + cache-rehydrate invariant, shared with the tint editor so the
+    // same-source-preview-loss class of bugs can't recur from drift. Query the
+    // whole document so all file rows + group sub-rows are covered.
+    await thumbLoader.load(document);
   }
 
   function escapeHtml(str) {

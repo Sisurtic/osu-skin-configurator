@@ -157,6 +157,9 @@
     }
 
     function closePopover() {
+      // Move focus to body BEFORE removing the popover, so the browser doesn't
+      // restore focus to the trigger element.
+      if (document.body) document.body.focus();
       popover.remove();
       activeTrigger = null;
       activeForward = null;
@@ -453,13 +456,19 @@
       if (isIncompleteBlack(textInput.value)) return;
       applyValue(textInput.value, false);
     });
-    textInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); closePopover(); }
-    });
-    // Also handle on the popover itself (focus may be on a canvas/child, not textInput).
+    // The popover is a self-contained unit: ANY keydown inside it should not
+    // escape to the document-level handlers (row selection, ESC-to-blur, etc.).
+    // Use capture phase to catch everything before it bubbles.
     popover.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); closePopover(); }
-    });
+      // Let only Enter/Escape close; stop everything else from leaking out.
+      if (e.key === 'Escape' || e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        closePopover();
+      } else {
+        e.stopPropagation();
+      }
+    }, true);
 
     // Close on outside click
     setTimeout(() => {
@@ -503,6 +512,6 @@
   // Close any open popover (called by the global ESC/Enter handler).
   function closeAll() {
     const pop = document.querySelector('.cp-popover');
-    if (pop) closePopover();
+    if (pop) pop.remove();
   }
 })();

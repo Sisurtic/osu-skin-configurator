@@ -73,7 +73,11 @@
       opSel = OpTable.create({
         container,
         rowSelector: '.tint-row',
-        interactiveSelector: 'input, select, textarea, button, label, .toggle, .toggle__slider, .file-thumb, .file-thumb__icon, img',
+        // NOTE: do NOT include `.file-thumb` (the whole container) — only the
+        // icon/img are "interactive" (click-to-change-source). Including the
+        // container blocks row selection when clicking the filename/whitespace,
+        // which file-copy gets right. Keep this aligned with file-copy-editor.
+        interactiveSelector: 'input, select, textarea, button, label, .toggle, .toggle__slider, .file-thumb__icon, img',
         deleteMimeType: 'application/tint-indices',
         selectedClass: 'tint-row--selected',
         rowMembers: (row) => {
@@ -177,15 +181,19 @@
     </tr>`;
   }
 
+  // Shared thumbnail loader (OpTable.createThumbLoader): owns the cache + the
+  // synchronous htmlFor + the async load invariant (DOM-state skip + cache
+  // rehydrate), shared with file-copy so same-source previews can't be lost.
+  const thumbLoader = OpTable.createThumbLoader({
+    cache: thumbCache,
+    isImage: (raw) => isImagePath(raw),
+    skinPath: () => skinPath(),
+    imgHtml: (dataUrl) => `<img src="${dataUrl}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0">`,
+    placeholderHtml: () => `<span class="file-thumb__icon" title="${i18n.t('file.clickToChange')}">📄</span>`,
+  });
+
   function thumbHtmlFor(src) {
-    const label = pathBasename(src);
-    const labelText = `<span class="file-thumb__name" title="${escapeHtml(src)}">${escapeHtml(label)}</span>`;
-    const icon = `<span class="file-thumb__icon" title="${i18n.t('file.clickToChange')}">📄</span>`;
-    if (!isImagePath(src)) return `${icon} ${labelText}`;
-    if (thumbCache.has(src)) {
-      return `<img src="${thumbCache.get(src)}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> ${labelText}`;
-    }
-    return `${icon} ${labelText}`;
+    return thumbLoader.htmlFor(src, pathBasename(src));
   }
 
   // ── Stage controls (right panel, under preview; no fade) ──
@@ -1084,30 +1092,18 @@
 
   // ── Thumbnails ──
   async function loadThumbnails() {
-    if (!skinPath) return;
-    const sk = skinName();
-    if (!sk) return;
-    const skPath = await skinPath();
-    const norm = skPath ? skPath.replace(/\\/g, '/').replace(/\/$/, '') : '';
-    const spans = container.querySelectorAll('.file-thumb[data-path]');
-    for (const span of spans) {
-      const raw = span.dataset.path || '';
-      if (!isImagePath(raw) || thumbCache.has(raw)) continue;
-      let p = raw;
-      const isAbs = /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('/');
-      if (!isAbs && norm) p = norm + '/' + p.replace(/\\/g, '/');
-      const result = await api.getPreviewDataUrl(p);
-      if (result && result.success && result.data) {
-        thumbCache.set(raw, result.data);
-        const label = escapeHtml(pathBasename(raw));
-        span.innerHTML = `<img src="${result.data}" title="${i18n.t('file.clickToChange')}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0"> <span class="file-thumb__name" title="${escapeHtml(raw)}">${label}</span>`;
-      }
-    }
+    // Delegated to the shared loader (OpTable.createThumbLoader): DOM-state
+    // skip + cache-rehydrate invariant, shared with file-copy. Pass a function
+    // so the container is resolved AFTER the skinPath await (a re-render during
+    // the await reassigns `container`; resolving late avoids iterating a
+    // detached node). This fixes same-source previews being left as placeholders.
+    await thumbLoader.load(() => container);
   }
 
   // Add top/bottom edge-fade overlays to a scroll viewport.
   // `relativeEl` is the positioned ancestor the fades attach to; `scrollEl` is the
   // scroller (defaults to relativeEl itself). `bg` overrides the fade gradient color.
+  // Layering: sticky header (z 10) > fades (z 9) > table border/content.
   function setupEdgeFade(relativeEl, scrollEl, bg) {
     if (!relativeEl || relativeEl._fadeBound) return;
     relativeEl._fadeBound = true;
@@ -1302,42 +1298,35 @@
     });
 
     // ── Bind row selection (unified) ── delegated to OpTable.
-    // Click thumbnail image to change source path.
+    // Click thumbnail image/icon to change source path. SourcePicker owns trigger
+    // detection + dialog + path normalization; onPick does tint's data write/sync/render.
     container.querySelectorAll('.file-thumb[data-path]').forEach(thumb => {
-      thumb.addEventListener('click', async (e) => {
-        // Only the image or the file-icon (not the text label) triggers the file dialog.
-        if (e.target.tagName !== 'IMG' && !e.target.classList.contains('file-thumb__icon')) return;
-        const sk = skinName();
-        if (!sk) return;
-        const idx = parseInt(thumb.closest('[data-idx]')?.dataset.idx, 10);
-        if (Number.isNaN(idx)) return;
-        const arr = cur();
-        if (!arr[idx]) return;
-        const skPath = (await skinPath() || '').replace(/\\/g, '/');
-        const result = await api.selectFile([
-          { name: 'Image', extensions: ['png','jpg','jpeg','gif','webp','apng','bmp'] },
-          { name: 'All', extensions: ['*'] },
-        ], skPath);
-        if (!result.success || !result.data || !result.data.length) return;
-        let chosen = result.data[0].replace(/\\/g, '/');
-        if (skPath) {
-          const skNorm = skPath.replace(/\/$/, '');
-          if (chosen.toLowerCase().startsWith(skNorm.toLowerCase())) {
-            chosen = chosen.slice(skNorm.length).replace(/^\//, '');
+      SourcePicker.attach(thumb, {
+        getSkinPath: () => skinPath(),
+        onPick: (chosen) => {
+          if (!skinName()) return;
+          const idx = parseInt(thumb.closest('[data-idx]')?.dataset.idx, 10);
+          if (Number.isNaN(idx)) return;
+          const arr = cur();
+          if (!arr[idx]) return;
+          arr[idx] = { ...arr[idx], source: chosen };
+          // Sync source to other selected rows.
+          const srcSet = opSel ? opSel.getSelected() : new Set();
+          if (srcSet.size > 1 && srcSet.has(idx)) {
+            for (const i of srcSet) { if (i !== idx && arr[i]) { arr[i] = { ...arr[i], source: chosen }; } }
           }
-        }
-        arr[idx] = { ...arr[idx], source: chosen };
-        // Sync source to other selected rows.
-        const srcSet = opSel ? opSel.getSelected() : new Set();
-        if (srcSet.size > 1 && srcSet.has(idx)) {
-          for (const i of srcSet) { if (i !== idx && arr[i]) { arr[i] = { ...arr[i], source: chosen }; } }
-        }
-        applyTints(arr);
-        // Only delete the old source's thumb if no other row still uses it.
-        const oldSrc = thumb.dataset.path;
-        const stillUsed = arr.some(t => t.source === oldSrc);
-        if (!stillUsed) { thumbCache.delete(oldSrc); sourceImgCache.delete(oldSrc); }
-        render(container);
+          applyTints(arr);
+          // Only delete the old source's thumb if no other row still uses it.
+          const oldSrc = thumb.dataset.path;
+          const stillUsed = arr.some(t => t.source === oldSrc);
+          if (!stillUsed) { thumbCache.delete(oldSrc); sourceImgCache.delete(oldSrc); }
+          // Save selection before render (which clears it), restore after — mirrors
+          // file-copy so changing a source doesn't drop the multi-selection.
+          const savedSel = opSel ? [...opSel.getSelected()] : [];
+          const savedAnchor = opSel ? opSel.getAnchor() : -1;
+          render(document.getElementById('tab-tint'));
+          if (opSel && savedSel.length > 1) opSel.setSelected(new Set(savedSel), savedAnchor);
+        },
       });
     });
 
@@ -1345,40 +1334,56 @@
       opSel.bindRow(row);
     });
 
-    // Normalize a file dest's extension to the SOURCE's extension (shared impl
-    // in OpTable.appendSrcExt — see the comment there).
-    function appendSrcExt(val, source) {
-      return OpTable.appendSrcExt(val, source);
+    // Strip a destination's extension + @2x, leaving just the stem (shared impl
+    // in OpTable.appendSrcExt — the backend re-attaches the source's suffix).
+    function appendSrcExt(val) {
+      return OpTable.appendSrcExt(val);
     }
+
+    // Multi-select destination sync — shared skeleton (OpTable.createGroupSync),
+    // same as file-copy/ini. Tint has no perColumn group headers, so every
+    // selected row is a data node (no header virtual-row logic); type-match is
+    // a no-op (all rows share the destination field).
+    const { syncDest } = (() => {
+      const { syncField } = OpTable.createGroupSync({
+        getSelected: () => opSel ? opSel.getSelected() : new Set(),
+        isHeaderControl: () => false,
+        headerRowOf: () => null,
+        headerIdOf: () => '',
+        foldedHeaderForIndex: () => null,
+        sourceTypeKey: () => '',
+        nodeTypeKey: () => '',
+        skipDataNode: (idx) => { const a = cur(); return idx < 0 || idx >= a.length; },
+        writeSourceData: (idx, field, val) => { const a = cur(); if (a[idx]) a[idx] = { ...a[idx], [field]: val }; },
+        writeTargetData: (idx, field, val) => { const a = cur(); if (a[idx]) a[idx] = { ...a[idx], [field]: val }; },
+        applyToHeader: () => {},
+        applyToData: (idx, field, val) => {
+          if (field !== 'destination') return;
+          const other = container.querySelector(`.tint-dest[data-idx="${idx}"]`);
+          if (other) other.value = val;
+        },
+        commit: () => { applyTints(cur()); },
+      });
+      // Wrap so the source row's own DOM (the edited input) isn't overwritten by
+      // the skeleton's applyToData (the user is typing into it).
+      return { syncDest: (source, val) => syncField(source, 'destination', val) };
+    })();
 
     // Destination input (per row). When multiple rows are selected, the value
     // is synced to all selected rows.
     container.querySelectorAll('.tint-dest').forEach(input => {
-      input.addEventListener('input', () => {
-        const idx = parseInt(input.dataset.idx, 10);
-        const arr = cur();
-        if (arr[idx]) { arr[idx] = { ...arr[idx], destination: input.value }; applyTints(arr); }
-        // Sync to other selected rows.
-        const set = opSel ? opSel.getSelected() : new Set();
-        if (set.size > 1 && set.has(idx)) {
-          for (const i of set) {
-            if (i !== idx && arr[i]) { arr[i] = { ...arr[i], destination: input.value }; }
-          }
-          applyTints(arr);
-        }
-      });
+      // Sync only on commit (Enter/blur → change), not per keystroke — mirrors
+      // file-copy-editor. Enter/Escape→blur is provided globally by InputConfirm.
       input.addEventListener('change', async () => {
+        // ESC restored the original value — keep it, skip normalize + sync.
+        if (window.InputConfirm && window.InputConfirm.wasEscCancel(input)) return;
         const idx = parseInt(input.dataset.idx, 10);
         const arr = cur();
         if (!arr[idx]) return;
         let val = input.value.trim().replace(/^["']|["']$/g, '');
         if (!val) {
-          arr[idx] = { ...arr[idx], destination: '' }; applyTints(arr); input.value = '';
-          const set = opSel ? opSel.getSelected() : new Set();
-          if (set.size > 1 && set.has(idx)) {
-            for (const i of set) { if (i !== idx && arr[i]) { arr[i] = { ...arr[i], destination: '' }; } }
-            applyTints(arr);
-          }
+          input.value = '';
+          syncDest(input, '');   // writes source '' + syncs to selected siblings (data + DOM)
           return;
         }
         // Absolute path: try to convert to skin-relative; reject if outside skin
@@ -1397,19 +1402,15 @@
           }
         }
         val = val.replace(/\\/g, '/');
-        // Keep the user's extension if present; otherwise append the source's
-        // extension (mirrors file-copy-editor + the backend).
-        val = appendSrcExt(val, arr[idx].source || '');
+        // Strip to a stem (the backend re-attaches the source's @2x + extension).
+        val = appendSrcExt(val);
         if (val !== input.value) input.value = val;
-        arr[idx] = { ...arr[idx], destination: val };
-        // Sync final normalized value to other selected rows.
-        const set2 = opSel ? opSel.getSelected() : new Set();
-        if (set2.size > 1 && set2.has(idx)) {
-          for (const i of set2) { if (i !== idx && arr[i]) { arr[i] = { ...arr[i], destination: val }; } }
-        }
-        applyTints(arr);
+        // Writes the source row's normalized destination + syncs to selected
+        // siblings (data + DOM).
+        syncDest(input, val);
       });
-      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+      // Enter/Escape→blur is provided globally by InputConfirm (app.js); blur
+      // fires the 'change' handler above (normalize + sync).
     });
 
     // ── Delete zone drop handler ── delegated to OpTable.
@@ -1632,7 +1633,8 @@
     };
     el.addEventListener('change', commit);
     el.addEventListener('blur', commit);
-    el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } });
+    // Enter/Escape→blur is provided globally by InputConfirm (app.js); blur
+    // fires `commit` above (enforce constraint + reflect clamped value).
     // Wheel adjusts value and updates live (some WebViews don't fire input on wheel).
     // No preventDefault here, so mark passive to avoid the non-passive-listener warning.
     el.addEventListener('wheel', () => { requestAnimationFrame(commit); }, { passive: true });
