@@ -20,7 +20,13 @@
     el.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
+        // Enter = "commit this value". blur fires 'change' only when the value
+        // changed since focus; if it didn't change, dispatch change manually so
+        // the editor still runs normalize + marks dirty + syncs (Enter must
+        // always commit, even an unchanged value — unlike Escape which cancels).
+        const unchanged = el.value === el.dataset.preEditValue;
         el.blur();
+        if (unchanged) el.dispatchEvent(new Event('change', { bubbles: true }));
       } else if (e.key === 'Escape') {
         e.preventDefault();
         // Restore the pre-edit value and flag this change as a cancel so editors

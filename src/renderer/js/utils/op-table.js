@@ -440,7 +440,10 @@
         sourceTypeKey = A.sourceTypeKey(false, idx);
       }
       const set = A.getSelected();
-      if (!set || set.size <= 1) { A.commit(false); return; }
+      // Single selection (or none): a data-source edit still wrote its own row
+      // (writeSourceData) and must be committed to the store (so dirty/save
+      // state updates); a header-source edit is temporary and commits nothing.
+      if (!set || set.size <= 1) { A.commit(!isHeaderSource); return; }
       const nodes = collectSyncNodes();
       let touched = false;
       for (const n of nodes) {
