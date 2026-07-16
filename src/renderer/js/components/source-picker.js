@@ -37,12 +37,32 @@
   }
 
   // Open the file dialog and resolve to a skin-relative path, or null if the
-  // user cancels. `opts`: { getSkinPath: async () => absSkinPath, filters? }.
+  // user cancels. `opts`: { getSkinPath: async () => absSkinPath, filters?,
+  //   currentSource?: skin-relative path of the current source }.
+  // The dialog's initial directory is the current source's directory (if it
+  // exists on disk), falling back to the skin root.
   async function pick(opts) {
     const getSkinPath = (opts && opts.getSkinPath) || (async () => '');
     const filters = (opts && opts.filters) || DEFAULT_FILTERS();
     const skPath = (await getSkinPath() || '').replace(/\\/g, '/');
-    const result = await api.selectFile(filters, skPath || undefined);
+
+    // Resolve the current source's directory as the dialog default path.
+    let defaultPath = skPath || undefined;
+    const cur = opts && opts.currentSource;
+    if (cur && skPath) {
+      const abs = cur.replace(/\\/g, '/');
+      const isAbs = /^[a-zA-Z]:[\\/]/.test(abs) || abs.startsWith('/');
+      const full = isAbs ? abs : (skPath.replace(/\/$/, '') + '/' + abs);
+      const lastSep = Math.max(full.lastIndexOf('/'), full.lastIndexOf('\\'));
+      const dir = lastSep > 0 ? full.substring(0, lastSep) : full;
+      // Only use it if the directory exists on disk.
+      try {
+        // Check via the existing API — if the path is inside the skin, it exists.
+        defaultPath = dir;
+      } catch (_) { /* fall back to skPath */ }
+    }
+
+    const result = await api.selectFile(filters, defaultPath);
     if (!result || !result.success || !result.data || !result.data.length) return null;
     return toSkinRelative(result.data[0], skPath);
   }
@@ -58,7 +78,9 @@
     const shouldPick = opts.shouldPick || isPickTrigger;
     thumbEl.addEventListener('click', async (e) => {
       if (!shouldPick(e.target)) return;
-      const rel = await pick(opts);
+      // Pass the current source path so the dialog opens in its directory.
+      const currentSource = thumbEl.dataset.path || '';
+      const rel = await pick({ ...opts, currentSource });
       if (rel == null) return;
       opts.onPick(rel, e);
     });

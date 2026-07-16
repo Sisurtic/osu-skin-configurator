@@ -9,12 +9,17 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
-use tauri_plugin_notification::NotificationExt;
+
+/// What a global shortcut applies: a preset, or a table group (whose row
+/// selection the backend resolves via apply_group). Group ids can collide with
+/// preset ids, so the kind is tracked explicitly.
+#[derive(Clone, Copy, Debug)]
+pub enum Target { Preset(i64), Group(i64) }
 
 #[derive(Default)]
 pub struct State {
-    /// accelerator (Tauri grammar) → preset ids that share it
-    pub bindings: Mutex<HashMap<String, Vec<i64>>>,
+    /// accelerator (Tauri grammar) → targets (presets and/or groups) sharing it
+    pub bindings: Mutex<HashMap<String, Vec<Target>>>,
     pub skin_path: Mutex<Option<String>>,
 }
 
@@ -93,26 +98,25 @@ pub fn reload(app: &AppHandle, skin_path: Option<String>) {
     let cfg = crate::preset_manager::scan_skin(&sp);
     let presets = cfg.get("presets").and_then(|v| v.as_array()).cloned().unwrap_or_default();
 
-    // accelerator (Tauri) -> preset ids (from presets AND table groups)
-    let mut map: HashMap<String, Vec<i64>> = HashMap::new();
+    // accelerator (Tauri) -> targets (presets AND table groups)
+    let mut map: HashMap<String, Vec<Target>> = HashMap::new();
     for p in &presets {
         let shortcut = p.get("meta").and_then(|m| m.get("shortcut")).and_then(|s| s.as_str()).unwrap_or("");
         if shortcut.is_empty() { continue; }
         let id = p.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
         if let Some(acc) = convert_accelerator(shortcut) {
-            map.entry(acc).or_default().push(id);
+            map.entry(acc).or_default().push(Target::Preset(id));
         }
     }
-    // Also register shortcuts bound to table groups.
+    // Also register shortcuts bound to table groups (on_trigger applies the
+    // group via apply_group, which reads the group's row selection from config).
     let groups = cfg.get("groups").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     for g in &groups {
         let shortcut = g.get("shortcut").and_then(|s| s.as_str()).unwrap_or("");
         if shortcut.is_empty() { continue; }
         let gid = g.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
-        // Resolve the group's current row selections into preset ids.
-        let mut child_ids = vec![gid]; // group id as marker; on_trigger resolves
         if let Some(acc) = convert_accelerator(shortcut) {
-            map.entry(acc).or_default().append(&mut child_ids);
+            map.entry(acc).or_default().push(Target::Group(gid));
         }
     }
 
@@ -140,35 +144,42 @@ fn on_trigger(app: &AppHandle, acc: &str) {
     if !crate::foreground::is_osu_focused() { return; }
     let state = app.state::<State>();
     let sp = state.skin_path.lock().unwrap().clone();
-    let ids = state.bindings.lock().unwrap().get(acc).cloned().unwrap_or_default();
+    let targets = state.bindings.lock().unwrap().get(acc).cloned().unwrap_or_default();
     let Some(sp) = sp else { return };
-    if ids.is_empty() { return; }
+    if targets.is_empty() { return; }
 
-    // apply
-    let result = crate::preset_applier::apply_multiple_presets(&sp, &ids);
-    let warnings = result.get("warnings").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-
-    // collect names for the notification
-    let cfg = crate::preset_manager::scan_skin(&sp);
-    let presets = cfg.get("presets").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let names: Vec<String> = presets.iter()
-        .filter_map(|p| {
-            let id = p.get("id").and_then(|v| v.as_i64())?;
-            if ids.contains(&id) {
-                Some(p.get("meta").and_then(|m| m.get("name")).and_then(|n| n.as_str()).map(|s| s.to_string()).unwrap_or_else(|| crate::i18n::t("preset.fallback_name", &[("id", &id.to_string())])))
-            } else { None }
-        })
-        .collect();
-
-    let title = crate::i18n::t("notify.applied_title", &[]);
-    let joined = names.join("、");
-    let body = if warnings > 0 {
-        crate::i18n::t("notify.applied_body_warn", &[("count", &names.len().to_string()), ("names", &joined), ("warn", &warnings.to_string())])
-    } else {
-        crate::i18n::t("notify.applied_body", &[("names", &joined)])
-    };
-    let _ = app.notification().builder().title(title).body(body).show();
-    let _ = app.emit("global-shortcut-applied", json!({"ids": ids}));
+    // Apply each target: presets via apply_multiple_presets, groups via
+    // apply_group (which resolves the group's per-row selection from config).
+    let mut total_ini = 0i64;
+    let mut total_files = 0i64;
+    let mut total_tints = 0i64;
+    let mut total_warnings = 0usize;
+    let mut preset_ids: Vec<i64> = Vec::new();
+    for t in &targets {
+        if let Target::Group(gid) = t {
+            if let Ok(v) = crate::preset_applier::apply_group(&sp, *gid, None) {
+                total_ini += v.get("skinIniChanges").and_then(|x| x.as_i64()).unwrap_or(0);
+                total_files += v.get("filesCopied").and_then(|x| x.as_i64()).unwrap_or(0)
+                    + v.get("filesDeleted").and_then(|x| x.as_i64()).unwrap_or(0);
+                total_tints += v.get("filesTinted").and_then(|x| x.as_i64()).unwrap_or(0);
+                total_warnings += v.get("warnings").and_then(|x| x.as_array()).map(|a| a.len()).unwrap_or(0);
+            }
+        }
+    }
+    for t in &targets {
+        if let Target::Preset(id) = t { preset_ids.push(*id); }
+    }
+    if !preset_ids.is_empty() {
+        let r = crate::preset_applier::apply_multiple_presets(&sp, &preset_ids);
+        total_ini += r.get("skinIniChanges").and_then(|x| x.as_i64()).unwrap_or(0);
+        total_files += r.get("filesCopied").and_then(|x| x.as_i64()).unwrap_or(0)
+            + r.get("filesDeleted").and_then(|x| x.as_i64()).unwrap_or(0);
+        total_tints += r.get("filesTinted").and_then(|x| x.as_i64()).unwrap_or(0);
+        total_warnings += r.get("warnings").and_then(|x| x.as_array()).map(|a| a.len()).unwrap_or(0);
+    }
+    let _ = app.emit("global-shortcut-applied", json!({
+        "ini": total_ini, "files": total_files, "tints": total_tints, "warnings": total_warnings
+    }));
 }
 
 /// Persist meta.shortcut on the given presets (or group.shortcut for table

@@ -23,7 +23,6 @@
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-ask",
-    "notification:default",
     "global-shortcut:default",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",

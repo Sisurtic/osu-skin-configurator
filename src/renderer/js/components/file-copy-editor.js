@@ -295,11 +295,13 @@
         const skPath = await skinPath();
         const deletes = getDeletes ? [...getDeletes()] : [];
         for (const filePath of filePaths) {
-          let relPath = filePath;
+          let relPath = '';
           if (skPath && filePath.toLowerCase().startsWith(skPath.toLowerCase())) {
             relPath = filePath.slice(skPath.length).replace(/^[/\\]/, '');
-          } else {
-            relPath = filePath.split(/[/\\]/).pop();
+          }
+          if (!relPath) {
+            Toast.warning(i18n.t('file.outsideSkin'));
+            continue;
           }
           deletes.push({ path: relPath, exact: false });
         }

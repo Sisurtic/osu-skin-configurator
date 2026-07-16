@@ -187,9 +187,22 @@
       });
 
       // Global shortcut applied a preset from outside the window — image files
-      // may have changed, so drop all cached images so the next render is fresh.
-      api.onGlobalShortcutApplied(() => {
+      // may have changed, so drop all cached images, show a toast + play a sound.
+      api.onGlobalShortcutApplied((payload) => {
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
+        const p = payload && payload.payload ? payload.payload : payload;
+        const ini = p.ini || 0, files = p.files || 0, tints = p.tints || 0;
+        if (ini > 0 || files > 0 || tints > 0) {
+          const parts = [];
+          if (ini > 0) parts.push(`${i18n.t('apply.groupIni')}×${ini}`);
+          if (files > 0) parts.push(`${i18n.t('apply.groupFile')}×${files}`);
+          if (tints > 0) parts.push(`${i18n.t('apply.groupTint')}×${tints}`);
+          const sum = parts.join(' ');
+          Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
+          try { new Audio('assets/meow.wav').play(); } catch (e) {}
+        } else if (p.warnings > 0) {
+          Toast.warning(i18n.t('apply.applyFailed', { msg: '' }));
+        }
       });
 
       // Parallelize independent IPC calls to cut cold-start wait — these fan
@@ -1123,16 +1136,22 @@
       proceed();
       return;
     }
-    // Use mode: Escape clears selected preset(s)/checkbox-group(s); if none are
-    // selected, it deselects the skin (back to welcome/selector).
+    // Use mode: Escape is layered — cancel right-click (shortcut) selection
+    // first, then clear preset/checkbox-group selection, then deselect the skin.
     if (e.key === 'Escape' && state.get('appMode') === 'use' && !isModal && !escTargetIsFocusable && !document.querySelector('.cp-popover')) {
+      // 1. Right-click shortcut selection (or active recorder).
+      if (window.PresetSelector && typeof window.PresetSelector.hasShortcutSelection === 'function' && window.PresetSelector.hasShortcutSelection()) {
+        if (typeof window.PresetSelector.clearShortcutSelection === 'function') window.PresetSelector.clearShortcutSelection();
+        return;
+      }
+      // 2. Preset / checkbox-group selection.
       const ap = state.get('activePresets') || {};
       const atg = state.get('activeTableGroups') || {};
       const hasSel = Object.keys(ap).length > 0 || Object.keys(atg).length > 0;
       if (hasSel) {
         state.setMultiple({ activePresets: {}, activeTableGroups: {} });
       } else {
-        // Clear the persisted last-skin too, so a restart doesn't reselect it.
+        // 3. Deselect the skin (back to welcome/selector).
         api.setLastSkin(null);
         state.set('selectedSkin', null);
       }

@@ -83,11 +83,6 @@ fn lookup(locale: &str, key: &str) -> Option<&'static str> {
         "group.default_empty_name" => row!("New group", "新しいグループ", "新分組", "新分组"),
         "group.unnamed" => row!("Unnamed", "無題", "未命名", "未命名"),
 
-        // ── OS notifications (global_shortcut.rs) ──
-        "notify.applied_title" => row!("Preset applied", "プリセットを適用しました", "已套用預設", "已应用预设"),
-        "notify.applied_body" => row!("Applied: {names}", "適用: {names}", "已套用: {names}", "已应用: {names}"),
-        "notify.applied_body_warn" => row!("Applied {count}: {names} ({warn} warnings)", "{count} 件を適用: {names}（警告 {warn} 件）", "已套用 {count} 個: {names}（{warn} 條警告）", "已应用 {count} 个：{names}（{warn} 条警告）"),
-
         // ── apply warnings (preset_applier.rs) ──
         "warn.copy_invalid_path" => row!("Skipped \"{name}\": invalid target path", "スキップ \"{name}\": 無効なターゲットパス", "跳過 \"{name}\": 目標路徑無效", "跳过 \"{name}\": 目标路径无效"),
         "warn.copy_outside_skin" => row!("Skipped \"{name}\": target path is outside the skin folder", "スキップ \"{name}\": ターゲットパスがスキンフォルダ外です", "跳過 \"{name}\": 目標路徑超出皮膚目錄", "跳过 \"{name}\": 目标路径超出皮肤目录"),

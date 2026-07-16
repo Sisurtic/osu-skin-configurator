@@ -375,6 +375,17 @@
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
 
+      // Auto-scroll near edges — widen the native trigger zone for sensitivity.
+      const lr = listEl.getBoundingClientRect();
+      const edgeZone = 50;
+      const speed = 0.05;
+      const relY = e.clientY - lr.top;
+      if (relY < edgeZone) {
+        listEl.scrollTop -= Math.max(2, (edgeZone - relY) * speed);
+      } else if (relY > lr.height - edgeZone) {
+        listEl.scrollTop += Math.max(2, (relY - (lr.height - edgeZone)) * speed);
+      }
+
       if (nest) {
         // Show nest highlight on the group (hide drop line)
         clearDropLineClasses();
@@ -437,31 +448,62 @@
       }
       const dragKeys = new Set(dragItems.map(d => d.type + ':' + d.id));
 
+      // No-op: dropped onto itself.
+      if (dragGroupId && nest) {
+        const targetGid = parseInt(row.dataset.groupId, 10);
+        if (targetGid === dragGroupId) return;
+      }
+
       if (nest) {
         // ── Nest into the target group ──
         const targetGroupId = parseInt(row.dataset.groupId, 10);
         const groups0 = state.get('groups') || [];
-        // Flatten check for groups being nested into a table
-        const targetGroup = groups0.find(g => g.id === targetGroupId);
-        const targetIsTable = targetGroup && targetGroup.type === 'table';
-        if (targetIsTable) {
-          const needFlatten = dragItems
+
+        // Nesting into a plain group that is a row of a table group requires the
+        // flatten check (table groups only allow one level of plain sub-groups).
+        // Nesting directly into a table group itself is fine (no prompt).
+        // Only applies when dragging PLAIN groups (not table groups).
+        const needsFlattenCheck = isPlainRowInTable(groups0, targetGroupId)
+          && dragItems.some(d => d.type === 'group' && (groups0.find(x => x.id === d.id) || {}).type !== 'table');
+
+        if (needsFlattenCheck) {
+          // Prompt to flatten — regardless of whether the dragged group has
+          // nested sub-groups.
+          const choice = await ApplyDialog.showConfirmDialog(
+            i18n.t('group.flattenConfirm'),
+            [
+              { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
+              { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
+            ]
+          );
+          if (choice !== 'flatten') return;
+          // Flatten dragged plain groups: first flatten their internal sub-groups,
+          // then hoist their presets into the target (group shell deleted).
+          const plainGroupIds = dragItems
             .filter(d => d.type === 'group')
             .filter(d => {
               const g = groups0.find(x => x.id === d.id);
-              return g && g.type !== 'table' && hasNestedSubGroups(groups0, d.id);
-            });
-          if (needFlatten.length > 0) {
-            const choice = await ApplyDialog.showConfirmDialog(
-              i18n.t('group.flattenConfirm'),
-              [
-                { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
-                { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-              ]
-            );
-            if (choice !== 'flatten') return;
-            for (const d of needFlatten) await api.flattenGroupSubgroups(skin, d.id);
+              return g && g.type !== 'table';
+            })
+            .map(d => d.id);
+          for (const gid of plainGroupIds) {
+            // 1. Flatten internal sub-groups (hoist their presets into this group).
+            await api.flattenGroupSubgroups(skin, gid);
+            // 2. Move this group's presets directly into the target group.
+            const refreshed = await api.scanPresets(skin);
+            if (refreshed.success) { state.set('groups', refreshed.data.groups); }
+            const g2 = (state.get('groups') || []).find(x => x.id === gid);
+            if (g2 && g2.children) {
+              for (const c of g2.children) {
+                if (c.type === 'preset') await api.movePresetGroup(skin, c.id, targetGroupId);
+                else if (c.type === 'group') await api.moveGroup(skin, c.id, targetGroupId);
+              }
+            }
+            // 3. Delete the now-empty group shell.
+            await api.removeGroup(skin, gid);
           }
+          await refreshSkinData(skin);
+          return;
         }
         // Move presets
         for (const d of dragItems) {
@@ -483,6 +525,30 @@
       // moveGroup (which removes from the old parent), THEN reorder.
       const alreadyHere = dragItems.every(d => children.some(c => c.type === d.type && c.id === d.id));
       if (!alreadyHere) {
+        // Cross-parent move into a plain group that is a row of a table group:
+        // prompt to flatten first (same as nest).
+        if (parentId != null && isPlainRowInTable(state.get('groups') || [], parentId)) {
+          const groups0 = state.get('groups') || [];
+          const hasPlainGroups = dragItems.some(d => d.type === 'group' && (groups0.find(x => x.id === d.id) || {}).type !== 'table');
+          if (hasPlainGroups) {
+            const choice = await ApplyDialog.showConfirmDialog(
+              i18n.t('group.flattenConfirm'),
+              [
+                { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
+                { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
+              ]
+            );
+            if (choice !== 'flatten') return;
+            const groups0 = state.get('groups') || [];
+            const needFlatten = dragItems
+              .filter(d => d.type === 'group')
+              .filter(d => {
+                const g = groups0.find(x => x.id === d.id);
+                return g && g.type !== 'table' && hasNestedSubGroups(groups0, d.id);
+              });
+            for (const d of needFlatten) await api.flattenGroupSubgroups(skin, d.id);
+          }
+        }
         // Cross-parent: move each item to the target parent first (append).
         for (const d of dragItems) {
           if (d.type === 'preset') await api.movePresetGroup(skin, d.id, parentId);
@@ -880,6 +946,9 @@
         rootChildren: scanResult.data.rootChildren || [],
       });
     }
+    // Re-register global shortcuts so deleted presets/groups don't keep their
+    // hotkeys, and structural changes (id compaction) are reflected.
+    try { api.reloadGlobalShortcuts(skin); } catch (e) { /* best-effort */ }
   }
 
   // ── Collapse toggle ──
@@ -1198,6 +1267,8 @@
         const data = { ...r.data };
         if (!data.meta) data.meta = {};
         data.meta.name = (data.meta.name || i18n.t('preset.fallbackName', { id: r.data.id })) + i18n.t('preset.copySuffix');
+        // A duplicated preset must NOT inherit the source's global hotkey.
+        data.meta.shortcut = undefined;
         // Find the source preset's parent so the copy stays in the same group.
         const groups0 = state.get('groups') || [];
         let srcParent = null;
@@ -1282,6 +1353,8 @@
     const r = await api.loadPreset(skin, srcPresetId);
     if (!r.success || !r.data) return;
     const data = { ...r.data };
+    // A duplicated preset must NOT inherit the source's global hotkey.
+    if (data.meta) data.meta = { ...data.meta, shortcut: undefined };
     // Children keep their original names (no copy suffix) for subtree copies.
     const saveResult = await api.savePreset(skin, null, data);
     if (saveResult && saveResult.success && saveResult.data != null) {
@@ -1486,6 +1559,7 @@
         ? i18n.t('group.createdTable', { name: newName })
         : (totalMoved > 1 ? i18n.t('group.createdWithPresets', { name: newName, count: totalMoved }) : i18n.t('group.createdEmpty', { name: newName })));
     } else {
+      state.setMultiple({ selectedGroup: newGroupId, selectedPreset: null });
       Toast.success(isTable
         ? i18n.t('group.createdTable', { name: newName })
         : i18n.t('group.createdEmpty', { name: newName }));

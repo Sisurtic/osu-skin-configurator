@@ -742,13 +742,18 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
         out
     }
 
-    // Recursive apply-unit collection.
+    // Recursive apply-unit collection. `root_sel` is the TOP-LEVEL group's
+    // row-selection map (all nested row keys live here, keyed by full path like
+    // "49:50:28"). `path_prefix` is the accumulating path from the root group
+    // (e.g. "49:" or "49:50:") so collect_table_rows builds keys that match
+    // root_sel.
     fn collect_units(
         gid: i64,
+        path_prefix: String,
         by_id: &HashMap<i64, &Group>,
         cfg: &crate::preset_manager::Config,
         expanded: &Value,
-        row_selection: &Value,
+        root_sel: &Value,
         applied_presets: &mut HashSet<i64>,
         applied_groups: &mut HashSet<i64>,
         ini: &mut Vec<Value>, copies: &mut Vec<Value>, deletes: &mut Vec<Value>, tints: &mut Vec<Value>,
@@ -764,10 +769,9 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
             push_actions(deletes, ga, "fileDeletes");
             push_actions(tints, ga, "fileTints");
         }
-        let rows = collect_table_rows(g, by_id, expanded, "");
-        let sel = row_selection.get(gid.to_string()).unwrap_or(&Value::Null);
+        let rows = collect_table_rows(g, by_id, expanded, &path_prefix);
         for (row_key, _opts) in &rows {
-            let chosen = sel.get(row_key);
+            let chosen = root_sel.get(row_key);
             match chosen {
                 Some(Value::Number(n)) => {
                     if let Some(id) = n.as_i64() {
@@ -788,7 +792,8 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
                 }
                 Some(Value::String(s)) if s.starts_with("group:") => {
                     if let Ok(child_gid) = s[6..].parse::<i64>() {
-                        collect_units(child_gid, by_id, cfg, expanded, row_selection,
+                        let child_prefix = format!("{}{}:", path_prefix, child_gid);
+                        collect_units(child_gid, child_prefix, by_id, cfg, expanded, root_sel,
                             applied_presets, applied_groups, ini, copies, deletes, tints, warnings, push_actions);
                     }
                 }
@@ -797,7 +802,12 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
         }
     }
 
-    collect_units(group_id, &by_id, &cfg, &cfg.table_expanded_children, &cfg.table_row_selection,
+    // The root group's selection map holds ALL nested row keys (keyed by full
+    // path like "49:50:28"). Pass it as root_sel so collect_units can recurse
+    // with the correct path prefix and still look up nested selections.
+    let root_sel = cfg.table_row_selection.get(group_id.to_string()).unwrap_or(&Value::Null);
+    let root_prefix = format!("{}:", group_id);
+    collect_units(group_id, root_prefix, &by_id, &cfg, &cfg.table_expanded_children, root_sel,
         &mut applied_presets, &mut applied_groups,
         &mut all_ini, &mut all_copies, &mut all_deletes, &mut all_tints, &mut warnings, &push_actions);
     let _ = g; // (group already used via by_id lookup above)

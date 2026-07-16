@@ -225,7 +225,17 @@
     blockUI();
     const skPathResult = await api.getSkinPath(skin);
     const skPath = skPathResult.success ? skPathResult.data.replace(/\\/g, '/') : '';
-    const defaultPath = skPath || '';
+    // Open the dialog in the current preview image's directory (if any), else
+    // the skin root.
+    let defaultPath = skPath || '';
+    const previewMeta = getPreviewMeta ? getPreviewMeta() : null;
+    const curPreview = previewMeta && previewMeta.path ? previewMeta.path.replace(/\\/g, '/') : '';
+    if (curPreview && skPath) {
+      const isAbs = /^[a-zA-Z]:[\\/]/.test(curPreview) || curPreview.startsWith('/');
+      const full = isAbs ? curPreview : (skPath.replace(/\/$/, '') + '/' + curPreview);
+      const lastSep = Math.max(full.lastIndexOf('/'), full.lastIndexOf('\\'));
+      if (lastSep > 0) defaultPath = full.substring(0, lastSep);
+    }
     const result = await api.selectFile([
       { name: i18n.t('preview.imageFilter'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng', 'bmp'] },
     ], defaultPath);

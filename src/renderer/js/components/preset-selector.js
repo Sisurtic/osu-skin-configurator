@@ -1162,7 +1162,7 @@
       }
       // Space / Enter: let buttons activate natively
       if (e.key === ' ' || e.key === 'Enter') return;
-      if (e.key === 'Escape') { e.preventDefault(); cancelRecording(); return; }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); cancelRecording(); return; }
       const acc = keyToAccelerator(e);
       if (acc) {
         e.preventDefault();
@@ -1507,5 +1507,11 @@
     return { presetIds, groupIds };
   }
 
-  window.PresetSelector = { render, invalidateCache: () => { previewCache = {}; }, collectApplyUnits };
+  window.PresetSelector = {
+    render,
+    invalidateCache: () => { previewCache = {}; },
+    collectApplyUnits,
+    hasShortcutSelection: () => shortcutSelected.size > 0 || recorderActive,
+    clearShortcutSelection: () => { if (recorderActive) cancelRecording(); else { shortcutSelected = new Set(); render(); } },
+  };
 })();

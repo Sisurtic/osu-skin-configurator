@@ -263,10 +263,13 @@
     const namePlaceholder = isGroup ? i18n.t('group.namePlaceholder') : i18n.t('preset.namePlaceholder');
     const descLabel = isGroup ? i18n.t('group.descLabel') : i18n.t('preset.descLabel');
     const descPlaceholder = isGroup ? i18n.t('group.descPlaceholder') : i18n.t('preset.descPlaceholder');
+    // Show the preset/group id next to the name label for debugging.
+    const itemId = isGroup ? editData._groupId : state.get('selectedPreset');
+    const idTag = (itemId != null && itemId !== '__new__') ? ` <span style="font-weight:400;color:var(--text-muted);font-size:11px">[#${itemId}]</span>` : '';
     const tab = document.getElementById('tab-basic');
     tab.innerHTML = `
       <div class="form-group">
-        <label class="form-label" style="font-weight:600">${nameLabel}</label>
+        <label class="form-label" style="font-weight:600">${nameLabel}${idTag}</label>
         <input type="text" class="form-input" id="preset-name" value="${escapeHtml(meta.name)}" placeholder="${namePlaceholder}" autocomplete="off" spellcheck="false">
       </div>
       <div class="form-group">
@@ -276,16 +279,17 @@
       <div id="preview-slot"></div>
     `;
 
-    // Bind input changes to editData + dirty tracking
+    // Name/desc: mark dirty on focus; write to editData on change (Enter/blur).
     ['name', 'desc'].forEach(field => {
       const el = document.getElementById(`preset-${field}`);
       if (!el) return;
-      const handler = () => {
+      el.addEventListener('focus', () => {
+        state.set('presetDirty', true);
+      });
+      el.addEventListener('change', () => {
         if (field === 'desc') editData.meta.description = el.value;
         else editData.meta[field] = el.value;
-        state.set('presetDirty', true);
-      };
-      el.addEventListener('input', handler);
+      });
     });
 
     // Tab cycling: preset-name → preset-desc → preview controls → ...
@@ -414,6 +418,9 @@
   async function doSave() {
     const sk = skinName();
     if (!sk) { Toast.error(i18n.t('toast.selectSkinFirst')); return false; }
+    // Flush any focused input (name/desc) into editData before saving.
+    const ae = document.activeElement;
+    if (ae && (ae.id === 'preset-name' || ae.id === 'preset-desc')) ae.blur();
     // Unified entry: dispatch to the group save path when a group is loaded.
     if (editData.kind === 'group') return doSaveGroup();
 
@@ -554,6 +561,9 @@
           rootChildren: scanResult.data.rootChildren || [],
         });
       }
+      // Re-register global shortcuts: compact_ids re-numbered every id, so the
+      // old bindings (keyed by id) would point at the wrong preset without this.
+      try { api.reloadGlobalShortcuts(sk); } catch (e) { /* best-effort */ }
     } else {
       Toast.error(i18n.t('preset.deleteFailed', { msg: result.error || i18n.t('app.unknownError') }));
     }
