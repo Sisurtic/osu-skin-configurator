@@ -180,12 +180,14 @@
     const selCls = isSel ? ' tint-row--selected' : '';
     // Exact toggle only applies to @2x sources (fallback to the non-HD variant
     // when the @2x file is missing and Exact is off) — mirrors file-copy.
-    const exactCell = has2x(t)
-      ? `<td><label class="toggle">
-          <input type="checkbox" class="tint-exact-toggle" data-idx="${idx}" ${t.exact ? 'checked' : ''}>
-          <span class="toggle__slider"></span>
-        </label></td>`
-      : '<td></td>';
+    // Exact toggle only applies to @2x sources (fallback to the non-HD variant
+    // when the @2x file is missing and Exact is off) — mirrors file-copy.
+    // Non-@2x sources render a dimmed, disabled, unchecked toggle (not an empty cell).
+    const is2x = has2x(t);
+    const exactCell = `<td><label class="toggle${is2x ? '' : ' is-disabled'}">
+        <input type="checkbox" class="tint-exact-toggle" data-idx="${idx}" ${(is2x && t.exact) ? 'checked' : ''}${is2x ? '' : ' disabled'}>
+        <span class="toggle__slider"></span>
+      </label></td>`;
     return `<tr class="tint-row${selCls}" data-idx="${idx}">
       <td><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(src)}</span></td>
       <td><input type="text" class="form-input tint-dest" data-idx="${idx}" value="${escapeHtml(t.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>
