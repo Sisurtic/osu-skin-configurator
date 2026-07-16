@@ -487,6 +487,8 @@
     "colColor": "Цвет",
     "colMode": "Режим",
     "colDest": "Назначение",
+    "colExact": "Точный поиск",
+    "colExactTitle": "Выкл - если @2x нет, берётся файл без @2x\nВкл - если @2x нет, пропуск",
     "destPlaceholder": "напр. mania/ (пусто = заменить оригинал)",
     "mode_multiply": "Умножение",
     "mode_lightness": "Оттенок",

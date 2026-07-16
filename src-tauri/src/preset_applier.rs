@@ -177,6 +177,7 @@ struct TintOp {
     darken_enabled: bool,
     darken_d: f64,
     darken_opacity: f64,
+    exact: bool,
 }
 
 fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
@@ -422,14 +423,27 @@ fn apply_one_set(
         } else {
             PathBuf::from(skin_path).join(source).to_string_lossy().to_string()
         };
+        let exact = copy.get("exact").and_then(|v| v.as_bool()).unwrap_or(false);
+        // Fallback: if the @2x source is missing and not exact-match, try the non-@2x variant.
+        let mut use_src = source_abs.clone();
+        if !Path::new(&use_src).exists() && !exact {
+            if let Some(alt) = without_2x(Path::new(&use_src)) {
+                if alt.exists() { use_src = alt.to_string_lossy().to_string(); }
+            }
+        }
+        if !Path::new(&use_src).exists() {
+            warnings.push(crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
+            continue;
+        }
+        // Destination suffix follows the ACTUAL source used (use_src), so a
+        // fallback to the non-@2x variant produces a non-@2x output (not an
+        // @2x-named file with SD content).
+        let use_src_name = Path::new(&use_src).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(source_name.clone());
         let is_dir_only = dest_rel.is_empty() || dest_rel.ends_with('/') || dest_rel.ends_with('\\');
         let dest_path = if is_dir_only {
-            PathBuf::from(skin_path).join(dest_rel).join(&source_name)
+            PathBuf::from(skin_path).join(dest_rel).join(&use_src_name)
         } else {
-            // Non-directory dest is a stem (frontend stripped ext + @2x): re-attach
-            // the SOURCE's "@2x" + extension so osu! can find the file. If the
-            // source has neither, the stem is used as-is.
-            PathBuf::from(skin_path).join(apply_source_suffix(dest_rel, &source_name))
+            PathBuf::from(skin_path).join(apply_source_suffix(dest_rel, &use_src_name))
         };
         let dest_str = dest_path.to_string_lossy().to_string();
         if !is_within(&dest_str, skin_path) {
@@ -439,19 +453,7 @@ fn apply_one_set(
         if let Some(parent) = dest_path.parent() {
             if !parent.exists() { let _ = std::fs::create_dir_all(parent); }
         }
-        let exact = copy.get("exact").and_then(|v| v.as_bool()).unwrap_or(false);
-        // Fallback: if the @2x source is missing and not exact-match, try the non-@2x variant.
-        let mut use_src = source_abs.clone();
-        if !Path::new(&use_src).exists() && !exact {
-            if let Some(alt) = without_2x(Path::new(&use_src)) {
-                if alt.exists() { use_src = alt.to_string_lossy().to_string(); }
-            }
-        }
-        if Path::new(&use_src).exists() {
-            if std::fs::copy(&use_src, &dest_path).is_ok() { files_copied += 1; }
-        } else {
-            warnings.push(crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
-        }
+        if std::fs::copy(&use_src, &dest_path).is_ok() { files_copied += 1; }
     }
 
     // deletes
@@ -500,6 +502,7 @@ fn apply_one_set(
             darken_enabled: tint.get("darkenEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
             darken_d: tint.get("darkenD").and_then(|v| v.as_f64()).unwrap_or(0.0),
             darken_opacity: tint.get("darkenOpacity").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            exact: tint.get("exact").and_then(|v| v.as_bool()).unwrap_or(false),
         };
 
         if dest_rel.contains("..") || is_absolute_js(dest_rel) {
@@ -511,16 +514,27 @@ fn apply_one_set(
         } else {
             PathBuf::from(skin_path).join(source).to_string_lossy().to_string()
         };
+        // Fallback: if the @2x source is missing and not exact-match, try the
+        // non-@2x variant (same rule as copy/delete).
+        let mut use_src = source_abs.clone();
+        if !Path::new(&use_src).exists() && !op.exact {
+            if let Some(alt) = without_2x(Path::new(&use_src)) {
+                if alt.exists() { use_src = alt.to_string_lossy().to_string(); }
+            }
+        }
+        if !Path::new(&use_src).exists() {
+            warnings.push(crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
+            continue;
+        }
+        // Destination follows the ACTUAL source used (use_src): a fallback to the
+        // non-@2x variant produces a non-@2x output name (not an @2x-named file
+        // with SD content).
+        let use_src_name = Path::new(&use_src).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(source_name.clone());
         let is_dir_only = dest_rel.is_empty() || dest_rel.ends_with('/') || dest_rel.ends_with('\\');
-        // Re-attach the SOURCE's "@2x" + extension to a non-directory stem (tint
-        // re-encodes via image::save, which infers format from the extension;
-        // keeping @2x preserves HD resolution). A bare directory → full source
-        // name. If the source has no suffix, fall back to ".png" so image::save
-        // has a format to infer.
         let dest_name = if is_dir_only {
-            source_name.clone()
+            use_src_name
         } else {
-            let with_suffix = apply_source_suffix(dest_rel, &source_name);
+            let with_suffix = apply_source_suffix(dest_rel, &use_src_name);
             if Path::new(&with_suffix).extension().is_some() {
                 with_suffix
             } else {
@@ -534,10 +548,9 @@ fn apply_one_set(
             }
         };
         let dest_path = if dest_rel.is_empty() {
-            // Empty destination = overwrite the SOURCE file in place.
-            PathBuf::from(&source_abs)
+            // Empty destination = overwrite the (actual) SOURCE file in place.
+            PathBuf::from(&use_src)
         } else if is_dir_only {
-            // Directory destination (e.g. "mania/") → place the source-named file there.
             PathBuf::from(skin_path).join(dest_rel).join(&dest_name)
         } else {
             PathBuf::from(skin_path).join(&dest_name)
@@ -550,12 +563,7 @@ fn apply_one_set(
         if let Some(parent) = dest_path.parent() {
             if !parent.exists() { let _ = std::fs::create_dir_all(parent); }
         }
-        // Tints use the exact source path (no @2x fallback — that's a copy/delete concern).
-        if !Path::new(&source_abs).exists() {
-            warnings.push(crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
-            continue;
-        }
-        match apply_tint(&source_abs, &dest_str, &op) {
+        match apply_tint(&use_src, &dest_str, &op) {
             Ok(()) => files_tinted += 1,
             Err(msg) => warnings.push(crate::i18n::t("warn.tint_failed", &[("name", &source_name), ("msg", &msg)])),
         }

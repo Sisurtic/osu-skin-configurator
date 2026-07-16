@@ -35,6 +35,8 @@
   const VIRTUALIZE_THRESHOLD = 2000;
 
   function isImagePath(p) { return IMG_EXTS.has((p.match(/\.[^.]+$/) || [''])[0].toLowerCase()); }
+  // Whether a tint source has an @2x HD suffix (the Exact toggle only applies to these).
+  function has2x(t) { return /@2x\.[^.]+$/i.test(t.source || ''); }
   function pathBasename(p) { return OpTable.pathBasename(p); }
   function escapeHtml(s) { return OpTable.escapeHtml(s); }
   function colorToCss(c) {
@@ -126,10 +128,11 @@
             <div class="files-header-table" style="margin-top:6px">
               <div class="table-wrap">
                 <table class="table ini-table tint-table">
-                  <colgroup><col><col></colgroup>
+                  <colgroup><col><col><col style="width:80px"></colgroup>
                   <thead><tr>
                     <th>${i18n.t('tint.colSource')}</th>
                     <th title="${escapeHtml(i18n.t('tint.colDestTitle'))}">${i18n.t('tint.colDest')}</th>
+                    <th title="${escapeHtml(i18n.t('tint.colExactTitle'))}">${i18n.t('tint.colExact')}</th>
                   </tr></thead>
                 </table>
               </div>
@@ -161,7 +164,7 @@
     return `
       <div class="files-body-table"><div class="table-wrap">
         <table class="table ini-table tint-table tint-body-table">
-          <colgroup><col><col></colgroup>
+          <colgroup><col><col><col style="width:80px"></colgroup>
           <tbody>${tints.map((t, i) => renderRow(t, i)).join('')}</tbody>
         </table>
       </div></div>`;
@@ -175,9 +178,18 @@
     const anchor = opSel ? opSel.getAnchor() : 0;
     const isSel = set.has(idx) || (set.size === 0 && idx === anchor);
     const selCls = isSel ? ' tint-row--selected' : '';
+    // Exact toggle only applies to @2x sources (fallback to the non-HD variant
+    // when the @2x file is missing and Exact is off) — mirrors file-copy.
+    const exactCell = has2x(t)
+      ? `<td><label class="toggle">
+          <input type="checkbox" class="tint-exact-toggle" data-idx="${idx}" ${t.exact ? 'checked' : ''}>
+          <span class="toggle__slider"></span>
+        </label></td>`
+      : '<td></td>';
     return `<tr class="tint-row${selCls}" data-idx="${idx}">
       <td><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(src)}</span></td>
       <td><input type="text" class="form-input tint-dest" data-idx="${idx}" value="${escapeHtml(t.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>
+      ${exactCell}
     </tr>`;
   }
 
@@ -1344,7 +1356,7 @@
     // same as file-copy/ini. Tint has no perColumn group headers, so every
     // selected row is a data node (no header virtual-row logic); type-match is
     // a no-op (all rows share the destination field).
-    const { syncDest } = (() => {
+    const { syncDest, syncExact } = (() => {
       const { syncField } = OpTable.createGroupSync({
         getSelected: () => opSel ? opSel.getSelected() : new Set(),
         isHeaderControl: () => false,
@@ -1358,15 +1370,20 @@
         writeTargetData: (idx, field, val) => { const a = cur(); if (a[idx]) a[idx] = { ...a[idx], [field]: val }; },
         applyToHeader: () => {},
         applyToData: (idx, field, val) => {
-          if (field !== 'destination') return;
-          const other = container.querySelector(`.tint-dest[data-idx="${idx}"]`);
-          if (other) other.value = val;
+          if (field === 'destination') {
+            const other = container.querySelector(`.tint-dest[data-idx="${idx}"]`);
+            if (other) other.value = val;
+          } else if (field === 'exact') {
+            const other = container.querySelector(`.tint-exact-toggle[data-idx="${idx}"]`);
+            if (other) other.checked = !!val;
+          }
         },
         commit: () => { applyTints(cur()); },
       });
-      // Wrap so the source row's own DOM (the edited input) isn't overwritten by
-      // the skeleton's applyToData (the user is typing into it).
-      return { syncDest: (source, val) => syncField(source, 'destination', val) };
+      return {
+        syncDest: (source, val) => syncField(source, 'destination', val),
+        syncExact: (source, val) => syncField(source, 'exact', val),
+      };
     })();
 
     // Destination input (per row). When multiple rows are selected, the value
@@ -1411,6 +1428,11 @@
       });
       // Enter/Escape→blur is provided globally by InputConfirm (app.js); blur
       // fires the 'change' handler above (normalize + sync).
+    });
+
+    // Exact-match (@2x fallback) toggles — mirrors file-copy's exact toggle.
+    container.querySelectorAll('.tint-exact-toggle').forEach(cb => {
+      cb.addEventListener('change', () => syncExact(cb, cb.checked));
     });
 
     // ── Delete zone drop handler ── delegated to OpTable.
@@ -1646,6 +1668,7 @@
       tintEnabled: false,
       cropEnabled: false, cropA: 0, cropB: 0, cropC: 32768, cropTile: false, cropTileDir: 'down',
       darkenEnabled: false, darkenD: 0, darkenOpacity: 0,
+      exact: false,
     };
   }
 

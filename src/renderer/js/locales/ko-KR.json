@@ -487,6 +487,8 @@
     "colColor": "색상",
     "colMode": "모드",
     "colDest": "대상 경로",
+    "colExact": "정확히 찾기",
+    "colExactTitle": "끔 - @2x가 없으면 @2x 아님 파일 사용\n켬 - @2x가 없으면 건너뜀",
     "destPlaceholder": "예: mania/ (비우면 원본 파일 교체)",
     "mode_multiply": "곱하기",
     "mode_lightness": "색상",

@@ -277,6 +277,8 @@
     "colColor": "Color",
     "colMode": "Mode",
     "colDest": "Destination",
+    "colExact": "Exact match",
+    "colExactTitle": "Off - if @2x is missing, fall back to the non-@2x file\nOn - if @2x is missing, skip",
     "destPlaceholder": "e.g. mania/ (blank = replace original)",
     "mode_multiply": "Multiply",
     "mode_lightness": "Hue",

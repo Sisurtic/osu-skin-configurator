@@ -487,6 +487,8 @@
     "colColor": "顏色",
     "colMode": "模式",
     "colDest": "目標路徑",
+    "colExact": "精確尋找",
+    "colExactTitle": "關閉 - 找不到 @2x 則向下尋找\n開啟 - 找不到 @2x 則跳過",
     "destPlaceholder": "如 mania/ (留空替換原檔案)",
     "mode_multiply": "正片疊底",
     "mode_lightness": "色相",

@@ -291,6 +291,8 @@
     "colColor": "颜色",
     "colMode": "模式",
     "colDest": "目标路径",
+    "colExact": "精确查找",
+    "colExactTitle": "关闭 - 找不到 @2x 则向下查找\n开启 - 找不到 @2x 则跳过",
     "destPlaceholder": "如 mania/ (留空替换原文件)",
     "mode_multiply": "正片叠底",
     "mode_lightness": "色相",

@@ -487,6 +487,8 @@
     "colColor": "色",
     "colMode": "モード",
     "colDest": "保存先",
+    "colExact": "厳密検索",
+    "colExactTitle": "オフ - @2x が無い場合は非 @2x を使用\nオン - @2x が無い場合はスキップ",
     "destPlaceholder": "例: mania/ (空欄 = 元ファイルを置換)",
     "mode_multiply": "乗算",
     "mode_lightness": "色相",
