@@ -474,6 +474,19 @@ pub fn set_group_shortcut(skin_path: &str, group_id: i64, accelerator: &str) -> 
     save_config(skin_path, &cfg)
 }
 
+/// Set/clear the shortcut on MANY groups in a single load/edit/save (avoids the
+/// N load+save round-trips of calling set_group_shortcut once per group).
+pub fn set_group_shortcuts_batch(skin_path: &str, group_ids: &[i64], accelerator: &str) -> Result<(), String> {
+    let mut cfg = load_config(skin_path);
+    let id_set: std::collections::HashSet<i64> = group_ids.iter().copied().collect();
+    for g in cfg.groups.iter_mut() {
+        if id_set.contains(&g.id) {
+            g.shortcut = if accelerator.is_empty() { None } else { Some(accelerator.to_string()) };
+        }
+    }
+    save_config(skin_path, &cfg)
+}
+
 /// Set or clear the description on a group (shown read-only in use mode).
 pub fn set_group_description(skin_path: &str, group_id: i64, description: &str) -> Result<(), String> {
     let mut cfg = load_config(skin_path);

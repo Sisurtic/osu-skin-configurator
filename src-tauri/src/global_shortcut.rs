@@ -225,3 +225,30 @@ pub fn unbind(app: &AppHandle, skin_path: &str, preset_ids: &[i64]) -> bool {
     reload(app, Some(skin_path.to_string()));
     true
 }
+
+/// Persist a shortcut onto many presets AND table groups in ONE pass, then
+/// re-register once. Cheaper than calling bind() + one groups_set_shortcut per
+/// group (each of which reloaded the whole skin + re-registered every shortcut).
+/// Empty accelerator clears.
+pub fn bind_batch(app: &AppHandle, skin_path: &str, preset_ids: &[i64], group_ids: &[i64], accelerator: &str) -> bool {
+    // Presets: each lives in its own file, so save per-id (no reload between).
+    for id in preset_ids {
+        if let Some(mut preset) = crate::preset_manager::load_preset(skin_path, *id) {
+            if let Some(meta) = preset.get_mut("meta").and_then(|m| m.as_object_mut()) {
+                if accelerator.is_empty() {
+                    meta.remove("shortcut");
+                } else {
+                    meta.insert("shortcut".to_string(), Value::String(accelerator.to_string()));
+                }
+            }
+            let _ = crate::preset_manager::save_preset(skin_path, Some(*id), &preset);
+        }
+    }
+    // Groups: all share one config — set them in a single load/edit/save.
+    if !group_ids.is_empty() {
+        let _ = crate::preset_manager::set_group_shortcuts_batch(skin_path, group_ids, accelerator);
+    }
+    reload(app, Some(skin_path.to_string()));
+    if accelerator.is_empty() { return true; }
+    convert_accelerator(accelerator).is_some()
+}

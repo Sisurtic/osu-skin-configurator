@@ -70,6 +70,7 @@
 
     // --- global shortcuts (per-preset) ---
     bindGlobalShortcut: (skinName, presetIds, accelerator) => call('global_shortcuts_bind', { skinName, presetIds, accelerator }),
+    bindGlobalShortcutBatch: (skinName, presetIds, groupIds, accelerator) => call('global_shortcuts_bind_batch', { skinName, presetIds, groupIds, accelerator }),
     unbindGlobalShortcut: (skinName, presetIds) => call('global_shortcuts_unbind', { skinName, presetIds }),
     reloadGlobalShortcuts: (skinName) => call('global_shortcuts_reload', { skinName }),
 

@@ -59,6 +59,16 @@
   }
   if (closeBtn) closeBtn.addEventListener('click', close);
 
+  // Esc closes the dialog. Captured at the document level with stopImmediatePropagation
+  // so the app's global Escape handlers (e.g. deselect skin in use mode) don't also fire.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && overlay && !overlay.hidden) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      close();
+    }
+  }, true);
+
   // Logo click: bounce the logo + emit a ripple from the wrap center.
   // Each click triggers both animations once; they auto-remove when finished.
   const logoWrap = document.getElementById('info-logo-wrap');

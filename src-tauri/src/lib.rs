@@ -351,6 +351,15 @@ fn global_shortcuts_unbind(app: AppHandle, skin_name: String, preset_ids: Vec<i6
     wrap_ok(json!(true))
 }
 #[tauri::command]
+fn global_shortcuts_bind_batch(app: AppHandle, skin_name: String, preset_ids: Vec<i64>, group_ids: Vec<i64>, accelerator: String) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    if global_shortcut::bind_batch(&app, &sp, &preset_ids, &group_ids, &accelerator) {
+        wrap_ok(json!(true))
+    } else {
+        wrap_err(&i18n::t("err.shortcut_taken", &[]))
+    }
+}
+#[tauri::command]
 fn global_shortcuts_reload(app: AppHandle, skin_name: Option<String>) -> Value {
     let sp = match skin_name {
         Some(s) => match resolve_skin(&app, &s) { Ok(p) => Some(p), Err(e) => return e },
@@ -694,7 +703,7 @@ pub fn run() {
             groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_set_collapsed_batch, groups_delete_recursive, groups_set_shortcut, groups_set_description, groups_set_preview, groups_set_actions, groups_apply, groups_flatten_subgroups, set_table_state,
             image_get_preview,
             shortcuts_load, shortcuts_save,
-            global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_reload,
+            global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_bind_batch, global_shortcuts_reload,
             app_get_open_file, app_get_version, check_latest_release, download_and_run_latest_release, cancel_update_download, locales_list,
         ])
         .run(tauri::generate_context!())

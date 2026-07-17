@@ -39,6 +39,37 @@
     }));
   }
 
+  // Keys that must not be bound as a standalone global shortcut (no modifier).
+  const FORBIDDEN_BARE_KEYS = new Set(['Escape', ' ', 'Tab', 'Backspace', 'Delete', 'Enter']);
+  // Letters, digits, punctuation — too disruptive if bound WITHOUT a modifier
+  // (would block them system-wide). Allowed WITH Ctrl/Alt/Shift.
+  const COMMON_KEYS = /^[a-zA-Z0-9`~!@#$%^&*()\-_=+\[\]{}\\|;:'",<.>\/?]$/;
+
+  // Parse a KeyboardEvent into an Electron-grammar accelerator string for an
+  // OS-level GLOBAL shortcut, e.g. "Ctrl+Alt+Shift+A", "Ctrl+F1", "Alt+num5".
+  // Unlike keyToString (in-app program shortcuts, bare keys allowed), a global
+  // accelerator REQUIRES a Ctrl/Alt modifier and blocks bare letters/digits
+  // (which would be swallowed system-wide). Returns null for bare modifier
+  // presses or forbidden bare keys.
+  function keyToAccelerator(e) {
+    if (e.key === 'Control' || e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta') return null;
+    const hasModifier = e.ctrlKey || e.altKey;
+    if (!hasModifier && FORBIDDEN_BARE_KEYS.has(e.key)) return null;
+    if (!hasModifier && COMMON_KEYS.test(e.key)) return null;
+    const parts = [];
+    if (e.ctrlKey) parts.push('Ctrl');
+    if (e.altKey) parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+    let k = e.key;
+    if (e.code && e.code.startsWith('Numpad')) {
+      const np = e.code.slice(6);
+      k = /^\d$/.test(np) ? 'num' + np : 'num' + np.toLowerCase();
+    } else if (k === ' ') k = 'Space';
+    else if (k.length === 1) k = k.toUpperCase();
+    parts.push(k);
+    return parts.join('+');
+  }
+
   // Parse a KeyboardEvent into a canonical key string, e.g. "Ctrl+S", "Delete"
   // Returns null for modifier-only presses.
   function keyToString(e) {
@@ -88,5 +119,5 @@
     return { ...bindings };
   }
 
-  window.Shortcuts = { getBinding, setBinding, getAll, keyToString, matchAction, init, getRawBindings, DEFAULTS };
+  window.Shortcuts = { getBinding, setBinding, getAll, keyToString, keyToAccelerator, matchAction, init, getRawBindings, DEFAULTS };
 })();

@@ -937,31 +937,9 @@
 
   // ── Global-shortcut recorder (right-click to collect, release Ctrl to record) ──
 
-  // Keys that must not be bound as a standalone global shortcut (no modifier).
-  const FORBIDDEN_BARE_KEYS = new Set(['Escape', ' ', 'Tab', 'Backspace', 'Delete', 'Enter']);
-  // Letters, digits, punctuation — too disruptive if bound WITHOUT a modifier
-  // (would block them system-wide). Allowed WITH Ctrl/Alt/Shift.
-  const COMMON_KEYS = /^[a-zA-Z0-9`~!@#$%^&*()\-_=+\[\]{}\\|;:'",<.>\/?]$/;
-
-  function keyToAccelerator(e) {
-    if (e.key === 'Control' || e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta') return null;
-    const hasModifier = e.ctrlKey || e.altKey;
-    if (!hasModifier && FORBIDDEN_BARE_KEYS.has(e.key)) return null;
-    // Block bare letters/digits/punctuation (no modifier) — they'd be swallowed system-wide.
-    if (!hasModifier && COMMON_KEYS.test(e.key)) return null;
-    const parts = [];
-    if (e.ctrlKey) parts.push('Ctrl');
-    if (e.altKey) parts.push('Alt');
-    if (e.shiftKey) parts.push('Shift');
-    let k = e.key;
-    if (e.code && e.code.startsWith('Numpad')) {
-      const np = e.code.slice(6);
-      k = /^\d$/.test(np) ? 'num' + np : 'num' + np.toLowerCase();
-    } else if (k === ' ') k = 'Space';
-    else if (k.length === 1) k = k.toUpperCase();
-    parts.push(k);
-    return parts.join('+');
-  }
+  // keyToAccelerator (KeyboardEvent → Electron-grammar accelerator) now lives in
+  // the shared Shortcuts module (shortcuts.js) and is reused by the shortcuts
+  // dialog's global-shortcut recorder.
 
   function showShortcutRecorder() {
     let rec = document.getElementById('shortcut-recorder');
@@ -1018,13 +996,22 @@
     showShortcutRecorder();
   }
 
-  function cancelRecording() {
+  function cancelRecording(skipRender) {
     recorderActive = false;
     // Re-register Tauri global shortcuts for the current skin.
     const skin = state.get('selectedSkin');
     if (skin) { try { api.reloadGlobalShortcuts(skin); } catch (e) { /* best-effort */ } }
     shortcutSelected = new Set();
     hideShortcutRecorder();
+    if (skipRender) {
+      // Bind path: the badge is already correctly in place. Instead of a full
+      // re-render (which would destroy+recreate the badge → visible "flash"),
+      // just clear the selection highlight classes in place.
+      viewEl.querySelectorAll('.preset-group__item--shortcut-sel').forEach(el => {
+        el.classList.remove('preset-group__item--shortcut-sel', 'preset-group__item--shortcut-anim', 'preset-group__item--gradient-out');
+      });
+      return;
+    }
     render();
   }
 
@@ -1066,11 +1053,17 @@
     const groupIds = ids.filter(k => k.startsWith('group:')).map(k => parseInt(k.split(':')[1], 10));
     (async () => {
       try {
-        if (presetIds.length > 0) {
-          const bindResult = await api.bindGlobalShortcut(skin, presetIds, accelerator);
-          if (!bindResult.success) { Toast.error(bindResult.error || i18n.t('selector.bindFailed')); }
-        }
-        if (groupIds.length > 0) {
+        // Batched bind: persists all presets + groups in one pass, re-registers
+        // once (was: N reloads — one per preset/group).
+        if (api.bindGlobalShortcutBatch) {
+          const r = await api.bindGlobalShortcutBatch(skin, presetIds, groupIds, accelerator);
+          if (r && !r.success) { Toast.error(r.error || i18n.t('selector.bindFailed')); }
+        } else {
+          // Fallback (older build without the batch command).
+          if (presetIds.length > 0) {
+            const bindResult = await api.bindGlobalShortcut(skin, presetIds, accelerator);
+            if (!bindResult.success) { Toast.error(bindResult.error || i18n.t('selector.bindFailed')); }
+          }
           for (const gid of groupIds) {
             await window.__TAURI__.core.invoke('groups_set_shortcut', { skinName: skin, groupId: gid, shortcut: accelerator });
           }
@@ -1081,13 +1074,14 @@
           state.set('presets', scan.data.presets);
           state.set('groups', scan.data.groups);
         }
-        await api.reloadGlobalShortcuts(skin);
       } catch (e) {
         Toast.error(e.message || i18n.t('selector.bindFailed'));
       }
     })();
-    // Let the fadeout animation finish, then re-enable render and clean up.
-    setTimeout(() => { _suppressRender = false; cancelRecording(); }, 400);
+    // Let the fadeout animation finish, then clean up WITHOUT a full re-render
+    // — the badge is already correctly in place, and render() here would destroy
+    // and recreate it, making the badge visibly "flash" a second time.
+    setTimeout(() => { _suppressRender = false; cancelRecording(true); }, 400);
   }
 
   async function clearShortcuts() {
@@ -1110,9 +1104,14 @@
     try {
       const presetIds = ids.filter(k => k.startsWith('preset:')).map(k => parseInt(k.split(':')[1], 10));
       const groupIds = ids.filter(k => k.startsWith('group:')).map(k => parseInt(k.split(':')[1], 10));
-      if (presetIds.length > 0) await api.unbindGlobalShortcut(skin, presetIds);
-      for (const gid of groupIds) {
-        await window.__TAURI__.core.invoke('groups_set_shortcut', { skinName: skin, groupId: gid, shortcut: '' });
+      // Batched clear: empty accelerator clears all in one pass, re-registers once.
+      if (api.bindGlobalShortcutBatch) {
+        await api.bindGlobalShortcutBatch(skin, presetIds, groupIds, '');
+      } else {
+        if (presetIds.length > 0) await api.unbindGlobalShortcut(skin, presetIds);
+        for (const gid of groupIds) {
+          await window.__TAURI__.core.invoke('groups_set_shortcut', { skinName: skin, groupId: gid, shortcut: '' });
+        }
       }
       Toast.success(i18n.t('selector.cleared'));
       const scan = await api.scanPresets(skin);
@@ -1120,7 +1119,6 @@
           state.set('presets', scan.data.presets);
           state.set('groups', scan.data.groups);
         }
-      await api.reloadGlobalShortcuts(skin);
     } catch (e) {
       Toast.error(e.message || i18n.t('selector.clearFailed'));
     }
@@ -1163,7 +1161,7 @@
       // Space / Enter: let buttons activate natively
       if (e.key === ' ' || e.key === 'Enter') return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); cancelRecording(); return; }
-      const acc = keyToAccelerator(e);
+      const acc = window.Shortcuts.keyToAccelerator(e);
       if (acc) {
         e.preventDefault();
         bindShortcut(acc);

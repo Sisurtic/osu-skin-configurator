@@ -844,11 +844,78 @@
   }
 
   // ── Keyboard shortcuts dialog ──
+  // Two views: 'program' (in-app shortcuts) and 'global' (OS-level per-preset
+  // shortcuts for the current skin). Clicking the title toggles between them.
   let shortcutsRecording = null;
 
   function showShortcutsDialog() {
     if (document.querySelector('.modal-overlay')) return;
-    const shortcuts = Shortcuts.getAll();
+
+    // View + selection state (closure-scoped so both recorders share it).
+    let view = 'global';             // 'program' | 'global'  (global = default)
+    let globalSelected = new Set();  // keys "preset:<id>" / "group:<id>"
+    let globalAnchor = -1;           // row index of the Shift-range anchor (-1 = none)
+    let globalRecording = false;     // true while the global recorder captures
+
+    // Edge-fade overlays over the table viewport — same logic/visuals as the
+    // editor op-list (tint-editor setupEdgeFade): JS-driven divs that fade in
+    // only when the content scrolls past that edge. Reuses the .scroll-edge-fade
+    // CSS. The fades are appended to the stable .modal (not #shortcuts-body),
+    // because each view render rebuilds the body's innerHTML and would otherwise
+    // destroy them; `scrollEl` is the freshly-rendered .table-wrap, so re-binding
+    // every render re-attaches the scroll listener to the live scroller.
+    let fadeHost = null, fadeTop = null, fadeBot = null, fadeObserver = null;
+    function setupEdgeFade(scrollEl) {
+      fadeHost = fadeHost || overlay.querySelector('.modal');
+      if (!fadeHost || !scrollEl) return;
+      fadeHost.style.position = 'relative';
+      const bg = 'var(--bg-secondary)';
+      if (!fadeTop) {
+        fadeTop = document.createElement('div');
+        fadeTop.className = 'scroll-edge-fade scroll-edge-fade--top';
+        fadeTop.style.background = `linear-gradient(to bottom, ${bg} 0%, transparent 100%)`;
+        fadeBot = document.createElement('div');
+        fadeBot.className = 'scroll-edge-fade scroll-edge-fade--bottom';
+        fadeBot.style.background = `linear-gradient(to top, ${bg} 0%, transparent 100%)`;
+        fadeHost.appendChild(fadeTop);
+        fadeHost.appendChild(fadeBot);
+      }
+      const updateFade = () => {
+        const r = scrollEl.getBoundingClientRect();
+        const cr = fadeHost.getBoundingClientRect();
+        if (r.height === 0) { fadeTop.style.opacity = '0'; fadeBot.style.opacity = '0'; return; }
+        fadeTop.style.top = (r.top - cr.top) + 'px';
+        fadeBot.style.bottom = (cr.bottom - r.bottom) + 'px';
+        const canScroll = scrollEl.scrollHeight > scrollEl.clientHeight + 2;
+        fadeTop.style.opacity = (canScroll && scrollEl.scrollTop > 2) ? '1' : '0';
+        fadeBot.style.opacity = (canScroll && scrollEl.scrollTop + scrollEl.clientHeight < scrollEl.scrollHeight - 2) ? '1' : '0';
+      };
+      scrollEl.addEventListener('scroll', updateFade, { passive: true });
+      if (fadeObserver) fadeObserver.disconnect();
+      if (typeof ResizeObserver !== 'undefined') { fadeObserver = new ResizeObserver(updateFade); fadeObserver.observe(scrollEl); }
+      requestAnimationFrame(updateFade);
+      setTimeout(updateFade, 300);
+    }
+
+    // ── Program-shortcut view ──
+    // Rebuilds the body (mirrors renderGlobalView) so toggling back from the
+    // global view always restores the program table, even after renderGlobalView
+    // replaced the body's innerHTML.
+    function renderProgramView() {
+      const body = document.getElementById('shortcuts-body');
+      if (!body) return;
+      body.innerHTML = `
+        <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${i18n.t('dialog.shortcutsDesc')}</p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th class="col-shortcut">${i18n.t('dialog.colShortcut')}</th><th>${i18n.t('dialog.colAction')}</th><th>${i18n.t('dialog.colModes')}</th></tr></thead>
+            <tbody id="shortcuts-tbody"></tbody>
+          </table>
+        </div>`;
+      renderRows();
+      renderActions();
+      setupEdgeFade(body.querySelector('.table-wrap'));
+    }
 
     function renderRows() {
       const tbody = document.getElementById('shortcuts-tbody');
@@ -860,7 +927,7 @@
           : i18n.t('mode.labelUse');
         return `
         <tr class="shortcut-row" data-id="${escapeHtml(s.id)}">
-          <td><code style="background:var(--bg-tertiary);padding:2px 8px;border-radius:var(--radius-sm);font-size:12px;color:var(--accent);white-space:nowrap">${escapeHtml(s.key)}</code></td>
+          <td class="col-shortcut"><code style="background:var(--bg-tertiary);padding:2px 8px;border-radius:var(--radius-sm);font-size:12px;color:var(--accent);white-space:nowrap">${escapeHtml(s.key)}</code></td>
           <td style="font-size:12px;color:var(--text-secondary)">${escapeHtml(s.desc)}</td>
           <td style="font-size:11px;color:var(--text-muted)">${escapeHtml(modeLabel)}</td>
         </tr>
@@ -874,6 +941,7 @@
       tbody.querySelectorAll('.shortcut-row').forEach(row => {
         row.style.cursor = 'pointer';
         row.addEventListener('click', () => {
+          if (globalRecording) cancelGlobalRecording();
           if (shortcutsRecording && shortcutsRecording.id === row.dataset.id) {
             cancelRecording();
             return;
@@ -885,7 +953,8 @@
           const code = row.querySelector('code');
           code.textContent = i18n.t('dialog.pressNewKey');
           code.style.color = 'var(--danger)';
-          code.style.animation = 'pulse 1s infinite';
+          code.style.background = 'var(--bg-tertiary)';
+          code.style.fontWeight = '700';
         });
       });
     }
@@ -896,7 +965,8 @@
       row.classList.remove('row--selected');
       const code = row.querySelector('code');
       code.style.color = 'var(--accent)';
-      code.style.animation = '';
+      code.style.background = 'var(--bg-tertiary)';
+      code.style.fontWeight = '';
       const list = Shortcuts.getAll();
       const item = list.find(s => s.id === shortcutsRecording.id);
       code.textContent = item ? item.key : '';
@@ -906,80 +976,415 @@
     function applyRecording(keyStr) {
       if (!shortcutsRecording) return;
       const { id, row } = shortcutsRecording;
+      // Reject combos already bound to a DIFFERENT program action (keeps the
+      // recorder open so the user can try another combo).
+      const norm = (s) => s.split('+').map(p => p.trim()).sort().join('+');
+      const target = norm(keyStr);
+      const clash = Shortcuts.getAll().find(s => s.id !== id && norm(s.key) === target);
+      if (clash) {
+        Toast.warning(i18n.t('dialog.shortcutTaken', { action: clash.desc }));
+        return;
+      }
       Shortcuts.setBinding(id, keyStr);
       row.classList.remove('row--selected');
       const code = row.querySelector('code');
       code.textContent = keyStr;
       code.style.color = 'var(--accent)';
-      code.style.animation = '';
+      code.style.background = 'var(--bg-tertiary)';
+      code.style.fontWeight = '';
       shortcutsRecording = null;
+    }
+
+    // ── Global-shortcut view ──
+    // Build the list of bound presets/groups for the current skin. Each entry:
+    // { key: "preset:1"|"group:2", name, type ('preset'|'group'), shortcut }
+    // For presets, `name` is prefixed with the group path (ancestor group names
+    // joined by ' / '), mirroring the use-mode preset tree location.
+    function presetGroupPath(presetId, groups) {
+      const byId = new Map(groups.map(g => [g.id, g]));
+      // DFS the group forest; return the ancestor chain (root→inner) whose last
+      // group directly contains presetId.
+      function search(groupId, chain) {
+        const g = byId.get(groupId);
+        if (!g || !g.children) return null;
+        for (const c of g.children) {
+          if (c.type === 'preset' && c.id === presetId) return chain;
+          if (c.type === 'group') {
+            const found = search(c.id, [...chain, c.id]);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+      for (const g of groups) {
+        const chain = search(g.id, [g.id]);
+        if (chain) return chain.map(id => (byId.get(id) || {}).name).filter(Boolean).join(' / ');
+      }
+      return '';  // not in any group (root-level / orphan)
+    }
+    // Ancestor path of a group (root→parent, EXCLUDING the group itself), joined
+    // by ' / '. Empty if the group is at the root level.
+    function groupAncestorPath(groupId, groups) {
+      const byId = new Map(groups.map(g => [g.id, g]));
+      function search(curId, chain) {
+        const g = byId.get(curId);
+        if (!g || !g.children) return null;
+        for (const c of g.children) {
+          if (c.type === 'group') {
+            if (c.id === groupId) return chain;
+            const found = search(c.id, [...chain, c.id]);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+      for (const g of groups) {
+        const chain = search(g.id, [g.id]);
+        if (chain) return chain.map(id => (byId.get(id) || {}).name).filter(Boolean).join(' / ');
+      }
+      return '';
+    }
+    function getGlobalRows() {
+      const presets = state.get('presets') || [];
+      const groups = state.get('groups') || [];
+      const rows = [];
+      for (const p of presets) {
+        const sc = p && p.meta && p.meta.shortcut;
+        if (sc) {
+          const path = presetGroupPath(p.id, groups);
+          const baseName = (p.meta && p.meta.name) || i18n.t('preset.fallbackName', { id: p.id });
+          rows.push({
+            key: 'preset:' + p.id,
+            name: path ? `${path} / ${baseName}` : baseName,
+            type: 'preset', shortcut: sc,
+          });
+        }
+      }
+      for (const g of groups) {
+        // Only table/checkbox groups can have a global shortcut (plain groups
+        // can't bind one), so any group row here is a table group.
+        if (g && g.shortcut) {
+          const path = groupAncestorPath(g.id, groups);
+          const baseName = g.name || i18n.t('dialog.globalTypeTable');
+          rows.push({
+            key: 'group:' + g.id,
+            name: path ? `${path} / ${baseName}` : baseName,
+            type: 'group', shortcut: g.shortcut,
+          });
+        }
+      }
+      return rows;
+    }
+
+    function renderGlobalView() {
+      const body = document.getElementById('shortcuts-body');
+      if (!body) return;
+      const skin = state.get('selectedSkin');
+      const rows = skin ? getGlobalRows() : [];
+
+      let tableHtml;
+      if (!skin) {
+        tableHtml = `<p style="font-size:12px;color:var(--text-muted);padding:12px 0">${escapeHtml(i18n.t('dialog.globalNoSkin'))}</p>`;
+      } else if (rows.length === 0) {
+        tableHtml = `<p style="font-size:12px;color:var(--text-muted);padding:12px 0">${escapeHtml(i18n.t('dialog.globalEmpty'))}</p>`;
+      } else {
+        tableHtml = `
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr>
+                <th class="col-shortcut">${i18n.t('dialog.colShortcut')}</th>
+                <th class="col-name">${i18n.t('dialog.colName')}</th>
+                <th>${i18n.t('dialog.colType')}</th>
+              </tr></thead>
+              <tbody id="shortcuts-tbody-global">
+                ${rows.map((r, i) => `
+                  <tr class="shortcut-row${globalSelected.has(r.key) ? ' row--selected' : ''}" data-sel-key="${escapeHtml(r.key)}" data-row-index="${i}">
+                    <td class="col-shortcut"><code style="background:var(--bg-tertiary);padding:2px 8px;border-radius:var(--radius-sm);font-size:12px;color:#ffe600;white-space:nowrap">${escapeHtml(r.shortcut)}</code></td>
+                    <td class="col-name" style="font-size:12px;color:var(--text-secondary)">${escapeHtml(r.name)}</td>
+                    <td style="font-size:11px;color:var(--text-muted)">${escapeHtml(r.type === 'group' ? i18n.t('dialog.globalTypeTable') : i18n.t('dialog.globalTypePreset'))}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>`;
+      }
+
+      body.innerHTML = `
+        <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${i18n.t('dialog.shortcutsDesc')}</p>
+        ${tableHtml}
+      `;
+
+      // Wire row selection: click = single, Ctrl/Cmd+click = toggle,
+      // Shift+click = range from anchor — same model as the edit-mode op list.
+      const allKeys = rows.map(r => r.key);
+      const tbody = document.getElementById('shortcuts-tbody-global');
+      if (tbody) {
+        tbody.querySelectorAll('.shortcut-row').forEach(row => {
+          row.style.cursor = 'pointer';
+          row.addEventListener('click', (e) => {
+            if (globalRecording) cancelGlobalRecording();
+            applyGlobalSel(row.dataset.selKey, {
+              additive: e.ctrlKey || e.metaKey,
+              range: e.shiftKey,
+            }, allKeys);
+          });
+        });
+      }
+      renderActions();
+      setupEdgeFade(body.querySelector('.table-wrap'));
+    }
+
+    // Render the footer actions for the current view. Program view keeps the
+    // Reset + Close buttons; global view adds Rebind (warning) + Delete at the
+    // right edge, plus a selection-count label.
+    function renderActions() {
+      const actions = overlay.querySelector('.modal__actions');
+      if (!actions) return;
+      const count = globalSelected.size;
+      if (view === 'program') {
+        actions.innerHTML = `
+          <button class="btn btn--secondary btn--sm" id="shortcuts-reset">${i18n.t('dialog.resetDefault')}</button>
+          <button class="btn btn--primary btn--sm" id="shortcuts-close">${i18n.t('dialog.close')}</button>`;
+        const resetBtn = document.getElementById('shortcuts-reset');
+        if (resetBtn) resetBtn.addEventListener('click', () => {
+          Shortcuts.init({});
+          state.set('shortcutBindings', {});
+          if (shortcutsRecording) cancelRecording();
+          renderRows();
+        });
+      } else {
+        actions.innerHTML = `
+          <span class="shortcuts-toolbar__count">${i18n.t('dialog.globalSelectedCount', { count })}</span>
+          <button class="btn btn--warning btn--sm" id="global-rebind" ${count < 1 ? 'disabled' : ''}>${i18n.t('dialog.globalRebind')}</button>
+          <button class="btn btn--danger btn--sm" id="global-clear" ${count < 1 ? 'disabled' : ''}>${i18n.t('dialog.globalClear')}</button>
+          <button class="btn btn--primary btn--sm" id="shortcuts-close">${i18n.t('dialog.close')}</button>`;
+        const rebindBtn = document.getElementById('global-rebind');
+        const clearBtn = document.getElementById('global-clear');
+        if (rebindBtn) rebindBtn.addEventListener('click', startGlobalRecording);
+        if (clearBtn) clearBtn.addEventListener('click', clearGlobalShortcuts);
+      }
+      // Re-wire the Close button (its DOM node is recreated each render).
+      const closeBtn = document.getElementById('shortcuts-close');
+      if (closeBtn) closeBtn.addEventListener('click', close);
+    }
+
+    // Selection mirrors the edit-mode operation list (op-table createOpSelection):
+    // plain click = single-select (clears rest, sets anchor), Ctrl/Cmd+click =
+    // toggle one, Shift+click = range from anchor to this row. `allKeys` is the
+    // visible row order (preset:<id> / group:<id>) used to resolve ranges.
+    function applyGlobalSel(key, { additive, range }, allKeys) {
+      const idx = allKeys.indexOf(key);
+      if (range && globalAnchor !== -1 && idx !== -1) {
+        const lo = Math.min(globalAnchor, idx);
+        const hi = Math.max(globalAnchor, idx);
+        if (!additive) globalSelected = new Set();
+        for (let i = lo; i <= hi; i++) globalSelected.add(allKeys[i]);
+        // anchor unchanged (Shift extends from the anchor)
+      } else if (additive) {
+        if (globalSelected.has(key)) globalSelected.delete(key);
+        else globalSelected.add(key);
+        globalAnchor = idx === -1 ? globalAnchor : idx;
+      } else {
+        globalSelected = new Set([key]);
+        globalAnchor = idx === -1 ? -1 : idx;
+      }
+      // Update selection classes IN PLACE (don't rebuild the table) so the
+      // scroll position and row focus are preserved — rebuilding caused a
+      // visible "relocate" jump on each click.
+      const tbody = document.getElementById('shortcuts-tbody-global');
+      if (tbody) {
+        tbody.querySelectorAll('.shortcut-row').forEach(row => {
+          row.classList.toggle('row--selected', globalSelected.has(row.dataset.selKey));
+        });
+      }
+      renderActions();
+    }
+
+    function startGlobalRecording() {
+      if (globalSelected.size < 1) return;
+      if (shortcutsRecording) cancelRecording();
+      const skin = state.get('selectedSkin');
+      if (!skin) { Toast.warning(i18n.t('dialog.globalNoSkin')); return; }
+      globalRecording = true;
+      // Temporarily unregister OS shortcuts so the OS doesn't swallow the combo
+      // before the renderer keydown sees it.
+      try { api.reloadGlobalShortcuts(null); } catch (e) { /* best-effort */ }
+      // Pulse the shortcut cell of each selected row.
+      const tbody = document.getElementById('shortcuts-tbody-global');
+      if (tbody) {
+        tbody.querySelectorAll('.shortcut-row').forEach(row => {
+          if (!globalSelected.has(row.dataset.selKey)) return;
+          const code = row.querySelector('code');
+          if (code) {
+            code.textContent = i18n.t('dialog.pressNewKey');
+            code.style.color = 'var(--danger)';
+            code.style.background = 'var(--bg-tertiary)';
+            code.style.fontWeight = '700';
+          }
+        });
+      }
+      // Flip the footer actions into capture mode (Cancel replaces Rebind/Delete).
+      const actions = overlay.querySelector('.modal__actions');
+      if (actions) {
+        actions.innerHTML = `
+          <span class="shortcuts-toolbar__count">${i18n.t('dialog.globalSelectedCount', { count: globalSelected.size })}</span>
+          <button class="btn btn--secondary btn--sm" id="global-cancel">${i18n.t('dialog.cancel')}</button>
+          <button class="btn btn--primary btn--sm" id="shortcuts-close">${i18n.t('dialog.close')}</button>`;
+        const cancelBtn = document.getElementById('global-cancel');
+        if (cancelBtn) cancelBtn.addEventListener('click', () => cancelGlobalRecording());
+        const closeBtn = document.getElementById('shortcuts-close');
+        if (closeBtn) closeBtn.addEventListener('click', close);
+      }
+    }
+
+    function cancelGlobalRecording() {
+      if (!globalRecording) return;
+      globalRecording = false;
+      const skin = state.get('selectedSkin');
+      if (skin) { try { api.reloadGlobalShortcuts(skin); } catch (e) { /* best-effort */ } }
+      renderGlobalView();
+    }
+
+    async function bindGlobalShortcut(accelerator) {
+      const skin = state.get('selectedSkin');
+      if (!skin) { cancelGlobalRecording(); return; }
+      // Conflict with a program shortcut → warn, keep recording.
+      const appKeys = new Set((window.Shortcuts.getAll ? window.Shortcuts.getAll() : []).map(s => s.key).filter(Boolean));
+      if (appKeys.has(accelerator)) {
+        Toast.warning(i18n.t('selector.shortcutConflict'));
+        return;
+      }
+      const ids = [...globalSelected];
+      const presetIds = ids.filter(k => k.startsWith('preset:')).map(k => parseInt(k.split(':')[1], 10));
+      const groupIds = ids.filter(k => k.startsWith('group:')).map(k => parseInt(k.split(':')[1], 10));
+      try {
+        // Single batched bind: persists all presets + groups in one pass and
+        // re-registers once (was: N reloads — one per preset/group — plus a
+        // redundant rescan + reload at the end).
+        const bindResult = await api.bindGlobalShortcutBatch(skin, presetIds, groupIds, accelerator);
+        if (bindResult && !bindResult.success) { Toast.error((bindResult.error) || i18n.t('selector.bindFailed')); }
+        Toast.success(i18n.t('selector.bound', { acc: accelerator, count: ids.length }));
+        const scan = await api.scanPresets(skin);
+        if (scan && scan.success) {
+          state.set('presets', scan.data.presets);
+          state.set('groups', scan.data.groups);
+        }
+      } catch (e) {
+        Toast.error((e && e.message) || i18n.t('selector.bindFailed'));
+      }
+      globalRecording = false; // already re-registered above
+      globalSelected = new Set();
+      globalAnchor = -1;
+      renderGlobalView();
+    }
+
+    async function clearGlobalShortcuts() {
+      const skin = state.get('selectedSkin');
+      if (!skin) { Toast.warning(i18n.t('dialog.globalNoSkin')); return; }
+      const ids = [...globalSelected];
+      const presetIds = ids.filter(k => k.startsWith('preset:')).map(k => parseInt(k.split(':')[1], 10));
+      const groupIds = ids.filter(k => k.startsWith('group:')).map(k => parseInt(k.split(':')[1], 10));
+      try {
+        // Batched clear: empty accelerator clears all selected presets + groups
+        // in one pass, re-registering once (was: N reloads).
+        await api.bindGlobalShortcutBatch(skin, presetIds, groupIds, '');
+        Toast.success(i18n.t('selector.cleared'));
+        const scan = await api.scanPresets(skin);
+        if (scan && scan.success) {
+          state.set('presets', scan.data.presets);
+          state.set('groups', scan.data.groups);
+        }
+      } catch (e) {
+        Toast.error((e && e.message) || i18n.t('selector.clearFailed'));
+      }
+      globalSelected = new Set();
+      globalAnchor = -1;
+      renderGlobalView();
+    }
+
+    // ── Title toggle + view switch ──
+    function renderTitle() {
+      const titleEl = document.getElementById('shortcuts-title');
+      if (!titleEl) return;
+      const isProgram = view === 'program';
+      titleEl.innerHTML = `${isProgram ? i18n.t('dialog.shortcutsTitle') : i18n.t('dialog.shortcutsTitleGlobal')}<span class="modal__title-hint">${i18n.t('dialog.clickToSwitch')}</span>`;
+    }
+
+    function setView(v) {
+      if (v === view) return;
+      if (globalRecording) cancelGlobalRecording();
+      if (shortcutsRecording) cancelRecording();
+      globalSelected = new Set();
+      globalAnchor = -1;
+      view = v;
+      renderTitle();
+      if (v === 'program') renderProgramView();
+      else renderGlobalView();
     }
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.id = 'shortcuts-dialog';
     overlay.innerHTML = `
-      <div class="modal" style="min-width:420px;max-width:520px">
-        <div class="modal__title">${i18n.t('dialog.shortcutsTitle')}</div>
-        <div class="modal__body">
-          <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${i18n.t('dialog.shortcutsDesc')}</p>
-          <div class="table-wrap">
-            <table class="table">
-              <thead><tr><th>${i18n.t('dialog.colShortcut')}</th><th>${i18n.t('dialog.colAction')}</th><th>${i18n.t('dialog.colModes')}</th></tr></thead>
-              <tbody id="shortcuts-tbody">
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div class="modal__actions">
-          <button class="btn btn--secondary btn--sm" id="shortcuts-reset">${i18n.t('dialog.resetDefault')}</button>
-          <button class="btn btn--primary btn--sm" id="shortcuts-close">${i18n.t('dialog.close')}</button>
-        </div>
+      <div class="modal" style="min-width:480px;max-width:620px">
+        <div class="modal__title modal__title--toggle" id="shortcuts-title"></div>
+        <div class="modal__body" id="shortcuts-body"></div>
+        <div class="modal__actions"></div>
       </div>
     `;
 
-    document.body.appendChild(overlay);
-    renderRows();
-
+    // close + onKey must be defined BEFORE the views render: renderProgramView/
+    // renderGlobalView → renderActions() binds the Close button to `close`, and
+    // onKey is referenced inside close(). Declaring them up front avoids the
+    // const temporal-dead-zone ReferenceError that otherwise broke closing.
     const close = async () => {
+      // Cancel any active recorder first so OS shortcuts get re-registered.
+      if (globalRecording) {
+        globalRecording = false;
+        const skin = state.get('selectedSkin');
+        if (skin) { try { api.reloadGlobalShortcuts(skin); } catch (e) { /* best-effort */ } }
+      }
+      shortcutsRecording = null;
       const raw = Shortcuts.getRawBindings();
       await api.saveShortcuts(raw);
-      shortcutsRecording = null;
       document.removeEventListener('keydown', onKey);
       overlay.remove();
     };
 
-    overlay.querySelector('#shortcuts-close').addEventListener('click', close);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) close();
-    });
-
-    overlay.querySelector('#shortcuts-reset').addEventListener('click', () => {
-      Shortcuts.init({});
-      state.set('shortcutBindings', {});
-      if (shortcutsRecording) cancelRecording();
-      renderRows();
-    });
-
+    // Unified keydown: route to whichever recorder is active.
     const onKey = (e) => {
       if (e.key === 'Escape') {
-        if (shortcutsRecording) {
-          e.preventDefault();
-          cancelRecording();
-          return;
-        }
+        if (globalRecording) { e.preventDefault(); cancelGlobalRecording(); return; }
+        if (shortcutsRecording) { e.preventDefault(); cancelRecording(); return; }
         close();
+        return;
+      }
+      if (globalRecording) {
+        e.preventDefault();
+        e.stopPropagation();
+        const acc = window.Shortcuts.keyToAccelerator(e);
+        if (acc) bindGlobalShortcut(acc);
         return;
       }
       if (shortcutsRecording) {
         e.preventDefault();
         e.stopPropagation();
         const keyStr = Shortcuts.keyToString(e);
-        if (keyStr) {
-          applyRecording(keyStr);
-        }
+        if (keyStr) applyRecording(keyStr);
       }
     };
+
+    document.body.appendChild(overlay);
+    renderTitle();
+    if (view === 'program') renderProgramView();
+    else renderGlobalView();
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
+    });
+    overlay.querySelector('#shortcuts-title').addEventListener('click', () => {
+      setView(view === 'program' ? 'global' : 'program');
+    });
     document.addEventListener('keydown', onKey);
   }
 
@@ -1041,7 +1446,7 @@
   // Escape blurs any focused element in edit mode.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' && e.key !== 'Enter') return;
-    const isModal = !!document.querySelector('.modal-overlay');
+    const isModal = !!document.querySelector('.modal-overlay') || !document.getElementById('info-overlay')?.hidden;
     if (isModal) return;
     // Color picker popover: close on ESC/Enter regardless of focus.
     if (document.querySelector('.cp-popover')) {
@@ -1102,7 +1507,8 @@
     const isInput = activeEl && activeEl.closest('input, textarea, select, [contenteditable]');
     const isButton = activeEl && activeEl.closest('button');
     const _rec = document.getElementById('shortcut-recorder');
-    const isModal = !!document.querySelector('.modal-overlay') || (_rec && _rec.style.display !== 'none');
+    const _info = document.getElementById('info-overlay');
+    const isModal = !!document.querySelector('.modal-overlay') || (_rec && _rec.style.display !== 'none') || (_info && !_info.hidden);
 
     // Escape clears the current selection (single or multi) in edit mode.
     // Escape clears the current selection (single or multi) in edit mode — but

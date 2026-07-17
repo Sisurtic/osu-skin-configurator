@@ -23,6 +23,7 @@
 - **Editor empty state** — when nothing is selected, the editor shows **disabled tabs + a fade-in hint** (new preset steps, group/checkbox-group explanation, shortcuts, Esc to deselect) instead of a blank form. New-preset placement follows the selection (child / sibling / root); saving selects the new item; new preset auto-focuses the name input.
 - **Apply dialog & toasts** — unified single/multi apply into one dialog with a three-group summary (INI / file / image). The success toast shows a compact `[INI×N, files×N, image×N]` summary.
 - **Edit-mode Space apply** for presets and checkbox-groups; apply button enabled when a table group is selected.
+- **Shortcuts dialog gains a global-shortcuts view.** Clicking the title toggles between the in-app **Program shortcuts** and the OS-level **Global shortcuts** view (global opens by default). The global view lists every bound preset / checkbox-group of the current skin with its accelerator, each row showing the **full group path** (`GroupA / GroupB / Name`). Supports **multi-select rebind + delete** using the same click / Ctrl-Cmd / Shift-range model as the edit-mode operation list; selection toggles classes in place (no re-render jump). Rebind captures a new combo with a danger-colored, non-blinking "press new shortcut…" hint, and the footer holds Rebind (warning) + Delete + Close. Program-shortcut rebind now **rejects already-taken combos** (keeps the recorder open with a toast naming the conflicting action).
 
 ## Drag & drop rewrite
 
@@ -79,6 +80,7 @@
 - **Smooth crop/darken preview at any output height.** The crop output (e.g. a 32800px-tall Percy LN body) is now rendered **virtualized** — only the visible viewport is painted each frame, with the full height still driving the scrollbar. Tint is rasterised on the GPU (off-screen WebGL) so dragging the color picker stays at ~1ms/frame regardless of source size or `cropC`. Previously each frame rebuilt the entire multi-million-pixel output (~200ms).
 - **Drag/drop** — delegated listeners bound once (guarded) instead of re-bound on every render.
 - **Render batching** — presets/groups/rootChildren listeners collapsed into one microtask.
+- **Batched global-shortcut bind/clear** — `global_shortcuts_bind_batch` persists all selected presets + checkbox-groups and re-registers **once**, regardless of selection size. Fixes the slow multi-select bind (previously N full skin rescans + OS re-registrations) and the use-mode badge "double-flash" on bind (the recorder no longer rebuilds the list mid-bind).
 
 ## Architecture / refactor
 
@@ -87,6 +89,7 @@
 - **Standalone `SourcePicker` component** (`source-picker.js`) — click-to-repick-source logic extracted, paralleling the color picker.
 - **Unified drag/drop** — 7 binding blocks / 13 handlers replaced with a single delegated system.
 - **`apply_group` backend rewritten** to read `tableRowSelection` + `tableExpandedChildren` from config (mirrors frontend `collectTableRows`).
+- **`keyToAccelerator` shared** — moved out of `preset-selector.js` into the `Shortcuts` module so the use-mode recorder and the shortcuts-dialog global recorder share one KeyboardEvent → accelerator implementation.
 - **Dead code removed** — `collect_descendant_preset_ids`, `reorder_children_stable`, plus ~10 items / 2 crash bugs in selection.js + preset-list.js.
 - **Single version source** — `package.json` is the single source of truth; a pre-commit hook keeps `Cargo.toml` and `tauri.conf.json` in sync.
 
@@ -134,7 +137,7 @@
 - **File copy/delete reject out-of-skin files** (both now consistent).
 - **Editor ID tag.** Basic tab shows [#N] next to the name label.
 - **ini delete button prefix** "-" → "+".
-- **ESC priority layered.** Input restore → operation-table selection → preset selection → skin deselect. Use mode adds: shortcut selection → preset selection → skin. clearSelection clears anchor (no lingering highlight). Recorder ESC uses stopImmediatePropagation to prevent double-fire.
+- **ESC priority layered.** Input restore → operation-table selection → preset selection → skin deselect. Use mode adds: shortcut selection → preset selection → skin. clearSelection clears anchor (no lingering highlight). Recorder ESC uses stopImmediatePropagation to prevent double-fire. The About/info dialog is now treated as a modal (ESC closes it and stops propagation instead of deselecting the skin).
 
 ---
 

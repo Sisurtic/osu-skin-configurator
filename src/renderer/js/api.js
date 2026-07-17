@@ -50,6 +50,7 @@ const api = {
 
   // --- global shortcuts (per-preset) ---
   bindGlobalShortcut: (skinName, presetIds, accelerator) => window.electronAPI.bindGlobalShortcut(skinName, presetIds, accelerator),
+  bindGlobalShortcutBatch: (skinName, presetIds, groupIds, accelerator) => window.electronAPI.bindGlobalShortcutBatch(skinName, presetIds, groupIds, accelerator),
   unbindGlobalShortcut: (skinName, presetIds) => window.electronAPI.unbindGlobalShortcut(skinName, presetIds),
   reloadGlobalShortcuts: (skinName) => window.electronAPI.reloadGlobalShortcuts(skinName),
 
