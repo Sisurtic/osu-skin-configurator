@@ -772,13 +772,14 @@
     const renderRow = (op, idx, groupKey) => {
       const hidden = groupKey && !expandedSeqGroups.has(groupKey) ? ' style="display:none"' : '';
       const parentAttr = groupKey ? ` data-group-parent="${escapeHtml(groupKey)}"` : '';
-      // Exact toggle only makes sense for @2x files (fallback target).
-      const exactCell = has2x(op)
-        ? `<td><label class="toggle">
-            <input type="checkbox" class="file-exact-toggle" data-idx="${idx}" ${op.exact ? 'checked' : ''}>
-            <span class="toggle__slider"></span>
-          </label></td>`
-        : '<td></td>';
+      // Exact toggle only makes sense for @2x files (fallback target). Non-@2x
+      // sources render a dimmed, disabled, unchecked toggle (not an empty cell) —
+      // same as the tint editor.
+      const is2x = has2x(op);
+      const exactCell = `<td><label class="toggle${is2x ? '' : ' is-disabled'}">
+          <input type="checkbox" class="file-exact-toggle" data-idx="${idx}" ${(is2x && op.exact) ? 'checked' : ''}${is2x ? '' : ' disabled'}>
+          <span class="toggle__slider"></span>
+        </label></td>`;
       if (op._type === 'copy') {
         const src = op.source || '';
         const cached = thumbHtmlFor(src, pathBasename(src));
@@ -818,12 +819,12 @@
         : `<td style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</td>`;
       // Group-level exact toggle (only if the group has @2x files) + fill button.
       const fillBtn = `<button type="button" class="btn btn--secondary btn--sm file-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" data-full="${escapeHtml(i18n.t('file.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap;margin-left:auto">${i18n.t('file.fillAll')}</button>`;
-      const exactToggle = groupHas2x
-        ? `<label class="toggle">
-            <input type="checkbox" class="file-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${first.exact ? 'checked' : ''}>
-            <span class="toggle__slider"></span>
-          </label>`
-        : '';
+      // Group-level exact toggle: enabled only when the group has @2x files;
+      // otherwise a dimmed, disabled toggle (not empty) — matches member rows.
+      const exactToggle = `<label class="toggle${groupHas2x ? '' : ' is-disabled'}">
+          <input type="checkbox" class="file-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${(groupHas2x && first.exact) ? 'checked' : ''}${groupHas2x ? '' : ' disabled'}>
+          <span class="toggle__slider"></span>
+        </label>`;
       const exactCell = `<td><div style="display:flex;align-items:center;gap:8px">
           ${exactToggle}
           ${fillBtn}

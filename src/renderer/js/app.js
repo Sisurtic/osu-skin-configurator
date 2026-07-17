@@ -852,7 +852,9 @@
     if (document.querySelector('.modal-overlay')) return;
 
     // View + selection state (closure-scoped so both recorders share it).
-    let view = 'global';             // 'program' | 'global'  (global = default)
+    // Default to the global view only when there ARE bound global shortcuts;
+    // otherwise stay on program view and hide the global view entirely.
+    let view = (getGlobalRows().length > 0) ? 'global' : 'program';
     let globalSelected = new Set();  // keys "preset:<id>" / "group:<id>"
     let globalAnchor = -1;           // row index of the Shift-range anchor (-1 = none)
     let globalRecording = false;     // true while the global recorder captures
@@ -1299,13 +1301,23 @@
       }
       globalSelected = new Set();
       globalAnchor = -1;
-      renderGlobalView();
+      // If no global shortcuts remain, switch to (and lock on) the program view.
+      if (getGlobalRows().length === 0) { setView('program'); renderTitle(); }
+      else renderGlobalView();
     }
 
     // ── Title toggle + view switch ──
+    // The title is a click-toggle only when global shortcuts exist; otherwise
+    // the global view is hidden and the title is a plain (non-clickable) label.
     function renderTitle() {
       const titleEl = document.getElementById('shortcuts-title');
       if (!titleEl) return;
+      const hasGlobal = getGlobalRows().length > 0;
+      titleEl.classList.toggle('modal__title--toggle', hasGlobal);
+      if (!hasGlobal) {
+        titleEl.innerHTML = i18n.t('dialog.shortcutsTitle');
+        return;
+      }
       const isProgram = view === 'program';
       titleEl.innerHTML = `${isProgram ? i18n.t('dialog.shortcutsTitle') : i18n.t('dialog.shortcutsTitleGlobal')}<span class="modal__title-hint">${i18n.t('dialog.clickToSwitch')}</span>`;
     }
@@ -1316,10 +1328,34 @@
       if (shortcutsRecording) cancelRecording();
       globalSelected = new Set();
       globalAnchor = -1;
+      const from = view;
       view = v;
       renderTitle();
-      if (v === 'program') renderProgramView();
-      else renderGlobalView();
+      // Slide transition (mirrors the skin-list / mode-switch animation):
+      // global→program: global exits left, program enters left.
+      // program→global: program exits right, global enters right.
+      const body = document.getElementById('shortcuts-body');
+      const ANIM = ['mode-anim--exit-left', 'mode-anim--enter-left', 'mode-anim--exit-right', 'mode-anim--enter-right'];
+      const PHASE = 200; // matches --mode-anim-dur (0.2s)
+      const toProgram = v === 'program';
+      const exitCls = toProgram ? 'mode-anim--exit-left' : 'mode-anim--exit-right';
+      const enterCls = toProgram ? 'mode-anim--enter-right' : 'mode-anim--enter-left';
+      if (!body) {
+        if (v === 'program') renderProgramView();
+        else renderGlobalView();
+        return;
+      }
+      body.classList.remove(...ANIM);
+      void body.offsetWidth;
+      body.classList.add(exitCls);
+      setTimeout(() => {
+        body.classList.remove(exitCls);
+        if (v === 'program') renderProgramView();
+        else renderGlobalView();
+        void body.offsetWidth;
+        body.classList.add(enterCls);
+        setTimeout(() => body.classList.remove(enterCls), PHASE);
+      }, PHASE);
     }
 
     const overlay = document.createElement('div');
@@ -1383,6 +1419,8 @@
       if (e.target === overlay) close();
     });
     overlay.querySelector('#shortcuts-title').addEventListener('click', () => {
+      // Only toggle when global shortcuts exist (otherwise the global view is hidden).
+      if (getGlobalRows().length === 0) return;
       setView(view === 'program' ? 'global' : 'program');
     });
     document.addEventListener('keydown', onKey);

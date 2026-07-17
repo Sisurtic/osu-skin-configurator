@@ -24,6 +24,10 @@
 - **Apply dialog & toasts** — unified single/multi apply into one dialog with a three-group summary (INI / file / image). The success toast shows a compact `[INI×N, files×N, image×N]` summary.
 - **Edit-mode Space apply** for presets and checkbox-groups; apply button enabled when a table group is selected.
 - **Shortcuts dialog gains a global-shortcuts view.** Clicking the title toggles between the in-app **Program shortcuts** and the OS-level **Global shortcuts** view (global opens by default). The global view lists every bound preset / checkbox-group of the current skin with its accelerator, each row showing the **full group path** (`GroupA / GroupB / Name`). Supports **multi-select rebind + delete** using the same click / Ctrl-Cmd / Shift-range model as the edit-mode operation list; selection toggles classes in place (no re-render jump). Rebind captures a new combo with a danger-colored, non-blinking "press new shortcut…" hint, and the footer holds Rebind (warning) + Delete + Close. Program-shortcut rebind now **rejects already-taken combos** (keeps the recorder open with a toast naming the conflicting action).
+- **Tint Exact toggle (@2x fallback).** The tint editor gains the same Exact column as file-copy. Non-@2x sources show a dimmed disabled toggle. Copy/tint destinations re-attach the source's @2x + extension from the ACTUAL source used (post-fallback), so a fallback to non-@2x produces a non-@2x output name.
+- **Apply dialog save-before-apply.** Edit-mode apply with unsaved edits shows three buttons (Save & apply / Apply without saving / Cancel) inline — no separate confirm dialog.
+- **Input confirm unified.** Enter always commits (even unchanged values); Escape restores the pre-edit value. Name/desc inputs mark dirty on focus; doSave flushes focused inputs before saving.
+- **Source picker directory.** File dialog opens in the current source's directory (fallback to skin root). Preview image picker also opens in the current preview's directory.
 
 ## Drag & drop rewrite
 
@@ -33,6 +37,7 @@
 - **Circular-reference guard** in `reorder_children` (Rust) prevents a group from being placed inside itself → stack overflow.
 - **Plain groups can be freely reordered** — removed the forced "plain sub-groups at bottom" constraint in table groups.
 - **Drag/drop zone consistency** — dragover and drop thresholds unified (25%/75%).
+- **Flatten confirm on drag into table-group rows.** Dragging a plain group into a checkbox group's sub-group prompts to flatten (merge — hoist presets, delete shell). Dropping a group onto itself is a no-op. Auto-scroll during drag near list edges.
 
 ## UI / visual
 
@@ -55,6 +60,9 @@
 - **Disabled stages dim** their controls; Tab cycling reaches the edit-FPS button.
 - **Skin hover highlight removed** on the selected skin.
 - **Welcome page always shown** when no skin is selected (removed the empty selector state).
+- **Editor ID tag.** Basic tab shows [#N] next to the name label.
+- **ini delete button prefix** "-" → "+".
+- **ESC priority layered.** Input restore → operation-table selection → preset selection → skin deselect. Use mode adds: shortcut selection → preset selection → skin. clearSelection clears anchor (no lingering highlight). Recorder ESC uses stopImmediatePropagation to prevent double-fire. The About/info dialog is now treated as a modal (ESC closes it and stops propagation instead of deselecting the skin).
 
 ## Animations
 
@@ -124,20 +132,9 @@
 - **StageLight field** added to the Mania section in the INI editor.
 - **INI field section order** follows the osu! wiki (General → Fonts → Colours → CatchTheBeat → Mania). Key order within sections unchanged.
 - **Single flatten prompt** when creating a checkbox group from multiple nested groups — prompts once for all sources, not per-group.
-
-## Post-release polish
-
-- **Table-group global shortcuts fixed.** A shortcut bound to a checkbox (table) group now applies the group's per-row selection correctly — `apply_group` reads the TOP-LEVEL group's row-selection map with accumulated path prefixes so nested rows resolve. System notifications removed (plugin + i18n + capabilities); shortcut apply now shows a toast + plays a sound.
-- **Flatten confirm on drag into table-group rows.** Dragging a plain group into a checkbox group's sub-group prompts to flatten (merge — hoist presets, delete shell). Dropping a group onto itself is a no-op. Auto-scroll during drag near list edges.
-- **Tint Exact toggle (@2x fallback).** The tint editor gains the same Exact column as file-copy. Non-@2x sources show a dimmed disabled toggle. Copy/tint destinations re-attach the source's @2x + extension from the ACTUAL source used (post-fallback), so a fallback to non-@2x produces a non-@2x output name.
-- **Apply dialog save-before-apply.** Edit-mode apply with unsaved edits shows three buttons (Save & apply / Apply without saving / Cancel) inline — no separate confirm dialog.
-- **Input confirm unified.** Enter always commits (even unchanged values); Escape restores the pre-edit value. Name/desc inputs mark dirty on focus; doSave flushes focused inputs before saving.
-- **Source picker.** File dialog opens in the current source's directory (fallback to skin root). Preview image picker also opens in the current preview's directory.
-- **Shortcut safety.** refreshSkinData now reloads global shortcuts so compact_ids re-numbering doesn't leave stale bindings. Duplicated presets don't inherit shortcuts.
 - **File copy/delete reject out-of-skin files** (both now consistent).
-- **Editor ID tag.** Basic tab shows [#N] next to the name label.
-- **ini delete button prefix** "-" → "+".
-- **ESC priority layered.** Input restore → operation-table selection → preset selection → skin deselect. Use mode adds: shortcut selection → preset selection → skin. clearSelection clears anchor (no lingering highlight). Recorder ESC uses stopImmediatePropagation to prevent double-fire. The About/info dialog is now treated as a modal (ESC closes it and stops propagation instead of deselecting the skin).
+- **Shortcut safety.** refreshSkinData now reloads global shortcuts so compact_ids re-numbering doesn't leave stale bindings. Duplicated presets don't inherit shortcuts.
+- **Table-group global shortcuts.** A shortcut bound to a checkbox (table) group applies the group's per-row selection correctly — `apply_group` reads the TOP-LEVEL group's row-selection map with accumulated path prefixes so nested rows resolve. Shortcut apply shows a toast + plays a sound (system notifications removed).
 
 ---
 
