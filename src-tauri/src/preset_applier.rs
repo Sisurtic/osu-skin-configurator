@@ -123,6 +123,85 @@ fn apply_source_suffix(dest_rel: &str, source_name: &str) -> String {
     }
 }
 
+// Parse a sequence-frame index out of a source filename, returning
+// (style, index) where style is "-" ("-N" form, e.g. "sliderb-0") or "" (no-
+// hyphen "N" form, e.g. "sliderb0"). Returns None when the name is not a frame.
+// Mirrors the renderer's OpTable.parseFrame: only "-N" style is universal; the
+// no-hyphen style is recognized only for a fixed allowlist of osu! animation
+// names (so "menu0" is never misread as a frame). @2x/extension/format suffix
+// are ignored, and the no-hyphen match requires the FULL non-digit base to be in
+// the allowlist (no prefix matching).
+fn parse_seq_index(source_name: &str) -> Option<(&'static str, i64)> {
+    // Operate on the file NAME, then strip extension + @2x + format suffix.
+    let base_full = Path::new(source_name).file_name().and_then(|n| n.to_str()).unwrap_or(source_name);
+    let mut b = match base_full.rfind('.') {
+        Some(dot) => &base_full[..dot],
+        None => base_full,
+    };
+    if let Some(stripped) = b.strip_suffix("@2x") { b = stripped; }
+    // Strip an osu! format suffix ("-x"/"-dot"/"-comma"/"-percent") so e.g.
+    // "sliderb-0-dot" still classifies as frame index 0.
+    for suf in ["-x", "-dot", "-comma", "-percent"] {
+        if let Some(stripped) = b.strip_suffix(suf) { b = stripped; break; }
+    }
+    // "-N" style (hyphenated): any base, e.g. "sliderb-0".
+    if let Some(idx) = b.rfind('-') {
+        if let Ok(n) = b[idx + 1..].parse::<i64>() {
+            // Make sure there's a base before the hyphen (not "-0" alone).
+            if idx > 0 { return Some(("-", n)); }
+        }
+    }
+    // "N" style (no hyphen): ONLY for the fixed allowlist, e.g. "sliderb0".
+    // Find the trailing digit run; the entire non-digit prefix must be allowlisted.
+    let digits_start = b.bytes().rposition(|c| !c.is_ascii_digit()).map(|p| p + 1).unwrap_or(0);
+    if digits_start > 0 && digits_start < b.len() {
+        let prefix = &b[..digits_start];
+        let digits = &b[digits_start..];
+        const NOHYPHEN: [&str; 5] = ["sliderb", "pippidonclear", "pippidonfail", "pippidonidle", "pippidonkiai"];
+        if NOHYPHEN.iter().any(|n| *n == prefix) {
+            if let Ok(n) = digits.parse::<i64>() { return Some(("", n)); }
+        }
+    }
+    None
+}
+
+// If a sequence frame's destination stem has NO sequence index yet (and the dest
+// is not a directory), append the source's own index in the source's style, so a
+// group destination like "mania/sliderb" applied to source "sliderb-3.png" →
+// "mania/sliderb-3". Destinations that already end in an index, or are directory
+// paths, are returned unchanged. The osu! no-hyphen style is preserved
+// (sliderb3). Used by copy + tint before apply_source_suffix re-attaches @2x/ext.
+fn apply_seq_index(dest_rel: &str, source_name: &str) -> String {
+    if dest_rel.is_empty() || dest_rel.ends_with('/') || dest_rel.ends_with('\\') {
+        return dest_rel.to_string();
+    }
+    let (style, index) = match parse_seq_index(source_name) {
+        Some(v) => v,
+        None => return dest_rel.to_string(), // source isn't a frame → leave dest as typed
+    };
+    // Split dest into dir + last segment, strip @2x + extension from the last
+    // segment to inspect the stem, then check whether the stem already ends in
+    // an index (any trailing digit run, hyphenated or not).
+    let slash = dest_rel.rfind(|c| c == '/' || c == '\\').map(|p| p + 1).unwrap_or(0);
+    let seg = &dest_rel[slash..];
+    // Find where the stem ends (earliest of @2x marker or first '.').
+    let at = seg.rfind("@2x");
+    let dot = seg.find('.');
+    let stem_end = match (at, dot) { (Some(a), Some(d)) => a.min(d), (Some(a), None) => a, (None, Some(d)) => d, (None, None) => seg.len() };
+    let stem = &seg[..stem_end];
+    // Already has a trailing index? Leave it (user typed one explicitly).
+    let last_nondigit = stem.bytes().rposition(|c| !c.is_ascii_digit()).unwrap_or(0);
+    let has_trailing_digits = last_nondigit + 1 < stem.len();
+    let has_hyphen_index = stem.rfind('-').map(|i| i + 1 < stem.len() && stem[i + 1..].bytes().all(|c| c.is_ascii_digit())).unwrap_or(false);
+    if has_trailing_digits || has_hyphen_index {
+        return dest_rel.to_string();
+    }
+    // Append the index in the source's style.
+    let sep = if style == "-" { "-" } else { "" };
+    format!("{}{}{}", dest_rel, sep, index)
+}
+
+
 // Parse a "r,g,b[,a]" color string into (r,g,b,a) u8. Defaults to opaque white.
 fn parse_color(s: &str) -> (u8, u8, u8, u8) {
     let parts: Vec<f64> = s.split(',').filter_map(|t| t.trim().parse::<f64>().ok()).collect();
@@ -443,7 +522,11 @@ fn apply_one_set(
         let dest_path = if is_dir_only {
             PathBuf::from(skin_path).join(dest_rel).join(&use_src_name)
         } else {
-            PathBuf::from(skin_path).join(apply_source_suffix(dest_rel, &use_src_name))
+            // If the destination has no sequence index yet, inherit the source's
+            // own index+style (so a group stem "mania/sliderb" + sliderb-3 →
+            // mania/sliderb-3); then re-attach the source's @2x + extension.
+            let with_index = apply_seq_index(dest_rel, &use_src_name);
+            PathBuf::from(skin_path).join(apply_source_suffix(&with_index, &use_src_name))
         };
         let dest_str = dest_path.to_string_lossy().to_string();
         if !is_within(&dest_str, skin_path) {
@@ -534,7 +617,10 @@ fn apply_one_set(
         let dest_name = if is_dir_only {
             use_src_name
         } else {
-            let with_suffix = apply_source_suffix(dest_rel, &use_src_name);
+            // Inherit the source's sequence index+style when the dest has none,
+            // then re-attach @2x + extension (+ .png fallback if source had none).
+            let with_index = apply_seq_index(dest_rel, &use_src_name);
+            let with_suffix = apply_source_suffix(&with_index, &use_src_name);
             if Path::new(&with_suffix).extension().is_some() {
                 with_suffix
             } else {
@@ -832,4 +918,48 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
         }
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod seq_tests {
+    use super::{parse_seq_index, apply_seq_index};
+
+    #[test]
+    fn parse_hyphen_style() {
+        assert_eq!(parse_seq_index("sliderb-0.png"), Some(("-", 0)));
+        assert_eq!(parse_seq_index("sliderb-9@2x.png"), Some(("-", 9)));
+        assert_eq!(parse_seq_index("hitcircle-3.png"), Some(("-", 3)));
+        assert_eq!(parse_seq_index("followpoint-2.png"), Some(("-", 2)));
+    }
+
+    #[test]
+    fn parse_no_hyphen_allowlist_only() {
+        assert_eq!(parse_seq_index("sliderb0.png"), Some(("", 0)));
+        assert_eq!(parse_seq_index("pippidonidle5.png"), Some(("", 5)));
+        assert_eq!(parse_seq_index("pippidonkiai12@2x.png"), Some(("", 12)));
+        // Not in allowlist → not a frame.
+        assert_eq!(parse_seq_index("menu0.png"), None);
+        assert_eq!(parse_seq_index("hitcircle0.png"), None);
+        assert_eq!(parse_seq_index("cursor.png"), None);
+    }
+
+    #[test]
+    fn apply_appends_when_missing() {
+        // Hyphen style: bare stem → source index appended.
+        assert_eq!(apply_seq_index("mania/sliderb", "sliderb-3.png"), "mania/sliderb-3");
+        // No-hyphen style.
+        assert_eq!(apply_seq_index("mania/sliderb", "sliderb7.png"), "mania/sliderb7");
+        // Header value WITH an index already → left alone (user typed it).
+        assert_eq!(apply_seq_index("mania/sliderb-5", "sliderb-3.png"), "mania/sliderb-5");
+        assert_eq!(apply_seq_index("mania/sliderb5", "sliderb7.png"), "mania/sliderb5");
+    }
+
+    #[test]
+    fn apply_skips_directory_and_nonframe() {
+        // Directory dest → unchanged (can't unify a column across a folder).
+        assert_eq!(apply_seq_index("mania/sub/", "sliderb-3.png"), "mania/sub/");
+        assert_eq!(apply_seq_index("", "sliderb-3.png"), "");
+        // Source not a frame → leave dest as typed.
+        assert_eq!(apply_seq_index("mania/cursor", "cursor.png"), "mania/cursor");
+    }
 }

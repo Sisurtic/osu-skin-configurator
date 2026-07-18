@@ -295,8 +295,70 @@ pub fn compact_ids(cfg: &mut Config) {
             c.id = *group_id_map.get(&c.id).unwrap_or(&c.id);
         }
     }
+    // remap persisted table-group UI state. These maps are keyed by group/preset
+    // id, so an id compaction would otherwise leave them pointing at stale or
+    // wrong nodes (an expanded table group silently un-expanding, or a row
+    // selection landing on a different preset). Keys are JSON-string ids; inner
+    // values are ids too (presetId in tableRowSelection; childGids in
+    // tableExpandedChildren). Entries whose key id no longer exists are dropped.
+    cfg.table_expanded_children = remap_expanded(&cfg.table_expanded_children, &group_id_map);
+    cfg.table_row_selection = remap_row_selection(&cfg.table_row_selection, &group_id_map, &preset_id_map);
     cfg.next_preset_id = cfg.presets.len() as i64 + 1;
     cfg.next_group_id = cfg.groups.len() as i64 + 1;
+}
+
+// Read an id that may be stored as a number OR a numeric string (the renderer
+// is inconsistent about which it writes). Returns the parsed i64.
+fn id_as_i64(v: &Value) -> Option<i64> {
+    v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+}
+// Re-emit a remapped id preserving the ORIGINAL JSON type (string or number),
+// so we don't change the on-disk shape the renderer expects.
+fn reemit_id(old: &Value, new_id: i64) -> Value {
+    if old.is_string() { Value::String(new_id.to_string()) } else { json!(new_id) }
+}
+
+// Remap tableExpandedChildren: { "parentGid": ["childGid", ...] } — both the
+// top-level key and every array entry are group ids. Drops a parent entry when
+// its (old) key id is gone; drops child entries whose id is gone.
+fn remap_expanded(v: &Value, group_map: &HashMap<i64, i64>) -> Value {
+    let obj = match v.as_object() { Some(o) => o, None => return v.clone() };
+    let mut out = serde_json::Map::new();
+    for (k, arr) in obj {
+        let parent = match k.parse::<i64>() { Ok(id) => id, Err(_) => continue };
+        let new_parent = match group_map.get(&parent) { Some(np) => *np, None => continue };
+        let children = match arr.as_array() { Some(a) => a, None => continue };
+        let new_kids: Vec<Value> = children.iter().filter_map(|c| {
+            id_as_i64(c).and_then(|cid| group_map.get(&cid).map(|nc| reemit_id(c, *nc)))
+        }).collect();
+        out.insert(new_parent.to_string(), Value::Array(new_kids));
+    }
+    Value::Object(out)
+}
+
+// Remap tableRowSelection: { "gid": { "rowKey": presetId } } — the top-level
+// key is a group id; each inner value is a preset id (the rowKey is NOT an id,
+// leave it). Drops a group entry when its (old) key id is gone; drops inner
+// entries whose preset id is gone.
+fn remap_row_selection(v: &Value, group_map: &HashMap<i64, i64>, preset_map: &HashMap<i64, i64>) -> Value {
+    let obj = match v.as_object() { Some(o) => o, None => return v.clone() };
+    let mut out = serde_json::Map::new();
+    for (k, rows) in obj {
+        let gid = match k.parse::<i64>() { Ok(id) => id, Err(_) => continue };
+        let new_gid = match group_map.get(&gid) { Some(ng) => *ng, None => continue };
+        let rows_obj = match rows.as_object() { Some(o) => o, None => continue };
+        let mut new_rows = serde_json::Map::new();
+        for (row_key, pid_val) in rows_obj {
+            if let Some(pid) = id_as_i64(pid_val) {
+                if let Some(np) = preset_map.get(&pid) {
+                    new_rows.insert(row_key.clone(), reemit_id(pid_val, *np));
+                }
+                // preset gone → drop the selection (don't carry a stale id).
+            }
+        }
+        out.insert(new_gid.to_string(), Value::Object(new_rows));
+    }
+    Value::Object(out)
 }
 
 // ── Scan ──
@@ -771,4 +833,84 @@ pub fn get_preview_data_url(image_path: &str) -> Option<String> {
         _ => "image/png",
     };
     Some(format!("data:{};base64,{}", mime, b64))
+}
+
+#[cfg(test)]
+mod compact_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn cfg_with(ids: &[i64], table_exp: Value, table_sel: Value) -> Config {
+        Config {
+            next_preset_id: ids.len() as i64 + 1,
+            next_group_id: 1,
+            root_children: ids.iter().map(|id| ChildRef { kind: "preset".into(), id: *id }).collect(),
+            groups: vec![],
+            presets: ids.iter().map(|id| json!({ "id": id })).collect(),
+            table_expanded_children: table_exp,
+            table_row_selection: table_sel,
+        }
+    }
+
+    #[test]
+    fn presets_compact_to_contiguous_and_remap_root() {
+        // presets 1,3,5 → compacted to 1,2,3; root_children preset refs remap.
+        let mut c = cfg_with(&[1, 3, 5], json!({}), json!({}));
+        compact_ids(&mut c);
+        let got: Vec<i64> = c.root_children.iter().map(|ch| ch.id).collect();
+        assert_eq!(got, vec![1, 2, 3]);
+    }
+
+    // Direct unit tests of the remap helpers (the part compact_ids newly calls).
+    fn gmap(pairs: &[(i64, i64)]) -> HashMap<i64, i64> {
+        pairs.iter().copied().collect()
+    }
+
+    #[test]
+    fn remap_expanded_rekeys_and_drops_dead() {
+        // group map: old 10→1, 20→2 (30 deleted, not in map). Child ids here are
+        // NUMBERS (one renderer code path); parent keys are always strings.
+        let m = gmap(&[(10, 1), (20, 2)]);
+        let v = json!({ "10": [10, 20], "20": [20], "30": [10] });
+        let out = remap_expanded(&v, &m);
+        // parent 10→1 with children [1,2]; 20→2 with [2]; 30 dropped (gone).
+        assert_eq!(out, json!({ "1": [1, 2], "2": [2] }));
+    }
+
+    #[test]
+    fn remap_expanded_preserves_string_ids() {
+        // The other renderer code path stores child ids as STRINGS — re-emit them
+        // as strings so the on-disk shape the renderer expects is unchanged.
+        let m = gmap(&[(10, 1), (20, 2)]);
+        let v = json!({ "10": ["10", "20"] });
+        let out = remap_expanded(&v, &m);
+        assert_eq!(out, json!({ "1": ["1", "2"] }));
+    }
+
+    #[test]
+    fn remap_row_selection_rekeys_and_drops_dead() {
+        // group map 10→1, 20→2 (30 gone); preset map 100→1, 300→3 (200 gone).
+        let gm = gmap(&[(10, 1), (20, 2)]);
+        let pm: HashMap<i64, i64> = [(100, 1), (300, 3)].iter().copied().collect();
+        let v = json!({ "10": { "row0": 100, "row1": 200 }, "20": { "row0": 300 }, "30": { "row0": 100 } });
+        let out = remap_row_selection(&v, &gm, &pm);
+        // 10→1: row0 100→1, row1 200 dropped (preset gone); 20→2: row0 300→3; 30 dropped.
+        assert_eq!(out, json!({ "1": { "row0": 1 }, "2": { "row0": 3 } }));
+    }
+
+    #[test]
+    fn remap_row_selection_preserves_string_preset_ids() {
+        let gm = gmap(&[(10, 1)]);
+        let pm: HashMap<i64, i64> = [(100, 1)].iter().copied().collect();
+        let v = json!({ "10": { "row0": "100" } });
+        let out = remap_row_selection(&v, &gm, &pm);
+        assert_eq!(out, json!({ "1": { "row0": "1" } }));
+    }
+
+    #[test]
+    fn remap_non_object_is_passthrough() {
+        let m = gmap(&[(1, 2)]);
+        assert_eq!(remap_expanded(&json!(null), &m), json!(null));
+        assert_eq!(remap_row_selection(&json!("x"), &m, &m), json!("x"));
+    }
 }

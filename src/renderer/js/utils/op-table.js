@@ -348,10 +348,99 @@
     return (p || '').split(/[/\\]/).pop() || p;
   }
 
+  // ── Sequence-frame (动画序列帧) helpers ──
+  // osu! animation frames come in two naming styles (the trailing @2x HD marker
+  // and the extension are ALWAYS ignored when classifying):
+  //   • "-N" style: foo-0, foo-1, foo-2 …  (the overwhelming majority)
+  //   •  "N" style: foo0, foo1, foo2 …     (only a fixed set of names, below)
+  // A "group" is a run of CONSECUTIVE ops whose frames share one base name AND
+  // form a single ascending index column (0,1,2…). A second 0-N run after the
+  // first is a SEPARATE group, not a continuation.
+  // The only names that use the no-hyphen "N" style — fixed allowlist, no
+  // wildcards. Used both for DETECTING no-hyphen frames (so "menu0" is never
+  // misread as one) and for OUTPUT hyphen style when re-attaching an index.
+  const SEQ_NOHYPHEN = new Set([
+    'sliderb', 'pippidonclear', 'pippidonfail', 'pippidonidle', 'pippidonkiai',
+  ]);
+
+  // Filename stem classification. Given a filename's bare stem (extension and
+  // @2x already stripped, or this strips them), return:
+  //   { base, style, index }   when the stem ends in a sequence index, or
+  //   null                      when it does not look like a frame.
+  //   style is '-' ("-N") or '' ("N", no-hyphen). The "N" style is only valid
+  //   for names in SEQ_NOHYPHEN; a digit suffix on any other name (e.g.
+  //   "menu0") is NOT a frame — returns null.
+  //   index is the parsed integer.
+  function parseFrame(stem) {
+    let b = (stem || '').replace(/\\/g, '/').split('/').pop() || '';
+    b = b.replace(/\.[^.]+$/, '');   // extension
+    b = b.replace(/@2x$/i, '');        // HD suffix
+    b = b.replace(/-(x|dot|comma|percent)$/i, ''); // format suffix
+    // "-N" style (hyphenated): e.g. "sliderb-0".
+    let m = b.match(/^(.*)-(\d+)$/);
+    if (m) return { base: m[1], style: '-', index: parseInt(m[2], 10) };
+    // "N" style (no hyphen): ONLY for the fixed allowlist, e.g. "sliderb0".
+    m = b.match(/^(\D+?)(\d+)$/);
+    if (m && SEQ_NOHYPHEN.has(m[1])) return { base: m[1], style: '', index: parseInt(m[2], 10) };
+    return null;
+  }
+  // Whether a source filename is an animation frame (either style).
+  function isFrame(sourceName) { return !!parseFrame(sourceName); }
+  // Sequence-group key for a source filename: type prefix (so copies & deletes
+  // never merge) + base name. Returns '' for non-frames.
+  function seqKey(sourceName, typePrefix) {
+    const f = parseFrame(sourceName);
+    if (!f) return '';
+    return (typePrefix == null ? '' : typePrefix) + '|' + f.base;
+  }
+  // ── Stable per-instance group ids (data-layer) ──
+  // Each group instance carries a stable groupId stored ON its member objects
+  // (runtime field `_groupId`). Save paths explicitly map fields, so any `_`-prefixed
+  // field is stripped from the preset on disk — disk format is unchanged. Because the
+  // id lives on the member object, reorder (which only moves object refs) preserves it,
+  // so expand state survives. No accumulating Map: state lives on the data, nothing leaks.
+  //
+  // Rule: a group REUSES its members existing _groupId iff ALL members currently share
+  // the same non-empty _groupId (the group was not just assembled from disparate sources);
+  // otherwise a fresh id is minted and written to every member. Same-name groups keep
+  // distinct ids (their members never shared one), so they never select/expand together.
+  function assignSeqGroupIds(groups) {
+    // Collect every _groupId already in use across all groups' members, so a
+    // freshly minted id NEVER collides with a residual one (defence-in-depth:
+    // even if some path failed to strip _groupId on copy/paste, new ids stay
+    // distinct from carried-over ones).
+    const used = new Set();
+    for (const g of groups) for (const m of (g.members || [])) if (m._groupId) used.add(m._groupId);
+    let next = 1;
+    const mint = () => { let id; do { id = 'g' + (next++); } while (used.has(id)); used.add(id); return id; };
+    for (const g of groups) {
+      const ms = g.members || [];
+      if (ms.length) {
+        const first = ms[0]._groupId;
+        const allSame = first && ms.every(m => m._groupId === first);
+        const gid = allSame ? first : mint();
+        for (const m of ms) m._groupId = gid;
+        g.gid = gid;
+      }
+    }
+  }
+  // Drop expanded-set entries for gids that no longer exist (the group was
+  // deleted, or its members were re-grouped). Called after assignSeqGroupIds so
+  // expandedSeqGroups can't accumulate dead keys. `currentGids` = the set of
+  // gids still present this render (from the group entries' .gid).
+  function pruneExpanded(expandedSet, currentGids) {
+    if (!expandedSet || !expandedSet.size) return;
+    const keep = new Set(currentGids);
+    for (const id of [...expandedSet]) if (!keep.has(id)) expandedSet.delete(id);
+  }
+
   // Format a destination path: strip the user's file extension and trailing
   // @2x (keep only the stem). The SOURCE file's full suffix (@2x + extension)
   // is re-attached at apply time by the backend (apply_source_suffix), so the
   // stored destination is just the directory + stem with no suffix.
+  // NOTE: this does NOT strip a sequence index — plain single-row destinations
+  // (e.g. "cursor-rank2") must keep their "-2". Sequence-index re-attachment for
+  // GROUP frames is handled by the BACKEND (apply_seq_index), not here.
   // e.g. dest=mania/custom@2x.png → mania/custom (stem only, no suffix)
   function appendSrcExt(val) {
     if (!val || val.endsWith('/')) return val;
@@ -545,5 +634,5 @@
     return { htmlFor, load };
   }
 
-  window.OpTable = { create, createGroupSync, createThumbLoader, escapeHtml, pathBasename, appendSrcExt, reorderArray };
+  window.OpTable = { create, createGroupSync, createThumbLoader, escapeHtml, pathBasename, appendSrcExt, reorderArray, parseFrame, isFrame, seqKey, SEQ_NOHYPHEN, assignSeqGroupIds, pruneExpanded };
 })();

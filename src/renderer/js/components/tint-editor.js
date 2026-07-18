@@ -37,6 +37,23 @@
   function isImagePath(p) { return IMG_EXTS.has((p.match(/\.[^.]+$/) || [''])[0].toLowerCase()); }
   // Whether a tint source has an @2x HD suffix (the Exact toggle only applies to these).
   function has2x(t) { return /@2x\.[^.]+$/i.test(t.source || ''); }
+  // ── Sequence-frame grouping (ported from file-copy-editor) ──
+  // Parsed frame info for a tint's source, or null if it is not a frame.
+  function frameOf(t) { return OpTable.parseFrame(t.source || ''); }
+  // Whether a tint source is an animation frame ("-N" or no-hyphen "N" allowlist).
+  function isFrame(t) { return OpTable.isFrame(t.source || ''); }
+  // Sequence-group key for a tint source. Tints are homogeneous (no type prefix).
+  function seqKeyOf(t) { return OpTable.seqKey(t.source || '', 'tint'); }
+  // Group label: base + '{n}' placeholder in the frame's style, keeping @2x/ext.
+  function groupLabel(t) {
+    const f = frameOf(t);
+    const b = (t.source || '').replace(/\\/g, '/').split('/').pop() || '';
+    if (!f) return b;
+    const ext = (b.match(/@2x\.[^.]+$/i) || b.match(/\.[^.]+$/) || [''])[0];
+    return f.base + (f.style === '-' ? '-{n}' : '{n}') + ext;
+  }
+  // Expanded sequence groups (by STABLE per-instance gid). Default: collapsed.
+  const expandedSeqGroups = new Set();
   function pathBasename(p) { return OpTable.pathBasename(p); }
   function escapeHtml(s) { return OpTable.escapeHtml(s); }
   function colorToCss(c) {
@@ -65,6 +82,29 @@
     return a;
   }
   function sel() { const a = cur(); return a[selectedIdx()] || null; }
+  // Indices a row represents: a plain row → [idx]; a sequence-group header →
+  // the members of THIS group only (its rendered data-range [i,j)). Scoping to
+  // the range — not a global seqKey scan — keeps same-name groups from all
+  // selecting together.
+  function rowMemberIndices(row) {
+    const range = row.dataset.range;
+    if (range && row.classList.contains('tint-seq-group')) {
+      const [a, b] = range.split('-').map(n => parseInt(n, 10));
+      if (!isNaN(a) && !isNaN(b)) { const out = []; for (let k = a; k < b; k++) out.push(k); return out; }
+    }
+    const ri = parseInt(row.dataset.idx, 10);
+    return isNaN(ri) ? [] : [ri];
+  }
+  // Shift-range member set: FOLDED header → whole group; EXPANDED → first member.
+  function rowRangeMemberIndices(row) {
+    const key = row.dataset.seqKey;
+    if (key && row.classList.contains('tint-seq-group')) {
+      const members = rowMemberIndices(row);
+      return expandedSeqGroups.has(key) ? (members.length ? [members[0]] : []) : members;
+    }
+    const ri = parseInt(row.dataset.idx, 10);
+    return isNaN(ri) ? [] : [ri];
+  }
 
   // ── Render ──
   function render(parent) {
@@ -82,14 +122,12 @@
         interactiveSelector: 'input, select, textarea, button, label, .toggle, .toggle__slider, .file-thumb__icon, img',
         deleteMimeType: 'application/tint-indices',
         selectedClass: 'tint-row--selected',
-        rowMembers: (row) => {
-          const ri = parseInt(row.dataset.idx, 10);
-          return isNaN(ri) ? [] : [ri];
-        },
-        rowAnchor: (row) => {
-          const ri = parseInt(row.dataset.idx, 10);
-          return isNaN(ri) ? -1 : ri;
-        },
+        // A plain row → [idx]; a sequence-group header → every member index.
+        rowMembers: (row) => rowMemberIndices(row),
+        rowAnchor: (row) => { const m = rowMemberIndices(row); return m.length ? m[0] : -1; },
+        // Shift-range: FOLDED header → whole group; EXPANDED → first member only.
+        rowRangeMembers: (row) => rowRangeMemberIndices(row),
+        isGroupMemberRow: (row) => !!row.dataset.groupParent,
         // Selection change → refresh stages + re-highlight. Only recompute the
         // (heavy) preview when the ANCHOR moved (it drives the preview); a mere
         // multi-select change (Ctrl/Shift adding rows) just re-highlights + re-
@@ -128,7 +166,7 @@
             <div class="files-header-table" style="margin-top:6px">
               <div class="table-wrap">
                 <table class="table ini-table tint-table">
-                  <colgroup><col><col><col style="width:80px"></colgroup>
+                  <colgroup><col style="width:33%"><col style="width:33%"><col style="width:120px"></colgroup>
                   <thead><tr>
                     <th>${i18n.t('tint.colSource')}</th>
                     <th title="${escapeHtml(i18n.t('tint.colDestTitle'))}">${i18n.t('tint.colDest')}</th>
@@ -161,17 +199,52 @@
     if (tints.length === 0) {
       return `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">${i18n.t('tint.empty')}</div>`;
     }
+    // Build a render plan: coalesce CONSECUTIVE frame tints with the same base,
+    // same style, and a strictly ascending index column (0,1,2…) into a group.
+    // Length ≥ 2, else singletons. A repeated/out-of-order index or a style
+    // change ends the group → separate group (or singleton).
+    const plan = []; // { type:'row', i } | { type:'group', key, range:[i,j] }
+    let i = 0;
+    while (i < tints.length) {
+      const f0 = frameOf(tints[i]);
+      if (f0) {
+        const key = seqKeyOf(tints[i]);
+        let j = i + 1, prev = f0.index;
+        while (j < tints.length) {
+          const fj = frameOf(tints[j]);
+          if (!fj || seqKeyOf(tints[j]) !== key || fj.style !== f0.style || fj.index !== prev + 1) break;
+          prev = fj.index; j++;
+        }
+        if (j - i >= 2) { plan.push({ type: 'group', key, range: [i, j] }); i = j; continue; }
+      }
+      plan.push({ type: 'row', i });
+      i++;
+    }
+    // Assign stable per-instance gids (writes _groupId onto the real member tint
+    // objects; reuses when members already share one). tints are store objects,
+    // so _groupId survives reorder → expand state survives.
+    const groupEntries = [];
+    for (const p of plan) if (p.type === 'group') groupEntries.push({ members: tints.slice(p.range[0], p.range[1]) });
+    OpTable.assignSeqGroupIds(groupEntries);
+    let gi = 0;
+    for (const p of plan) if (p.type === 'group') p.gid = groupEntries[gi++].gid;
+    // Drop expand-state for gids that no longer exist (deleted/re-grouped) so
+    // expandedSeqGroups can't accumulate dead keys across renders.
+    OpTable.pruneExpanded(expandedSeqGroups, groupEntries.map(e => e.gid));
+    const bodyHtml = plan.map(p => p.type === 'group' ? renderGroup(tints, p) : renderRow(tints[p.i], p.i, null)).join('');
     return `
       <div class="files-body-table"><div class="table-wrap">
         <table class="table ini-table tint-table tint-body-table">
-          <colgroup><col><col><col style="width:80px"></colgroup>
-          <tbody>${tints.map((t, i) => renderRow(t, i)).join('')}</tbody>
+          <colgroup><col style="width:33%"><col style="width:33%"><col style="width:120px"></colgroup>
+          <tbody>${bodyHtml}</tbody>
         </table>
       </div></div>`;
   }
 
-  function renderRow(t, idx) {
+  function renderRow(t, idx, groupGid) {
     const src = t.source || '';
+    const hidden = groupGid && !expandedSeqGroups.has(groupGid) ? ' style="display:none"' : '';
+    const parentAttr = groupGid ? ` data-group-parent="${escapeHtml(groupGid)}"` : '';
     // Initial paint: match OpTable's highlight rule (in-set, or anchor when empty).
     // OpTable.highlightAll() reconciles this after rows are bound.
     const set = opSel ? opSel.getSelected() : new Set();
@@ -180,19 +253,52 @@
     const selCls = isSel ? ' tint-row--selected' : '';
     // Exact toggle only applies to @2x sources (fallback to the non-HD variant
     // when the @2x file is missing and Exact is off) — mirrors file-copy.
-    // Exact toggle only applies to @2x sources (fallback to the non-HD variant
-    // when the @2x file is missing and Exact is off) — mirrors file-copy.
     // Non-@2x sources render a dimmed, disabled, unchecked toggle (not an empty cell).
     const is2x = has2x(t);
     const exactCell = `<td><label class="toggle${is2x ? '' : ' is-disabled'}">
         <input type="checkbox" class="tint-exact-toggle" data-idx="${idx}" ${(is2x && t.exact) ? 'checked' : ''}${is2x ? '' : ' disabled'}>
         <span class="toggle__slider"></span>
       </label></td>`;
-    return `<tr class="tint-row${selCls}" data-idx="${idx}">
+    return `<tr class="tint-row${selCls}" data-idx="${idx}"${parentAttr}${hidden}>
       <td><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(src)}</span></td>
       <td><input type="text" class="form-input tint-dest" data-idx="${idx}" value="${escapeHtml(t.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>
       ${exactCell}
     </tr>`;
+  }
+
+  function renderGroup(tints, g) {
+    const members = tints.slice(g.range[0], g.range[1]);
+    // gid = a STABLE per-instance token (from the members' _groupId). Unique per
+    // group even for same-name groups; survives reorder. Used as the expand-set
+    // key + the data-group-parent link so expanding one group never touches a
+    // same-name sibling. seqKey is kept only for control sync.
+    const gid = g.gid;
+    const expanded = expandedSeqGroups.has(gid);
+    const first = members[0];
+    const label = groupLabel(first);
+    const groupHas2x = members.every(m => has2x(m));
+    const ghAttr = `data-group-header="1" data-group="${escapeHtml(g.key)}"`;
+    const rangeAttr = `data-range="${g.range[0]}-${g.range[1]}"`;
+    const gidAttr = `data-gid="${escapeHtml(gid)}"`;
+    // Header keeps the first member's FULL destination (index NOT cleared).
+    // Fill writes a bare stem; the backend re-attaches each source's own index.
+    const headerDest = first.destination || '';
+    const destCell = `<td><input type="text" class="form-input tint-dest tint-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>`;
+    const fillBtn = `<button type="button" class="btn btn--secondary btn--sm tint-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('file.fillAll')}</button>`;
+    const exactToggle = `<label class="toggle${groupHas2x ? '' : ' is-disabled'}" style="flex:0 0 auto">
+        <input type="checkbox" class="tint-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${(groupHas2x && first.exact) ? 'checked' : ''}${groupHas2x ? '' : ' disabled'}>
+        <span class="toggle__slider"></span>
+      </label>`;
+    const exactCell = `<td><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">${exactToggle}${fillBtn}</div></td>`;
+    const rows = [
+      `<tr class="tint-row tint-seq-group${expanded ? ' tint-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
+        <td style="cursor:pointer"><span style="display:inline-flex;align-items:center;gap:6px;min-width:0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(label)}</span><span style="color:var(--text-muted);flex:0 0 auto">(${members.length})</span></span></td>
+        ${destCell}
+        ${exactCell}
+      </tr>`,
+      ...members.map((t, k) => renderRow(t, g.range[0] + k, gid))
+    ];
+    return rows.join('');
   }
 
   // Shared thumbnail loader (OpTable.createThumbLoader): owns the cache + the
@@ -1354,23 +1460,44 @@
       return OpTable.appendSrcExt(val);
     }
 
-    // Multi-select destination sync — shared skeleton (OpTable.createGroupSync),
-    // same as file-copy/ini. Tint has no perColumn group headers, so every
-    // selected row is a data node (no header virtual-row logic); type-match is
-    // a no-op (all rows share the destination field).
+    // Multi-select destination/exact sync — shared skeleton (OpTable.createGroupSync),
+    // same as file-copy/ini. Folded sequence-group headers act as virtual rows
+    // (source + target); expanded headers are local-only. Type-match is a no-op
+    // (all rows share the destination field).
+    const collapsedGroupHeaderFor = (i) => {
+      const hs = container.querySelectorAll('.tint-seq-group');
+      for (const h of hs) {
+        if (expandedSeqGroups.has(h.dataset.seqKey)) continue; // expanded → not a sync node
+        // Members of THIS group only — scoped to its data-range, not a global
+        // seqKey scan (same-name groups must not collapse onto each other).
+        const range = h.dataset.range;
+        if (!range) continue;
+        const [a, b] = range.split('-').map(n => parseInt(n, 10));
+        if (!isNaN(a) && !isNaN(b) && i >= a && i < b) return h;
+      }
+      return null;
+    };
     const { syncDest, syncExact } = (() => {
       const { syncField } = OpTable.createGroupSync({
         getSelected: () => opSel ? opSel.getSelected() : new Set(),
-        isHeaderControl: () => false,
-        headerRowOf: () => null,
-        headerIdOf: () => '',
-        foldedHeaderForIndex: () => null,
+        isHeaderControl: (el) => !!el.dataset.groupHeader,
+        headerRowOf: (el) => el.closest('.tint-seq-group'),
+        headerIdOf: (headerEl) => headerEl.dataset.seqKey,
+        foldedHeaderForIndex: (i) => collapsedGroupHeaderFor(i),
         sourceTypeKey: () => '',
         nodeTypeKey: () => '',
         skipDataNode: (idx) => { const a = cur(); return idx < 0 || idx >= a.length; },
         writeSourceData: (idx, field, val) => { const a = cur(); if (a[idx]) a[idx] = { ...a[idx], [field]: val }; },
         writeTargetData: (idx, field, val) => { const a = cur(); if (a[idx]) a[idx] = { ...a[idx], [field]: val }; },
-        applyToHeader: () => {},
+        applyToHeader: (headerEl, field, val) => {
+          if (field === 'destination') {
+            const el = headerEl.querySelector('.tint-seq-dest');
+            if (el) el.value = val; // header keeps the full value (index preserved)
+          } else if (field === 'exact') {
+            const el = headerEl.querySelector('.tint-seq-exact-toggle');
+            if (el) el.checked = !!val;
+          }
+        },
         applyToData: (idx, field, val) => {
           if (field === 'destination') {
             const other = container.querySelector(`.tint-dest[data-idx="${idx}"]`);
@@ -1435,6 +1562,94 @@
     // Exact-match (@2x fallback) toggles — mirrors file-copy's exact toggle.
     container.querySelectorAll('.tint-exact-toggle').forEach(cb => {
       cb.addEventListener('change', () => syncExact(cb, cb.checked));
+    });
+
+    // ── Sequence-group handlers (ported from file-copy-editor) ──
+    // Expand/collapse: double-click the header row (excluding interactive
+    // controls) toggles expansion WITHOUT re-rendering (preserves the header's
+    // temporary edited value). Ignores modifier-key clicks so a quick select-then-
+    // shift-select isn't misread as a double-click.
+    container.querySelectorAll('.tint-seq-group').forEach(tr => {
+      let last = 0;
+      tr.addEventListener('click', (e) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) { last = 0; return; }
+        if (e.target.closest('.tint-dest, .tint-seq-fill-btn, .tint-seq-exact-toggle, .toggle, .toggle__slider')) return;
+        const now = Date.now();
+        if (now - last < 250) {
+          const gid = tr.dataset.gid;
+          if (gid) {
+            if (expandedSeqGroups.has(gid)) expandedSeqGroups.delete(gid);
+            else expandedSeqGroups.add(gid);
+            // data-group-parent is the group's gid (instance), so only THIS
+            // group's member rows toggle — never a same-name sibling's.
+            const subRows = container.querySelectorAll(`.tint-row[data-group-parent="${CSS.escape(gid)}"]`);
+            const expand = expandedSeqGroups.has(gid);
+            for (const sr of subRows) sr.style.display = expand ? '' : 'none';
+            tr.classList.toggle('tint-seq-group--expanded', expand);
+          }
+          last = 0;
+        } else { last = now; }
+      });
+    });
+
+    // Member indices of THIS group only — scoped to the header's data-range, not
+    // a global seqKey scan (same-name groups must not all write together).
+    const groupMemberIdx = (headerEl) => {
+      const range = headerEl ? headerEl.dataset.range : '';
+      if (!range) return [];
+      const [a, b] = range.split('-').map(n => parseInt(n, 10));
+      if (isNaN(a) || isNaN(b)) return [];
+      const out = []; for (let k = a; k < b; k++) out.push(k); return out;
+    };
+    // Group-header destination: TEMPORARY value (local per keystroke). On commit,
+    // normalize the header to a BARE stem, then a FOLDED header also syncs as a
+    // virtual row; an EXPANDED header stays local. Members are committed via Fill.
+    container.querySelectorAll('.tint-seq-dest').forEach(input => {
+      const isFolded = () => !expandedSeqGroups.has(input.dataset.seqKey);
+      input.addEventListener('change', async () => {
+        if (window.InputConfirm && window.InputConfirm.wasEscCancel(input)) return;
+        let val = input.value.trim().replace(/^["']|["']$/g, '');
+        if (/^[a-zA-Z]:[\\/]?/.test(val)) {
+          const sp = skinPath ? await skinPath() : '';
+          if (sp) {
+            const skNorm = sp.replace(/\\/g, '/').toLowerCase();
+            const valNorm = val.replace(/\\/g, '/').toLowerCase();
+            val = valNorm.startsWith(skNorm) ? val.replace(/\\/g, '/').slice(sp.length).replace(/^\//, '') : val;
+          }
+        }
+        val = val.replace(/\\/g, '/');
+        val = OpTable.appendSrcExt(val);
+        if (val !== input.value) input.value = val;
+        if (isFolded()) syncDest(input, val); // folded header syncs as a virtual row
+      });
+    });
+    // Group-level exact toggle: FOLDED header syncs as a virtual row; EXPANDED local.
+    container.querySelectorAll('.tint-seq-exact-toggle').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (expandedSeqGroups.has(cb.dataset.seqKey)) return;
+        syncExact(cb, cb.checked);
+      });
+    });
+    // Fill button: commit the header's BARE stem + exact to every member. The
+    // backend re-attaches each source's own index at apply time, so a header
+    // "mania/sliderb" → members "mania/sliderb" → outputs sliderb-0/1/2.
+    container.querySelectorAll('.tint-seq-fill-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const headerEl = btn.closest('.tint-seq-group');
+        const memberIdx = groupMemberIdx(headerEl);
+        if (memberIdx.length < 2) return;
+        const headerDest = headerEl ? headerEl.querySelector('.tint-seq-dest') : null;
+        const headerExact = headerEl ? headerEl.querySelector('.tint-seq-exact-toggle') : null;
+        let dest = headerDest ? headerDest.value.trim().replace(/^["']|["']$/g, '') : '';
+        dest = dest.replace(/\\/g, '/');
+        dest = OpTable.appendSrcExt(dest);
+        const exact = headerExact ? !!headerExact.checked : false;
+        const arr = cur();
+        for (const k of memberIdx) { arr[k] = { ...arr[k], destination: dest, exact }; }
+        applyTints(arr);
+        render(document.getElementById('tab-tint'));
+      });
     });
 
     // ── Delete zone drop handler ── delegated to OpTable.
@@ -1686,7 +1901,19 @@
     if (idxs.length === 0 || tints.length === 0) return [];
     const out = [];
     for (const i of idxs.sort((a, b) => a - b)) {
-      if (i >= 0 && i < tints.length) out.push(tints[i]);
+      // Explicit field mapping: strips runtime-only fields (e.g. _groupId) so
+      // they don't leak into the actions clipboard / cross-preset paste.
+      if (i >= 0 && i < tints.length) {
+        const t = tints[i];
+        out.push({
+          source: t.source, destination: t.destination, color: t.color, mode: t.mode,
+          tintEnabled: !!t.tintEnabled,
+          cropEnabled: !!t.cropEnabled, cropA: t.cropA, cropB: t.cropB, cropC: t.cropC,
+          cropTile: !!t.cropTile, cropTileDir: t.cropTileDir,
+          darkenEnabled: !!t.darkenEnabled, darkenD: t.darkenD, darkenOpacity: t.darkenOpacity,
+          exact: !!t.exact,
+        });
+      }
     }
     return JSON.parse(JSON.stringify(out));
   }

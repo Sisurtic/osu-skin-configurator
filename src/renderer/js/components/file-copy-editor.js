@@ -41,8 +41,8 @@
     const copies = getCopies ? getCopies() : [];
     const deletes = getDeletes ? getDeletes() : [];
     return [
-      ...copies.map(c => ({ _type: 'copy', source: c.source, destination: c.destination, exact: !!c.exact })),
-      ...deletes.map(d => ({ _type: 'delete', path: d.path, exact: !!d.exact })),
+      ...copies.map(c => ({ _type: 'copy', source: c.source, destination: c.destination, exact: !!c.exact, _groupId: c._groupId })),
+      ...deletes.map(d => ({ _type: 'delete', path: d.path, exact: !!d.exact, _groupId: d._groupId })),
     ];
   }
 
@@ -52,10 +52,10 @@
   function applyFileOpsNoRender(fileOps) {
     const copies = fileOps
       .filter(op => op._type === 'copy')
-      .map(op => ({ source: op.source, destination: op.destination, exact: !!op.exact }));
+      .map(op => ({ source: op.source, destination: op.destination, exact: !!op.exact, _groupId: op._groupId }));
     const deletes = fileOps
       .filter(op => op._type === 'delete')
-      .map(op => ({ path: op.path, exact: !!op.exact }));
+      .map(op => ({ path: op.path, exact: !!op.exact, _groupId: op._groupId }));
     setCopies(copies);
     setDeletes(deletes);
     // Update currentFileOps in-place so display stays consistent without rebuild.
@@ -333,14 +333,15 @@
     // expandedSeqGroups.) A folded header is treated as a virtual sync row.
     function collapsedGroupHeaderFor(i) {
       const headers = container.querySelectorAll('.file-seq-group');
-      const ops = currentFileOps ? currentFileOps : buildFileOps();
       for (const h of headers) {
         const key = h.dataset.seqKey;
         if (expandedSeqGroups.has(key)) continue; // expanded
-        // Members of this group: ops indices with this seqKey that are frames.
-        let members = [];
-        for (let k = 0; k < ops.length; k++) if (isFrame(ops[k]) && seqKey(ops[k]) === key) members.push(k);
-        if (members.includes(i)) return h;
+        // Members of THIS group only — scoped to its data-range, not a global
+        // seqKey scan (same-name groups must not collapse onto each other).
+        const range = h.dataset.range;
+        if (!range) continue;
+        const [a, b] = range.split('-').map(n => parseInt(n, 10));
+        if (!isNaN(a) && !isNaN(b) && i >= a && i < b) return h;
       }
       return null;
     }
@@ -370,6 +371,7 @@
       applyToHeader: (headerEl, field, val) => {
         if (field === 'destination') {
           const el = headerEl.querySelector('.file-seq-dest');
+          // Header keeps the full synced value (index preserved, matches member).
           if (el) el.value = val;
         } else if (field === 'exact') {
           const el = headerEl.querySelector('.file-seq-exact-toggle');
@@ -474,12 +476,14 @@
           // sub-rows' display + the header's --expanded class. No rerender means
           // the header's temporary value (edited while folded) is preserved,
           // instead of being reset to the first member's value on rebuild.
-          const key = tr.dataset.seqKey;
-          if (key) {
-            if (expandedSeqGroups.has(key)) expandedSeqGroups.delete(key);
-            else expandedSeqGroups.add(key);
-            const subRows = container.querySelectorAll(`.file-op-row[data-group-parent="${CSS.escape(key)}"]`);
-            const expand = expandedSeqGroups.has(key);
+          const gid = tr.dataset.gid;
+          if (gid) {
+            if (expandedSeqGroups.has(gid)) expandedSeqGroups.delete(gid);
+            else expandedSeqGroups.add(gid);
+            // data-group-parent is the group's gid (instance), so only THIS
+            // group's member rows toggle — never a same-name sibling's.
+            const subRows = container.querySelectorAll(`.file-op-row[data-group-parent="${CSS.escape(gid)}"]`);
+            const expand = expandedSeqGroups.has(gid);
             for (const sr of subRows) sr.style.display = expand ? '' : 'none';
             tr.classList.toggle('file-seq-group--expanded', expand);
           }
@@ -499,10 +503,14 @@
     });
 
     // Group-level destination input: commit raw on each keystroke, normalize on blur/Enter.
-    const groupMemberIdx = (key, ops) => {
-      const out = [];
-      for (let k = 0; k < ops.length; k++) if (isFrame(ops[k]) && seqKey(ops[k]) === key) out.push(k);
-      return out;
+    // Member indices are scoped to THIS group's data-range (from the header row),
+    // NOT a global seqKey scan — so same-name groups don't all write together.
+    const groupMemberIdx = (headerEl) => {
+      const range = headerEl ? headerEl.dataset.range : '';
+      if (!range) return [];
+      const [a, b] = range.split('-').map(n => parseInt(n, 10));
+      if (isNaN(a) || isNaN(b)) return [];
+      const out = []; for (let k = a; k < b; k++) out.push(k); return out;
     };
     container.querySelectorAll('.file-seq-dest').forEach(input => {
       // Group-header destination = TEMPORARY value. 'input' is local-only (no
@@ -525,9 +533,11 @@
             val = appendSrcExt(val);
             input.value = val;
             if (isGroupHeader) { if (isFolded()) syncField(input, 'destination', val); return; }
-            const key = input.dataset.seqKey;
+            // Write the BARE stem (no index) to each member; the backend
+            // re-attaches each source's own index at apply time.
+            const headerEl = input.closest('.file-seq-group');
             const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-            for (const k of groupMemberIdx(key, ops)) ops[k].destination = val;
+            for (const k of groupMemberIdx(headerEl)) ops[k].destination = val;
             applyFileOps(ops);
           });
           return;
@@ -536,9 +546,9 @@
         val = appendSrcExt(val);
         if (val !== input.value) input.value = val;
         if (isGroupHeader) { if (isFolded()) syncField(input, 'destination', val); return; }
-        const key = input.dataset.seqKey;
+        const headerEl = input.closest('.file-seq-group');
         const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-        for (const k of groupMemberIdx(key, ops)) ops[k].destination = val;
+        for (const k of groupMemberIdx(headerEl)) ops[k].destination = val;
         applyFileOps(ops);
       });
       // Enter/Escape→blur is provided globally by InputConfirm (app.js).
@@ -550,22 +560,21 @@
     container.querySelectorAll('.file-seq-fill-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation(); // don't toggle group expansion
-        const key = btn.dataset.seqKey;
-        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-        const memberIdx = [];
-        for (let k = 0; k < ops.length; k++) {
-          if (isFrame(ops[k]) && seqKey(ops[k]) === key) memberIdx.push(k);
-        }
+        const headerEl = btn.closest('.file-seq-group');
+        const memberIdx = groupMemberIdx(headerEl);
         if (memberIdx.length < 2) return;
         // Read the header's current temp controls.
-        const headerEl = container.querySelector(`.file-seq-group[data-seq-key="${CSS.escape(key)}"]`);
         const headerDest = headerEl ? headerEl.querySelector('.file-seq-dest') : null;
         const headerExact = headerEl ? headerEl.querySelector('.file-seq-exact-toggle') : null;
-        // Normalize the header destination (relative branch: strip quotes, \→/, appendSrcExt).
+        // Normalize the header destination to a BARE stem (strip quotes, \→/,
+        // ext/@2x via appendSrcExt). The BARE stem is written to every member;
+        // the backend re-attaches each source's own index at apply time, so a
+        // header "mania/sliderb" → members "mania/sliderb" → outputs sliderb-0/1/2.
         let dest = headerDest ? headerDest.value.trim().replace(/^["']|["']$/g, '') : '';
         dest = dest.replace(/\\/g, '/');
         dest = appendSrcExt(dest);
         const exact = headerExact ? !!headerExact.checked : false;
+        const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
         for (const k of memberIdx) { ops[k].destination = dest; ops[k].exact = exact; }
         applyFileOps(ops);
         rerenderTable(container);
@@ -675,16 +684,14 @@
   }
 
   // Indices a row represents: a plain row → [idx]; a sequence-group header →
-  // every member index in that group. Selecting a group header selects the group.
+  // the members of THIS group only (its rendered data-range [i,j)). Scoping to
+  // the range — not a global seqKey scan — is what keeps same-name groups
+  // (e.g. two sliderb-0,-1 columns) from all selecting together.
   function rowMemberIndices(row) {
-    const key = row.dataset.seqKey;
-    if (key && row.classList.contains('file-seq-group')) {
-      const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-      const out = [];
-      for (let k = 0; k < ops.length; k++) {
-        if (isFrame(ops[k]) && seqKey(ops[k]) === key) out.push(k);
-      }
-      return out;
+    const range = row.dataset.range;
+    if (range && row.classList.contains('file-seq-group')) {
+      const [a, b] = range.split('-').map(n => parseInt(n, 10));
+      if (!isNaN(a) && !isNaN(b)) { const out = []; for (let k = a; k < b; k++) out.push(k); return out; }
     }
     const ri = parseInt(row.dataset.idx);
     return isNaN(ri) ? [] : [ri];
@@ -710,32 +717,31 @@
     return members.length ? members[0] : -1;
   }
 
-  // Sequence-group key: strips extension, @2x, frame number (-N), and format
-  // suffix from the filename so animation frames (foo-0.png … foo-9.png) share
-  // a key. Prefixed with op type so copies and deletes never merge.
-  function seqKey(op) {
-    let b = (opFile(op) || '').replace(/\\/g, '/').split('/').pop() || '';
-    b = b.replace(/\.[^.]+$/, '');             // extension
-    b = b.replace(/@2x$/i, '');                 // HD suffix
-    b = b.replace(/-\d+$/, '');                 // animation frame
-    b = b.replace(/-(x|dot|comma|percent)$/i, ''); // format suffix
-    return op._type + '|' + b;
-  }
-  // Whether a path looks like an animation frame: "id-N.ext" or "id-N@2x.ext".
-  function isFrame(op) {
-    const b = (opFile(op) || '').replace(/\\/g, '/').split('/').pop() || '';
-    return /-\d+(@2x)?\.[^.]+$/i.test(b);
-  }
+  // Parsed frame info for an op's source, or null if it is not a frame.
+  // { base, style, index } where style is '-' ("-N") or '' (no-hyphen "N").
+  function frameOf(op) { return OpTable.parseFrame(opFile(op)); }
+  // Sequence-group key: prefixed with op type (so copies & deletes never merge)
+  // + the frame BASE name. '' for non-frames.
+  function seqKey(op) { return OpTable.seqKey(opFile(op), op._type); }
+  // Whether a path is an animation frame: "-N" style, or no-hyphen "N" style for
+  // the fixed allowlist (sliderb, pippidonclear/fail/idle/kiai). @2x ignored.
+  function isFrame(op) { return OpTable.isFrame(opFile(op)); }
   // Whether the file path has an @2x HD suffix (the exact/@2x toggle only applies to these).
   function has2x(op) {
     return /@2x\.[^.]+$/i.test(opFile(op) || '');
   }
-  // Group label: strip the frame number (-N) but keep @2x and extension.
+  // Group label: the base name + a placeholder showing the index slot, keeping
+  // @2x/ext. "-N" style shows "foo-{n}", no-hyphen style shows "foo{n}", so the
+  // two frame styles are visually distinguishable in the header.
   function groupLabel(op) {
-    let b = (opFile(op) || '').replace(/\\/g, '/').split('/').pop() || '';
-    return b.replace(/-\d+(?=@2x\.|\.[^.]+$)/i, '');
+    const f = frameOf(op);
+    const b = (opFile(op) || '').replace(/\\/g, '/').split('/').pop() || '';
+    if (!f) return b;
+    const ext = (b.match(/@2x\.[^.]+$/i) || b.match(/\.[^.]+$/) || [''])[0];
+    return f.base + (f.style === '-' ? '-{n}' : '{n}') + ext;
   }
-  // Expanded sequence groups (by key). Default: collapsed (set holds expanded keys).
+  // Expanded sequence groups (by STABLE per-instance gid). Default: collapsed.
+  // gids live on the member objects (_groupId), so reorder preserves them.
   const expandedSeqGroups = new Set();
 
   function renderFilesTableBody(fileOps) {
@@ -749,16 +755,30 @@
     // selection, delete) index the same order they see.
     currentFileOps = fileOps;
 
-    // Build a render plan: coalesce CONSECUTIVE frame ops with the same seqKey
-    // (length ≥ 2) into a collapsible group. Singletons render as plain rows.
+    // Build a render plan: coalesce CONSECUTIVE frame ops into a collapsible
+    // group. A group requires: same base (seqKey), same frame STYLE ('-' vs ''),
+    // and a STRICTLY ASCENDING index column (0,1,2…) — a repeated or
+    // out-of-order index ENDS the group, so a second 0-N run after the first is
+    // a SEPARATE group, not a continuation. Length ≥ 2, else singletons.
     const plan = []; // { type:'row', i } | { type:'group', key, indices:[], expanded }
     let i = 0;
     while (i < fileOps.length) {
       const op = fileOps[i];
-      if (isFrame(op)) {
+      const f0 = frameOf(op);
+      if (f0) {
         const key = seqKey(op);
         let j = i + 1;
-        while (j < fileOps.length && isFrame(fileOps[j]) && seqKey(fileOps[j]) === key) j++;
+        let prev = f0.index;
+        while (j < fileOps.length) {
+          const fj = frameOf(fileOps[j]);
+          // Continue only while: same base (seqKey), SAME STYLE ('-' vs ''), and
+          // index strictly ascending by 1. Any break → end the group here, so a
+          // style change (foo-0 then foo0), a repeated/out-of-order index, or a
+          // different base all start a fresh group (or a singleton).
+          if (!fj || seqKey(fileOps[j]) !== key || fj.style !== f0.style || fj.index !== prev + 1) break;
+          prev = fj.index;
+          j++;
+        }
         if (j - i >= 2) {
           plan.push({ type: 'group', key, indices: [], range: [i, j] });
           i = j;
@@ -769,9 +789,23 @@
       i++;
     }
 
-    const renderRow = (op, idx, groupKey) => {
-      const hidden = groupKey && !expandedSeqGroups.has(groupKey) ? ' style="display:none"' : '';
-      const parentAttr = groupKey ? ` data-group-parent="${escapeHtml(groupKey)}"` : '';
+    // Assign stable per-instance gids to each group (writes _groupId onto the
+    // member op objects; reuses when a group's members already share one). The
+    // members array references the REAL ops, so _groupId persists on them through
+    // reorder — expand state survives. Mirror the assigned gid onto each plan
+    // entry for renderGroup.
+    const groupEntries = [];
+    for (const p of plan) if (p.type === 'group') groupEntries.push({ members: fileOps.slice(p.range[0], p.range[1]) });
+    OpTable.assignSeqGroupIds(groupEntries);
+    let gi = 0;
+    for (const p of plan) if (p.type === 'group') p.gid = groupEntries[gi++].gid;
+    // Drop expand-state for gids that no longer exist (deleted/re-grouped) so
+    // expandedSeqGroups can't accumulate dead keys across renders.
+    OpTable.pruneExpanded(expandedSeqGroups, groupEntries.map(e => e.gid));
+
+    const renderRow = (op, idx, groupGid) => {
+      const hidden = groupGid && !expandedSeqGroups.has(groupGid) ? ' style="display:none"' : '';
+      const parentAttr = groupGid ? ` data-group-parent="${escapeHtml(groupGid)}"` : '';
       // Exact toggle only makes sense for @2x files (fallback target). Non-@2x
       // sources render a dimmed, disabled, unchecked toggle (not an empty cell) —
       // same as the tint editor.
@@ -803,7 +837,12 @@
 
     const renderGroup = (g) => {
       const members = fileOps.slice(g.range[0], g.range[1]);
-      const expanded = expandedSeqGroups.has(g.key);
+      // gid = a STABLE per-instance token (assigned from the members' _groupId).
+      // Unique per group even for same-name groups; survives reorder. Used as the
+      // expand-set key + the data-group-parent link so expanding one group never
+      // folds/unfolds a same-name sibling. seqKey is kept only for control sync.
+      const gid = g.gid;
+      const expanded = expandedSeqGroups.has(gid);
       const first = members[0];
       const isCopy = first._type === 'copy';
       const label = groupLabel(first);
@@ -813,30 +852,38 @@
       // Group-level destination (copy only): TEMPORARY value — init from first
       // member, edits stay local, commits to members via the fill button.
       // data-group-header marks it as a virtual-row control for multi-select sync.
+      // data-range scopes member selection to THIS group only (same-name groups
+      // must not all select together).
       const ghAttr = `data-group-header="1" data-group="${escapeHtml(g.key)}"`;
+      const rangeAttr = `data-range="${g.range[0]}-${g.range[1]}"`;
+      const gidAttr = `data-gid="${escapeHtml(gid)}"`;
+      // Header keeps the first member's FULL destination (index NOT cleared) —
+      // display mirrors the member. Fill writes a bare stem; the backend then
+      // re-attaches each source's own index at apply time.
+      const headerDest = isCopy ? (first.destination || '') : '';
       const destCell = isCopy
-        ? `<td style="padding-right:12px"><input type="text" class="form-input copy-dest-input file-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} value="${escapeHtml(first.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>`
+        ? `<td style="padding-right:12px"><input type="text" class="form-input copy-dest-input file-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>`
         : `<td style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</td>`;
       // Group-level exact toggle (only if the group has @2x files) + fill button.
       const fillBtn = `<button type="button" class="btn btn--secondary btn--sm file-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" data-full="${escapeHtml(i18n.t('file.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap;margin-left:auto">${i18n.t('file.fillAll')}</button>`;
       // Group-level exact toggle: enabled only when the group has @2x files;
       // otherwise a dimmed, disabled toggle (not empty) — matches member rows.
-      const exactToggle = `<label class="toggle${groupHas2x ? '' : ' is-disabled'}">
+      const exactToggle = `<label class="toggle${groupHas2x ? '' : ' is-disabled'}" style="flex:0 0 auto">
           <input type="checkbox" class="file-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${(groupHas2x && first.exact) ? 'checked' : ''}${groupHas2x ? '' : ' disabled'}>
           <span class="toggle__slider"></span>
         </label>`;
-      const exactCell = `<td><div style="display:flex;align-items:center;gap:8px">
+      const exactCell = `<td><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">
           ${exactToggle}
           ${fillBtn}
         </div></td>`;
       const rows = [
-        `<tr class="file-op-row file-seq-group${expanded ? ' file-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}">
+        `<tr class="file-op-row file-seq-group${expanded ? ' file-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
           <td><span class="tag ${tagCls}" style="cursor:pointer">${i18n.t(tagKey)}</span></td>
-          <td style="cursor:pointer"><span style="display:inline-flex;align-items:center;gap:6px;min-width:0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(label)} <span style="color:var(--text-muted)">(${members.length})</span></span></span></td>
+          <td style="cursor:pointer"><span style="display:inline-flex;align-items:center;gap:6px;min-width:0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(label)}</span><span style="color:var(--text-muted);flex:0 0 auto">(${members.length})</span></span></td>
           ${destCell}
           ${exactCell}
         </tr>`,
-        ...members.map((op, k) => renderRow(op, g.range[0] + k, g.key))
+        ...members.map((op, k) => renderRow(op, g.range[0] + k, gid))
       ];
       return rows.join('');
     };
