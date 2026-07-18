@@ -879,7 +879,7 @@
       const rows = [
         `<tr class="file-op-row file-seq-group${expanded ? ' file-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
           <td><span class="tag ${tagCls}" style="cursor:pointer">${i18n.t(tagKey)}</span></td>
-          <td style="cursor:pointer"><span style="display:inline-flex;align-items:center;gap:6px;min-width:0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(label)}</span><span style="color:var(--text-muted);flex:0 0 auto">(${members.length})</span></span></td>
+          <td style="cursor:pointer"><span style="display:flex;align-items:center;gap:0;width:100%"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0">${escapeHtml(label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
           ${destCell}
           ${exactCell}
         </tr>`,

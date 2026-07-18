@@ -152,7 +152,7 @@
             <div style="padding-bottom:10px;border-bottom:1px solid var(--border)">
               <div style="margin-bottom:8px">
                 <h3 style="margin-bottom:4px">${i18n.t('tint.heading')}</h3>
-                <p style="font-size:12px;color:var(--text-muted)">${i18n.t('tint.desc')}</p>
+                <p style="font-size:12px;color:var(vscode-webview://19084khphtq1eep9p51vp6po4fj3evs0q9pn9o0aaclmen5n41n9/src/renderer/js/components/file-copy-editor.js--text-muted)">${i18n.t('tint.desc')}</p>
               </div>
               <div style="margin:2px 0 8px">
                 <button class="btn btn--primary btn--sm" id="btn-add-tint-image" style="font-size:11px;padding:4px 6px">${i18n.t('tint.addImage')}</button>
@@ -166,7 +166,7 @@
             <div class="files-header-table" style="margin-top:6px">
               <div class="table-wrap">
                 <table class="table ini-table tint-table">
-                  <colgroup><col style="width:33%"><col style="width:33%"><col style="width:120px"></colgroup>
+                  <colgroup><col><col><col style="width:120px"></colgroup>
                   <thead><tr>
                     <th>${i18n.t('tint.colSource')}</th>
                     <th title="${escapeHtml(i18n.t('tint.colDestTitle'))}">${i18n.t('tint.colDest')}</th>
@@ -235,7 +235,7 @@
     return `
       <div class="files-body-table"><div class="table-wrap">
         <table class="table ini-table tint-table tint-body-table">
-          <colgroup><col style="width:33%"><col style="width:33%"><col style="width:120px"></colgroup>
+          <colgroup><col><col><col style="width:120px"></colgroup>
           <tbody>${bodyHtml}</tbody>
         </table>
       </div></div>`;
@@ -284,7 +284,7 @@
     // Fill writes a bare stem; the backend re-attaches each source's own index.
     const headerDest = first.destination || '';
     const destCell = `<td><input type="text" class="form-input tint-dest tint-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>`;
-    const fillBtn = `<button type="button" class="btn btn--secondary btn--sm tint-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('file.fillAll')}</button>`;
+    const fillBtn = `<button type="button" class="btn btn--secondary btn--sm tint-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap;margin-left:auto">${i18n.t('file.fillAll')}</button>`;
     const exactToggle = `<label class="toggle${groupHas2x ? '' : ' is-disabled'}" style="flex:0 0 auto">
         <input type="checkbox" class="tint-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${(groupHas2x && first.exact) ? 'checked' : ''}${groupHas2x ? '' : ' disabled'}>
         <span class="toggle__slider"></span>
@@ -292,7 +292,7 @@
     const exactCell = `<td><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">${exactToggle}${fillBtn}</div></td>`;
     const rows = [
       `<tr class="tint-row tint-seq-group${expanded ? ' tint-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
-        <td style="cursor:pointer"><span style="display:inline-flex;align-items:center;gap:6px;min-width:0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(label)}</span><span style="color:var(--text-muted);flex:0 0 auto">(${members.length})</span></span></td>
+        <td style="cursor:pointer"><span style="display:flex;align-items:center;gap:0;width:100%"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0">${escapeHtml(label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
         ${destCell}
         ${exactCell}
       </tr>`,
