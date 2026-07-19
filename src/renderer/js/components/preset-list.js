@@ -1565,6 +1565,27 @@
         : i18n.t('group.createdEmpty', { name: newName }));
     }
     await refreshSkinData(skin);
+
+    // Expand the ancestor chain so the new group is visible (auto-expand-to-new),
+    // then focus its name input. Applies to plain groups and table groups alike.
+    {
+      const freshGroups = state.get('groups') || [];
+      const toExpand = [];
+      let curParent = parentGroupId;
+      const guard = new Set();
+      while (curParent != null && !guard.has(curParent)) {
+        guard.add(curParent);
+        const g = freshGroups.find(x => x.id === curParent);
+        if (!g) break;
+        if (g.collapsed) toExpand.push(curParent);
+        const ancestor = freshGroups.find(x => x.children && x.children.some(c => c.type === 'group' && c.id === curParent));
+        curParent = ancestor ? ancestor.id : null;
+      }
+      if (toExpand.length) {
+        await api.setGroupsCollapsedBatch(skin, toExpand, false);
+        await refreshSkinData(skin);
+      }
+    }
   }
 
   function updateSidebarSaveButton(btn) {

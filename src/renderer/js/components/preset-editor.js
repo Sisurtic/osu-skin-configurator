@@ -349,17 +349,26 @@
   // can target any option even if its sub-group isn't currently expanded.
   function findOptionContext() {
     const groups = state.get('groups') || [];
-    const rootChildren = state.get('rootChildren') || [];
-    // Only root-level table groups are valid scopes.
-    const topTables = rootChildren
-      .map(c => c.type === 'group' ? groups.find(g => g.id === c.id && g.type === 'table') : null)
-      .filter(Boolean);
-    if (!topTables.length) return null;
+    // A table group is a "scope" (not itself an activatable option) when no
+    // OTHER table group contains it as a row option. A table group nested inside
+    // another table's row IS an option. This holds whether the table sits at the
+    // root or inside a plain group — only the table-group ancestry matters.
+    const isScopeTable = (gid) => {
+      for (const g of groups) {
+        if (g.type !== 'table' || g.id === gid) continue;
+        const rows = window.PresetSelector.collectAllRowsFor(g.id);
+        if (rows.some(r => r.options.some(o => o.kind === 'group' && o.id === gid))) return false;
+      }
+      return true;
+    };
+    // The scope that owns an option = the nearest ancestor table group whose
+    // subtree contains it. Try every table group as a candidate scope.
+    const allTables = groups.filter(g => g.type === 'table');
 
     if (editData.kind === 'preset') {
       const pid = state.get('selectedPreset');
       if (pid == null || pid === '__new__') return null;
-      for (const g of topTables) {
+      for (const g of allTables) {
         const rows = window.PresetSelector.collectAllRowsFor(g.id);
         if (rows.some(r => r.options.some(o => o.kind === 'preset' && o.id === pid))) {
           return { srcGid: g.id, srcOptionKey: pid, rows };
@@ -369,10 +378,9 @@
     }
     if (editData.kind === 'group' && editData._isTableGroup) {
       const gid = editData._groupId;
-      // A top-level table group is NOT an activatable option (it's a scope, not
-      // an option inside a scope).
-      if (topTables.some(g => g.id === gid)) return null;
-      for (const g of topTables) {
+      if (isScopeTable(gid)) return null; // a scope itself, not an option
+      for (const g of allTables) {
+        if (g.id === gid) continue;
         const rows = window.PresetSelector.collectAllRowsFor(g.id);
         if (rows.some(r => r.options.some(o => o.kind === 'group' && o.id === gid))) {
           return { srcGid: g.id, srcOptionKey: 'group:' + gid, rows };
