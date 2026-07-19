@@ -76,6 +76,10 @@
     skinName = typeof skName === 'function' ? skName : () => skName;
     presetId = typeof presetIdFn === 'function' ? presetIdFn : () => presetIdFn;
     skinPath = typeof skPathFn === 'function' ? skPathFn : () => skPathFn;
+    // A new preset/group edit session: drop any leftover stage tint/crop temp
+    // values from the previous session (render() also clears, but init guards
+    // paths that re-init without an immediate render).
+    headerTempParams.clear();
   }
   function applyTints(tints) { setTints(tints); }
   function cur() { const a = getTints() || []; return a; }
@@ -116,6 +120,11 @@
   function render(parent) {
     container = parent;
     const tints = cur();
+    // A full table render rebuilds every group-header row, so stage tint/crop
+    // temp values reset to the first member's — same as the group-header
+    // destination/exact inputs (re-read from first.destination on render).
+    // They persist across selection changes (no render) in between.
+    headerTempParams.clear();
     // (Re)create the OpTable instance for this container on first render.
     if (!opSel) {
       opSel = OpTable.create({
@@ -141,12 +150,11 @@
         onSelectionChange: ({ anchor }) => {
           const moved = anchor !== lastAnchor;
           lastAnchor = anchor;
-          // Stage tint/crop temp values are selection-scoped: abandon them when
-          // the selection no longer targets the same whole group (mirrors the
-          // expanded-header destination/exact local-value semantics).
-          const gk = wholeGroupSeqKey();
-          if (gk) headerTempParams.forEach((_, k) => { if (k !== gk) headerTempParams.delete(k); });
-          else headerTempParams.clear();
+          // NOTE: stage tint/crop temp values (headerTempParams) are NOT cleared
+          // here — they persist across selection changes just like the group-
+          // header destination/exact inputs (whose values live in the DOM and
+          // survive until a full table render). They are only dropped when their
+          // group is deleted/re-grouped (see render()) or consumed by Fill.
           refreshDetailAndList(moved);
         },
         applyDelete: (indicesDesc) => applyDeleteOps(indicesDesc),
@@ -243,11 +251,6 @@
     // Drop expand-state for gids that no longer exist (deleted/re-grouped) so
     // expandedSeqGroups can't accumulate dead keys across renders.
     OpTable.pruneExpanded(expandedSeqGroups, groupEntries.map(e => e.gid));
-    // Likewise drop stage temp params for groups that no longer exist.
-    if (headerTempParams.size) {
-      const liveKeys = new Set(groupEntries.map(e => e.key));
-      headerTempParams.forEach((_, k) => { if (!liveKeys.has(k)) headerTempParams.delete(k); });
-    }
     const bodyHtml = plan.map(p => p.type === 'group' ? renderGroup(tints, p) : renderRow(tints[p.i], p.i, null)).join('');
     return `
       <div class="files-body-table"><div class="table-wrap">
