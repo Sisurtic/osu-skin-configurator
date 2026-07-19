@@ -54,6 +54,12 @@
   }
   // Expanded sequence groups (by STABLE per-instance gid). Default: collapsed.
   const expandedSeqGroups = new Set();
+  // Temporary tint/crop params for a whole-group selection, keyed by seqKey.
+  // Mirrors the group-header destination/exact model: editing tint/crop on the
+  // stage while a whole group is selected writes HERE (not to any member), and
+  // is applied to every member only via the Fill button. Falls back to the
+  // first member's values when unset (the stage's initial template).
+  const headerTempParams = new Map();
   function pathBasename(p) { return OpTable.pathBasename(p); }
   function escapeHtml(s) { return OpTable.escapeHtml(s); }
   function colorToCss(c) {
@@ -135,6 +141,12 @@
         onSelectionChange: ({ anchor }) => {
           const moved = anchor !== lastAnchor;
           lastAnchor = anchor;
+          // Stage tint/crop temp values are selection-scoped: abandon them when
+          // the selection no longer targets the same whole group (mirrors the
+          // expanded-header destination/exact local-value semantics).
+          const gk = wholeGroupSeqKey();
+          if (gk) headerTempParams.forEach((_, k) => { if (k !== gk) headerTempParams.delete(k); });
+          else headerTempParams.clear();
           refreshDetailAndList(moved);
         },
         applyDelete: (indicesDesc) => applyDeleteOps(indicesDesc),
@@ -231,6 +243,11 @@
     // Drop expand-state for gids that no longer exist (deleted/re-grouped) so
     // expandedSeqGroups can't accumulate dead keys across renders.
     OpTable.pruneExpanded(expandedSeqGroups, groupEntries.map(e => e.gid));
+    // Likewise drop stage temp params for groups that no longer exist.
+    if (headerTempParams.size) {
+      const liveKeys = new Set(groupEntries.map(e => e.key));
+      headerTempParams.forEach((_, k) => { if (!liveKeys.has(k)) headerTempParams.delete(k); });
+    }
     const bodyHtml = plan.map(p => p.type === 'group' ? renderGroup(tints, p) : renderRow(tints[p.i], p.i, null)).join('');
     return `
       <div class="files-body-table"><div class="table-wrap">
@@ -328,7 +345,9 @@
     return !!t.cropEnabled && (+t.darkenOpacity || 0) > 0;
   }
   function renderStages() {
-    const t = sel();
+    // Whole-group selection reads the group's temp params (→ first member as
+    // template); otherwise the anchor member. Temp edits never write member data.
+    const t = stageParams();
     if (!t) return '';
     const tintOn = !!t.tintEnabled;
     const cropOn = !!t.cropEnabled;
@@ -910,7 +929,12 @@
   async function recomputePreview(fadeOnChange, live) {
     const previewEl = container && container.querySelector('#tint-preview');
     if (!previewEl) return;
-    const t = sel();
+    // Whole-group selection: preview the anchor member's source with the group's
+    // STAGE TEMP tint/crop params (→ first member when no temp set), so live
+    // stage edits show in the preview before Fill commits them to every member.
+    const anchor = sel();
+    const sp = stageParams();
+    const t = (sp && sp !== anchor) ? { ...anchor, ...sp } : anchor;
     if (!t || !t.source) {
       previewEl.innerHTML = `<div class="tint-preview__empty">${i18n.t('edit.previewEmpty')}</div>`;
       return;
@@ -1298,8 +1322,51 @@
     }
     return true;
   }
-
-  // Remove ops at the given (descending) indices, evicting a source's cached
+  // The seqKey of the whole group currently selected, or null when the
+  // selection is NOT a whole group (single row, or arbitrary multi-select).
+  // When this returns a key, stage tint/crop edits target the group's temp
+  // params (headerTempParams) instead of any member's data — matching the
+  // group-header destination/exact model.
+  function wholeGroupSeqKey() {
+    const set = opSel ? opSel.getSelected() : new Set();
+    const s = [...set].filter(i => cur()[i] != null);
+    if (s.length >= 2 && isWholeGroupSelection(s)) {
+      const first = cur()[s[0]];
+      return first ? seqKeyOf(first) : null;
+    }
+    return null;
+  }
+  // The tint/crop params of a group's first member — the stage's initial
+  // template when a whole group is selected but no temp value is set yet.
+  function firstMemberParams(gk) {
+    const a = cur();
+    for (const t of a) {
+      if (t && isFrame(t) && seqKeyOf(t) === gk) {
+        return {
+          tintEnabled: !!t.tintEnabled, color: t.color || '255,255,255,255', mode: t.mode || 'multiply',
+          cropEnabled: !!t.cropEnabled, cropA: t.cropA, cropB: t.cropB, cropC: t.cropC,
+          cropTile: !!t.cropTile, cropTileDir: t.cropTileDir,
+          darkenEnabled: !!t.darkenEnabled, darkenD: t.darkenD, darkenOpacity: t.darkenOpacity,
+        };
+      }
+    }
+    return {};
+  }
+  // The effective params the stage should show for the current selection: the
+  // group's temp value when a whole group is selected (unset → first member),
+  // else the anchor member's own params.
+  function stageParams() {
+    const gk = wholeGroupSeqKey();
+    if (gk) return headerTempParams.get(gk) || firstMemberParams(gk);
+    return sel();
+  }
+  // Re-render just the stage panel (temp-value edits don't touch member data,
+  // so the preview and row highlights are unaffected). Re-binds stage handlers.
+  function refreshStagesLite() {
+    const stages = container.querySelector('#tint-stages');
+    if (stages) stages.innerHTML = renderStages();
+    bindStageHandlers();
+  }
   // thumb/image ONLY when no remaining op still uses it. Tint ops frequently
   // share a source (same skin asset, different crop/tint); deleting one must not
   // blank the others' previews. Shared by drag-to-delete and Del-key delete.
@@ -1387,10 +1454,19 @@
   }
 
   // Apply a partial-update (object) to every edit target, with the
-  // tailH+blank+darkenD ≤ outH constraint enforced.
+  // tailH+blank+darkenD ≤ outH constraint enforced. When a whole group is
+  // selected, the edit goes to the group's temp params (no member data).
   function applyToTargets(partial) {
-    const arr = cur();
     const changedKey = Object.keys(partial)[0];
+    const gk = wholeGroupSeqKey();
+    if (gk) {
+      const base = headerTempParams.get(gk) || firstMemberParams(gk);
+      const next = normalizeOp({ ...base, ...partial }, changedKey);
+      headerTempParams.set(gk, next);
+      refreshStagesLite();
+      return;
+    }
+    const arr = cur();
     for (const i of editTargets()) {
       arr[i] = { ...arr[i], ...partial };
       arr[i] = normalizeOp(arr[i], changedKey);
@@ -1398,14 +1474,28 @@
     applyTints(arr);
   }
   // Apply WITHOUT constraint enforcement (for live input preview; the final
-  // clamped value is committed on blur/change).
+  // clamped value is committed on blur/change). Whole-group → temp params.
   function applyToTargetsRaw(partial) {
+    const gk = wholeGroupSeqKey();
+    if (gk) {
+      const base = headerTempParams.get(gk) || firstMemberParams(gk);
+      headerTempParams.set(gk, { ...base, ...partial });
+      refreshStagesLite();
+      return;
+    }
     const arr = cur();
     for (const i of editTargets()) arr[i] = { ...arr[i], ...partial };
     applyTints(arr);
   }
-  // Apply a per-op updater function to every edit target.
+  // Apply a per-op updater function to every edit target. Whole-group → temp.
   function patch(updater) {
+    const gk = wholeGroupSeqKey();
+    if (gk) {
+      const base = headerTempParams.get(gk) || firstMemberParams(gk);
+      headerTempParams.set(gk, { ...base, ...updater(base) });
+      refreshStagesLite();
+      return;
+    }
     const arr = cur();
     for (const i of editTargets()) {
       if (arr[i]) arr[i] = { ...arr[i], ...updater(arr[i]) };
@@ -1667,13 +1757,14 @@
         syncExact(cb, cb.checked);
       });
     });
-    // Fill button: commit the header's BARE stem + exact AND the first member's
-    // tint + crop params to every member. The backend re-attaches each source's
-    // own index at apply time, so a header "mania/sliderb" → members
-    // "mania/sliderb" → outputs sliderb-0/1/2. Tint/crop are taken from the FIRST
-    // member (the header has no stage controls) — this is the only way to batch-
-    // unify tint/crop across a group now that stage edits no longer auto-batch a
-    // whole-group selection.
+    // Fill button: commit the header's BARE stem + exact AND the group's tint +
+    // crop params to every member. Tint/crop come from the group's STAGE TEMP
+    // value (set by editing the stage while the whole group is selected) if one
+    // exists, else the first member. The backend re-attaches each source's own
+    // index at apply time, so a header "mania/sliderb" → members
+    // "mania/sliderb" → outputs sliderb-0/1/2. This is the only way to batch-
+    // unify tint/crop across a group — stage edits on a whole-group selection
+    // only update the temp value, never member data.
     container.querySelectorAll('.tint-seq-fill-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1687,8 +1778,10 @@
         dest = OpTable.appendSrcExt(dest);
         const exact = headerExact ? !!headerExact.checked : false;
         const arr = cur();
-        // First member is the template for tint + crop (header has no stage ctrls).
-        const tpl = arr[memberIdx[0]] || {};
+        const seqKey = headerEl ? headerEl.dataset.seqKey : '';
+        // Temp stage value wins; else the first member is the template.
+        const temp = seqKey ? headerTempParams.get(seqKey) : null;
+        const tpl = temp || arr[memberIdx[0]] || {};
         const params = {
           tintEnabled: !!tpl.tintEnabled, color: tpl.color || '255,255,255,255', mode: tpl.mode || 'multiply',
           cropEnabled: !!tpl.cropEnabled, cropA: tpl.cropA, cropB: tpl.cropB, cropC: tpl.cropC,
@@ -1699,6 +1792,7 @@
           arr[k] = { ...arr[k], destination: dest, exact, ...params };
           arr[k] = normalizeOp(arr[k], null);
         }
+        if (seqKey) headerTempParams.delete(seqKey); // temp consumed
         applyTints(arr);
         render(document.getElementById('tab-tint'));
       });
@@ -1832,7 +1926,7 @@
     stages.querySelectorAll('.stage__toggle').forEach(tog => {
       tog.addEventListener('click', () => {
         const stage = tog.parentElement.dataset.stage;
-        const anchor = sel();
+        const anchor = stageParams();
         if (!anchor) return;
         if (stage === 'tint') {
           if (anchor.tintEnabled) {
@@ -1855,7 +1949,7 @@
     // Tint color swatch.
     const sw = stages.querySelector('.tint-color-swatch');
     if (sw) sw.addEventListener('click', () => {
-      const t = sel();
+      const t = stageParams();
       if (!t || !t.tintEnabled || sw.disabled) return; // ignore when tint stage is off
       window.ColorPicker.attach(sw, { type: 'rgba', value: t.color, onChange(v) {
         applyToTargets({ color: v });
@@ -1885,7 +1979,7 @@
     });
     // Tile direction toggle (▼ down / ▲ up) — only effective while tiling is on.
     if (tileDir) tileDir.addEventListener('click', () => {
-      const anchor = sel();
+      const anchor = stageParams();
       if (!anchor || !anchor.cropTile) return; // no effect when tiling is off
       const next = anchor.cropTileDir === 'up' ? 'down' : 'up';
       applyToTargets({ cropTileDir: next });
@@ -1915,9 +2009,10 @@
     const commit = () => {
       const inputVal = readVal();
       applyToTargets({ [key]: inputVal });
-      // Read the clamped value back from the anchor target.
-      const arr = cur();
-      const t = arr[selectedIdx()];
+      // Read the clamped value back: from the group's temp params when a whole
+      // group is selected (applyToTargets wrote there, not to member data), else
+      // from the anchor target.
+      const t = stageParams();
       const clamped = t && t[key] != null ? t[key] : inputVal;
       el.value = clamped;
       schedulePreview(true);
