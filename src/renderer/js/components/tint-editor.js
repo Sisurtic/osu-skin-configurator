@@ -292,7 +292,7 @@
     const exactCell = `<td><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">${exactToggle}${fillBtn}</div></td>`;
     const rows = [
       `<tr class="tint-row tint-seq-group${expanded ? ' tint-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
-        <td style="cursor:pointer"><span style="display:flex;align-items:center;gap:0;width:100%"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0">${escapeHtml(label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
+        <td style="cursor:pointer"><span style="display:flex;align-items:center;gap:6px;width:100%"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0">${escapeHtml(label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
         ${destCell}
         ${exactCell}
       </tr>`,
@@ -1256,10 +1256,47 @@
   }
 
   // Indices to apply stage edits to: the multi-select set if non-empty, else the anchor row.
+  // BUT: when the selection is a whole sequence GROUP (i.e. the user clicked a
+  // group header, which selects all its members), stage edits must NOT batch-
+  // write the group — tint/crop params have no per-group control to act as a
+  // temporary value, so batch-writing would silently overwrite every frame.
+  // Instead, fall back to the anchor (the previewed row) only. Batch sync of a
+  // whole group is done explicitly via the Fill button. Plain multi-select
+  // (Ctrl/Shift-clicked individual rows that happen to be a group) is detected
+  // by checking whether the selected set exactly equals one group's members AND
+  // is contiguous in the array — header-click selects exactly that.
   function editTargets() {
     const set = opSel ? opSel.getSelected() : new Set();
-    const s = set.size > 0 ? [...set] : [selectedIdx()];
-    return s.filter(i => cur()[i] != null);
+    const s = (set.size > 0 ? [...set] : [selectedIdx()]).filter(i => cur()[i] != null);
+    if (s.length >= 2 && isWholeGroupSelection(s)) {
+      const a = selectedIdx();
+      return a >= 0 && cur()[a] != null ? [a] : (s.length ? [s[0]] : []);
+    }
+    return s;
+  }
+  // True when the selected indices form exactly ONE sequence group's full member
+  // set (contiguous, same seqKey) — the signature of a group-header click, as
+  // opposed to an arbitrary manual multi-select.
+  function isWholeGroupSelection(idxs) {
+    const a = cur();
+    const sorted = [...idxs].sort((x, y) => x - y);
+    for (let k = 1; k < sorted.length; k++) if (sorted[k] !== sorted[k - 1] + 1) return false; // contiguous
+    const first = a[sorted[0]];
+    if (!first || !isFrame(first)) return false;
+    const key = seqKeyOf(first);
+    const sel = new Set(sorted);
+    // The full group = the contiguous run [lo,hi] of same-key frames. The
+    // selection is "the whole group" iff that run has no gaps and equals `sel`.
+    let lo = sorted[0];
+    while (lo - 1 >= 0 && isFrame(a[lo - 1]) && seqKeyOf(a[lo - 1]) === key) lo--;
+    let hi = sorted[sorted.length - 1];
+    while (hi + 1 < a.length && isFrame(a[hi + 1]) && seqKeyOf(a[hi + 1]) === key) hi++;
+    if (hi - lo + 1 !== sel.size) return false; // group bigger/smaller than selection
+    for (let i = lo; i <= hi; i++) {
+      const t = a[i];
+      if (!t || !isFrame(t) || seqKeyOf(t) !== key || !sel.has(i)) return false;
+    }
+    return true;
   }
 
   // Remove ops at the given (descending) indices, evicting a source's cached
@@ -1630,9 +1667,13 @@
         syncExact(cb, cb.checked);
       });
     });
-    // Fill button: commit the header's BARE stem + exact to every member. The
-    // backend re-attaches each source's own index at apply time, so a header
-    // "mania/sliderb" → members "mania/sliderb" → outputs sliderb-0/1/2.
+    // Fill button: commit the header's BARE stem + exact AND the first member's
+    // tint + crop params to every member. The backend re-attaches each source's
+    // own index at apply time, so a header "mania/sliderb" → members
+    // "mania/sliderb" → outputs sliderb-0/1/2. Tint/crop are taken from the FIRST
+    // member (the header has no stage controls) — this is the only way to batch-
+    // unify tint/crop across a group now that stage edits no longer auto-batch a
+    // whole-group selection.
     container.querySelectorAll('.tint-seq-fill-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1646,7 +1687,18 @@
         dest = OpTable.appendSrcExt(dest);
         const exact = headerExact ? !!headerExact.checked : false;
         const arr = cur();
-        for (const k of memberIdx) { arr[k] = { ...arr[k], destination: dest, exact }; }
+        // First member is the template for tint + crop (header has no stage ctrls).
+        const tpl = arr[memberIdx[0]] || {};
+        const params = {
+          tintEnabled: !!tpl.tintEnabled, color: tpl.color || '255,255,255,255', mode: tpl.mode || 'multiply',
+          cropEnabled: !!tpl.cropEnabled, cropA: tpl.cropA, cropB: tpl.cropB, cropC: tpl.cropC,
+          cropTile: !!tpl.cropTile, cropTileDir: tpl.cropTileDir,
+          darkenEnabled: !!tpl.darkenEnabled, darkenD: tpl.darkenD, darkenOpacity: tpl.darkenOpacity,
+        };
+        for (const k of memberIdx) {
+          arr[k] = { ...arr[k], destination: dest, exact, ...params };
+          arr[k] = normalizeOp(arr[k], null);
+        }
         applyTints(arr);
         render(document.getElementById('tab-tint'));
       });
