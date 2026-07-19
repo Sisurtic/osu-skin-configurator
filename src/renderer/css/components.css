@@ -1269,7 +1269,7 @@ select.form-input {
   scrollbar-width: none;  /* Firefox: hide scrollbar */
 }
 .preset-selector__list::-webkit-scrollbar {
-  display: none;  /* Chromium/electron: hide scrollbar but keep scrolling */
+  display: none;  /* Chromium (WebView2): hide scrollbar but keep scrolling */
 }
 .preset-selector__divider {
   width: 4px;

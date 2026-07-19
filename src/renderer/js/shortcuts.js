@@ -45,7 +45,7 @@
   // (would block them system-wide). Allowed WITH Ctrl/Alt/Shift.
   const COMMON_KEYS = /^[a-zA-Z0-9`~!@#$%^&*()\-_=+\[\]{}\\|;:'",<.>\/?]$/;
 
-  // Parse a KeyboardEvent into an Electron-grammar accelerator string for an
+  // Parse a KeyboardEvent into an accelerator-grammar string for an
   // OS-level GLOBAL shortcut, e.g. "Ctrl+Alt+Shift+A", "Ctrl+F1", "Alt+num5".
   // Unlike keyToString (in-app program shortcuts, bare keys allowed), a global
   // accelerator REQUIRES a Ctrl/Alt modifier and blocks bare letters/digits

@@ -125,7 +125,7 @@ fn presets_save(app: AppHandle, skin_name: String, preset_id: Option<i64>, data:
     let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
     match preset_manager::save_preset(&sp, preset_id, &data) {
         Ok(id) => {
-            // mirror the Electron handler's setLastSkin side effect
+            // mirror the setLastSkin side effect expected on save
             let mut cfg = config_store::load(&app);
             cfg.last_skin = Some(skin_name);
             config_store::save(&app, &cfg);

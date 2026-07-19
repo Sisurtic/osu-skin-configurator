@@ -1,5 +1,5 @@
-// Tauri frontend bridge. Builds the SAME window.electronAPI object the renderer
-// already uses (api.js forwards to it), so the rest of the renderer is unchanged.
+// Tauri frontend bridge. Builds the window.tauriAPI object the renderer uses
+// (api.js forwards to it).
 // Uses Tauri v2's global API (window.__TAURI__.*, enabled via app.withGlobalTauri).
 //
 // IMPORTANT: Tauri v2 invoke args keys must match the Rust parameter names
@@ -16,7 +16,7 @@
 
   const dlg = T.dialog;
 
-  window.electronAPI = {
+  window.tauriAPI = {
     // --- osu! path ---
     autoDetectOsuPath: () => call('osu_auto_detect'),
     getOsuPath: () => call('osu_get_path'),

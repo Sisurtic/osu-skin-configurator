@@ -1,8 +1,9 @@
 // Per-preset global shortcuts. Wraps tauri-plugin-global-shortcut with the
 // app-specific layer: scan current skin's presets for meta.shortcut, register
 // each distinct accelerator once, and on trigger → check osu! focus → apply
-// matched presets → notify. Accelerator strings stored in Electron grammar are
-// converted to Tauri grammar at registration time.
+// matched presets → notify. Accelerator strings (produced by shortcuts.js's
+// keyToAccelerator, in the legacy "Ctrl+Alt+Shift+A" grammar) are converted to
+// Tauri grammar at registration time.
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -23,7 +24,7 @@ pub struct State {
     pub skin_path: Mutex<Option<String>>,
 }
 
-/// Convert an Electron-style accelerator ("Ctrl+Alt+Shift+A", "num1", "A",
+/// Convert a legacy-style accelerator ("Ctrl+Alt+Shift+A", "num1", "A",
 /// "Space", "F1") to Tauri grammar ("Control+Alt+Shift+KeyA", "Numpad1",
 /// "KeyA", "Space", "F1").
 pub fn convert_accelerator(acc: &str) -> Option<String> {

@@ -1,72 +1,72 @@
-// Thin wrapper over window.electronAPI
+// Thin wrapper over window.tauriAPI
 // All calls return { success: true, data } or { success: false, error }
 
 const api = {
   // --- osu! path ---
-  autoDetectOsuPath: () => window.electronAPI.autoDetectOsuPath(),
-  getOsuPath: () => window.electronAPI.getOsuPath(),
-  getLastSkin: () => window.electronAPI.getLastSkin(),
-  setLastSkin: (skinName) => window.electronAPI.setLastSkin(skinName),
-  setOsuPath: (p) => window.electronAPI.setOsuPath(p),
-  browseForOsuPath: () => window.electronAPI.browseForOsuPath(),
+  autoDetectOsuPath: () => window.tauriAPI.autoDetectOsuPath(),
+  getOsuPath: () => window.tauriAPI.getOsuPath(),
+  getLastSkin: () => window.tauriAPI.getLastSkin(),
+  setLastSkin: (skinName) => window.tauriAPI.setLastSkin(skinName),
+  setOsuPath: (p) => window.tauriAPI.setOsuPath(p),
+  browseForOsuPath: () => window.tauriAPI.browseForOsuPath(),
 
   // --- skins ---
-  scanSkins: () => window.electronAPI.scanSkins(),
-  readSkinIni: (skinName) => window.electronAPI.readSkinIni(skinName),
-  getSkinPath: (skinName) => window.electronAPI.getSkinPath(skinName),
+  scanSkins: () => window.tauriAPI.scanSkins(),
+  readSkinIni: (skinName) => window.tauriAPI.readSkinIni(skinName),
+  getSkinPath: (skinName) => window.tauriAPI.getSkinPath(skinName),
 
   // --- presets ---
-  scanPresets: (skinName) => window.electronAPI.scanPresets(skinName),
-  loadPreset: (skinName, presetId) => window.electronAPI.loadPreset(skinName, presetId),
-  savePreset: (skinName, presetId, data) => window.electronAPI.savePreset(skinName, presetId, data),
-  deletePreset: (skinName, presetId) => window.electronAPI.deletePreset(skinName, presetId),
-  deletePresets: (skinName, presetIds) => window.electronAPI.deletePresets(skinName, presetIds),
-  applyPreset: (skinName, presetId) => window.electronAPI.applyPreset(skinName, presetId),
-  applyMultiplePresets: (skinName, presetIds) => window.electronAPI.applyMultiplePresets(skinName, presetIds),
+  scanPresets: (skinName) => window.tauriAPI.scanPresets(skinName),
+  loadPreset: (skinName, presetId) => window.tauriAPI.loadPreset(skinName, presetId),
+  savePreset: (skinName, presetId, data) => window.tauriAPI.savePreset(skinName, presetId, data),
+  deletePreset: (skinName, presetId) => window.tauriAPI.deletePreset(skinName, presetId),
+  deletePresets: (skinName, presetIds) => window.tauriAPI.deletePresets(skinName, presetIds),
+  applyPreset: (skinName, presetId) => window.tauriAPI.applyPreset(skinName, presetId),
+  applyMultiplePresets: (skinName, presetIds) => window.tauriAPI.applyMultiplePresets(skinName, presetIds),
 
   // --- groups ---
-  addGroup: (skinName, name, parentGroupId, kind) => window.electronAPI.addGroup(skinName, name, parentGroupId, kind),
-  removeGroup: (skinName, groupId) => window.electronAPI.removeGroup(skinName, groupId),
-  renameGroup: (skinName, groupId, newName) => window.electronAPI.renameGroup(skinName, groupId, newName),
-  movePresetGroup: (skinName, presetId, targetGroupId, index) => window.electronAPI.movePresetGroup(skinName, presetId, targetGroupId, index),
-  moveGroup: (skinName, groupId, targetGroupId, index) => window.electronAPI.moveGroup(skinName, groupId, targetGroupId, index),
-  reorderChildren: (skinName, parentGroupId, childOrder) => window.electronAPI.reorderChildren(skinName, parentGroupId, childOrder),
-  setGroupCollapsed: (skinName, groupId, collapsed) => window.electronAPI.setGroupCollapsed(skinName, groupId, collapsed),
-  setGroupsCollapsedBatch: (skinName, groupIds, collapsed) => window.electronAPI.setGroupsCollapsedBatch(skinName, groupIds, collapsed),
-  deleteGroupRecursive: (skinName, groupId) => window.electronAPI.deleteGroupRecursive(skinName, groupId),
-  setGroupDescription: (skinName, groupId, description) => window.electronAPI.setGroupDescription(skinName, groupId, description),
-  setGroupPreview: (skinName, groupId, preview) => window.electronAPI.setGroupPreview(skinName, groupId, preview),
-  setGroupActions: (skinName, groupId, actions) => window.electronAPI.setGroupActions(skinName, groupId, actions),
-  applyGroup: (skinName, groupId, presetIds) => window.electronAPI.applyGroup(skinName, groupId, presetIds),
-  flattenGroupSubgroups: (skinName, groupId) => window.electronAPI.flattenGroupSubgroups(skinName, groupId),
-  setTableState: (skinName, expanded, rowSelection) => window.electronAPI.setTableState(skinName, expanded, rowSelection),
+  addGroup: (skinName, name, parentGroupId, kind) => window.tauriAPI.addGroup(skinName, name, parentGroupId, kind),
+  removeGroup: (skinName, groupId) => window.tauriAPI.removeGroup(skinName, groupId),
+  renameGroup: (skinName, groupId, newName) => window.tauriAPI.renameGroup(skinName, groupId, newName),
+  movePresetGroup: (skinName, presetId, targetGroupId, index) => window.tauriAPI.movePresetGroup(skinName, presetId, targetGroupId, index),
+  moveGroup: (skinName, groupId, targetGroupId, index) => window.tauriAPI.moveGroup(skinName, groupId, targetGroupId, index),
+  reorderChildren: (skinName, parentGroupId, childOrder) => window.tauriAPI.reorderChildren(skinName, parentGroupId, childOrder),
+  setGroupCollapsed: (skinName, groupId, collapsed) => window.tauriAPI.setGroupCollapsed(skinName, groupId, collapsed),
+  setGroupsCollapsedBatch: (skinName, groupIds, collapsed) => window.tauriAPI.setGroupsCollapsedBatch(skinName, groupIds, collapsed),
+  deleteGroupRecursive: (skinName, groupId) => window.tauriAPI.deleteGroupRecursive(skinName, groupId),
+  setGroupDescription: (skinName, groupId, description) => window.tauriAPI.setGroupDescription(skinName, groupId, description),
+  setGroupPreview: (skinName, groupId, preview) => window.tauriAPI.setGroupPreview(skinName, groupId, preview),
+  setGroupActions: (skinName, groupId, actions) => window.tauriAPI.setGroupActions(skinName, groupId, actions),
+  applyGroup: (skinName, groupId, presetIds) => window.tauriAPI.applyGroup(skinName, groupId, presetIds),
+  flattenGroupSubgroups: (skinName, groupId) => window.tauriAPI.flattenGroupSubgroups(skinName, groupId),
+  setTableState: (skinName, expanded, rowSelection) => window.tauriAPI.setTableState(skinName, expanded, rowSelection),
 
   // --- images / files ---
-  getPreviewDataUrl: (imagePath) => window.electronAPI.getPreviewDataUrl(imagePath),
+  getPreviewDataUrl: (imagePath) => window.tauriAPI.getPreviewDataUrl(imagePath),
 
   // --- shortcuts ---
-  loadShortcuts: () => window.electronAPI.loadShortcuts(),
-  saveShortcuts: (bindings) => window.electronAPI.saveShortcuts(bindings),
+  loadShortcuts: () => window.tauriAPI.loadShortcuts(),
+  saveShortcuts: (bindings) => window.tauriAPI.saveShortcuts(bindings),
 
   // --- global shortcuts (per-preset) ---
-  bindGlobalShortcut: (skinName, presetIds, accelerator) => window.electronAPI.bindGlobalShortcut(skinName, presetIds, accelerator),
-  bindGlobalShortcutBatch: (skinName, presetIds, groupIds, accelerator) => window.electronAPI.bindGlobalShortcutBatch(skinName, presetIds, groupIds, accelerator),
-  unbindGlobalShortcut: (skinName, presetIds) => window.electronAPI.unbindGlobalShortcut(skinName, presetIds),
-  reloadGlobalShortcuts: (skinName) => window.electronAPI.reloadGlobalShortcuts(skinName),
+  bindGlobalShortcut: (skinName, presetIds, accelerator) => window.tauriAPI.bindGlobalShortcut(skinName, presetIds, accelerator),
+  bindGlobalShortcutBatch: (skinName, presetIds, groupIds, accelerator) => window.tauriAPI.bindGlobalShortcutBatch(skinName, presetIds, groupIds, accelerator),
+  unbindGlobalShortcut: (skinName, presetIds) => window.tauriAPI.unbindGlobalShortcut(skinName, presetIds),
+  reloadGlobalShortcuts: (skinName) => window.tauriAPI.reloadGlobalShortcuts(skinName),
 
   // --- dialogs ---
-  selectFile: (filters, defaultPath) => window.electronAPI.selectFile(filters, defaultPath),
-  selectFolder: () => window.electronAPI.selectFolder(),
-  showConfirm: (message) => window.electronAPI.showConfirm(message),
+  selectFile: (filters, defaultPath) => window.tauriAPI.selectFile(filters, defaultPath),
+  selectFolder: () => window.tauriAPI.selectFolder(),
+  showConfirm: (message) => window.tauriAPI.showConfirm(message),
 
   // --- file open (double-click .osp) ---
-  getOpenFileArg: () => window.electronAPI.getOpenFileArg(),
-  getAppVersion: () => window.electronAPI.getAppVersion(),
-  listLocales: () => window.electronAPI.listLocales(),
-  checkLatestRelease: () => window.electronAPI.checkLatestRelease(),
-  downloadAndRunLatestRelease: () => window.electronAPI.downloadAndRunLatestRelease(),
-  onOpenOspFile: (callback) => window.electronAPI.onOpenOspFile(callback),
-  onGlobalShortcutApplied: (callback) => window.electronAPI.onGlobalShortcutApplied(callback),
+  getOpenFileArg: () => window.tauriAPI.getOpenFileArg(),
+  getAppVersion: () => window.tauriAPI.getAppVersion(),
+  listLocales: () => window.tauriAPI.listLocales(),
+  checkLatestRelease: () => window.tauriAPI.checkLatestRelease(),
+  downloadAndRunLatestRelease: () => window.tauriAPI.downloadAndRunLatestRelease(),
+  onOpenOspFile: (callback) => window.tauriAPI.onOpenOspFile(callback),
+  onGlobalShortcutApplied: (callback) => window.tauriAPI.onGlobalShortcutApplied(callback),
 };
 
 // Helper: call API and handle generic error

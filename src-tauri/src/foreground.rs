@@ -1,6 +1,6 @@
-// Detect whether osu! is the foreground window (Windows). Replaces the Electron
-// version's per-trigger powershell.exe spawn — this is a direct Win32 call,
-// much faster. No Tauri plugin exists for this, hence the custom module.
+// Detect whether osu! is the foreground window (Windows). A direct Win32 call,
+// much faster than spawning powershell.exe per trigger. No Tauri plugin exists
+// for this, hence the custom module.
 
 #[cfg(windows)]
 pub fn is_osu_focused() -> bool {

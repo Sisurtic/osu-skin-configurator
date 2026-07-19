@@ -1796,7 +1796,7 @@
   });
 
   // ── Suppress WebView2's default native context menu ──
-  // (The Electron→Tauri rewrite never ported the suppression.) Preset rows in
+  // (Only the app-level native menu is suppressed here.) Preset rows in
   // preset-selector.js attach their own contextmenu handler + preventDefault;
   // preventDefault is idempotent and we do NOT stopPropagation, so those custom
   // right-click flows (shortcut binding) keep working.

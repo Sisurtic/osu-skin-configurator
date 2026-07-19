@@ -1,6 +1,6 @@
 // Global app config (osu path, last skin, window bounds, shortcut bindings).
 // Stored as config.json in the OS app-config dir. Hand-rolled (serde + std::fs)
-// to stay faithful to the original Electron config-store.js semantics.
+// rather than pulling in a config crate, to keep the on-disk format stable.
 
 use serde::{Deserialize, Serialize};
 use std::fs;

@@ -937,7 +937,7 @@
 
   // ── Global-shortcut recorder (right-click to collect, release Ctrl to record) ──
 
-  // keyToAccelerator (KeyboardEvent → Electron-grammar accelerator) now lives in
+  // keyToAccelerator (KeyboardEvent → accelerator-grammar string) now lives in
   // the shared Shortcuts module (shortcuts.js) and is reused by the shortcuts
   // dialog's global-shortcut recorder.
 
