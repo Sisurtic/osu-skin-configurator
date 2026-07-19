@@ -175,7 +175,18 @@
     "tabBasic": "기본 정보",
     "tabIni": "INI 편집",
     "tabFiles": "파일 이동",
-    "tabTint": "이미지 편집"
+    "tabTint": "이미지 편집",
+    "activation": {
+      "title": "활성화 바인딩",
+      "hint": "행 간 단방향 옵션 동기화.",
+      "dropHere": "대상 옵션을 여기로 드래그 (Shift = 비활성화만)",
+      "empty": "바인딩 없음",
+      "bindFailed": "다른 최상위 행 또는 자신의 하위 항목만 바인딩 가능",
+      "rowMutexFailed": "같은 행에 활성화와 비활성화를 함께 바인딩할 수 없습니다",
+      "disableTag": "비활성",
+      "selectTag": "활성",
+      "deleteZone": "드래그하여 바인딩 삭제"
+    }
   },
   "group": {
     "movedOut": "프리셋 {count}개를 루트로 이동했습니다",

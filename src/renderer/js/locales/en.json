@@ -175,7 +175,18 @@
     "tabBasic": "Basic",
     "tabIni": "INI edits",
     "tabFiles": "File moves",
-    "tabTint": "Image edit"
+    "tabTint": "Image edit",
+    "activation": {
+      "title": "Activation bindings",
+      "hint": "One-way cross-row option synchronization.",
+      "dropHere": "Drag a target option here (Shift = disable only)",
+      "empty": "No bindings",
+      "bindFailed": "Can only bind to a different top-level row or a descendant",
+      "rowMutexFailed": "A row can't mix activation and disable bindings",
+      "disableTag": "disable",
+      "selectTag": "activate",
+      "deleteZone": "Drag here to delete binding"
+    }
   },
   "group": {
     "movedOut": "Moved {count} preset(s) to the root level",

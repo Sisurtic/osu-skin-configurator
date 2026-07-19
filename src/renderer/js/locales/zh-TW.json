@@ -175,7 +175,18 @@
     "tabBasic": "基本資訊",
     "tabIni": "INI 編輯",
     "tabFiles": "檔案移動",
-    "tabTint": "圖像編輯"
+    "tabTint": "圖像編輯",
+    "activation": {
+      "title": "啟用綁定",
+      "hint": "用於單向跨行同步選擇選項。",
+      "dropHere": "把目標選項拖到這裡，按住 shift 僅停用",
+      "empty": "暫無綁定",
+      "bindFailed": "只能綁定不同頂層行或自身子項",
+      "rowMutexFailed": "同一行不能同時綁定啟用與停用",
+      "disableTag": "停用",
+      "selectTag": "啟用",
+      "deleteZone": "拖曳到此處刪除綁定"
+    }
   },
   "group": {
     "movedOut": "已將 {count} 個預設移至根層級",

@@ -71,13 +71,19 @@ pub struct Config {
     pub table_expanded_children: Value,
     #[serde(rename = "tableRowSelection", default)]
     pub table_row_selection: Value,
+    /// Persisted row-activation edges. tableActivations: {srcGid: [{ srcRowKey,
+    /// srcOption, targets: [{ dstGid, dstRowKey, dstOption }] }]}. "Selecting
+    /// srcOption forces each target row's dstOption and disables its siblings."
+    /// See docs/row-activation-design.md.
+    #[serde(rename = "tableActivations", default)]
+    pub table_activations: Value,
 }
 
 fn d1() -> i64 { 1 }
 
 impl Config {
     fn empty() -> Self {
-        Config { next_preset_id: 1, next_group_id: 1, root_children: vec![], groups: vec![], presets: vec![], table_expanded_children: json!({}), table_row_selection: json!({}) }
+        Config { next_preset_id: 1, next_group_id: 1, root_children: vec![], groups: vec![], presets: vec![], table_expanded_children: json!({}), table_row_selection: json!({}), table_activations: json!({}) }
     }
 }
 
@@ -162,6 +168,7 @@ pub fn load_config(skin_path: &str) -> Config {
         presets,
         table_expanded_children: v.get("tableExpandedChildren").cloned().unwrap_or_else(|| json!({})),
         table_row_selection: v.get("tableRowSelection").cloned().unwrap_or_else(|| json!({})),
+        table_activations: v.get("tableActivations").cloned().unwrap_or_else(|| json!({})),
     }
 }
 
@@ -200,6 +207,9 @@ fn save_config(skin_path: &str, cfg: &Config) -> Result<(), String> {
     }
     if !cfg.table_row_selection.is_null() && cfg.table_row_selection.as_object().map_or(false, |o| !o.is_empty()) {
         v.insert("tableRowSelection".into(), cfg.table_row_selection.clone());
+    }
+    if !cfg.table_activations.is_null() && cfg.table_activations.as_object().map_or(false, |o| !o.is_empty()) {
+        v.insert("tableActivations".into(), cfg.table_activations.clone());
     }
     // Compact (non-pretty) serialization keeps config.osp small — the file is
     // machine-only; readers use unwrap_or defaults for any omitted keys.
@@ -303,6 +313,7 @@ pub fn compact_ids(cfg: &mut Config) {
     // tableExpandedChildren). Entries whose key id no longer exists are dropped.
     cfg.table_expanded_children = remap_expanded(&cfg.table_expanded_children, &group_id_map);
     cfg.table_row_selection = remap_row_selection(&cfg.table_row_selection, &group_id_map, &preset_id_map);
+    cfg.table_activations = remap_activations(&cfg.table_activations, &group_id_map, &preset_id_map);
     cfg.next_preset_id = cfg.presets.len() as i64 + 1;
     cfg.next_group_id = cfg.groups.len() as i64 + 1;
 }
@@ -361,7 +372,95 @@ fn remap_row_selection(v: &Value, group_map: &HashMap<i64, i64>, preset_map: &Ha
     Value::Object(out)
 }
 
-// ── Scan ──
+// Remap a rowKey path's embedded group ids. A rowKey looks like "<gid>:<gid>:..."
+// (with possible "__direct__" segments). Each numeric segment is a group id that
+// must be remapped; "__direct__" and non-numeric segments are left alone. Returns
+// None if ANY numeric segment's id is gone (the path points at a deleted node),
+// so the caller can drop the whole edge.
+fn remap_row_key_path(row_key: &str, group_map: &HashMap<i64, i64>) -> Option<String> {
+    let mut out: Vec<String> = Vec::new();
+    for part in row_key.split(':') {
+        if part == "__direct__" || part.is_empty() {
+            out.push(part.to_string());
+        } else if let Ok(id) = part.parse::<i64>() {
+            let new_id = *group_map.get(&id)?;
+            out.push(new_id.to_string());
+        } else {
+            // Non-numeric, non-direct segment: leave as-is (forward-compat).
+            out.push(part.to_string());
+        }
+    }
+    Some(out.join(":"))
+}
+
+// Remap an option value: either a preset id (number/numeric-string) or a
+// 'group:<gid>' marker. Returns None if the referenced id is gone.
+fn remap_option(v: &Value, group_map: &HashMap<i64, i64>, preset_map: &HashMap<i64, i64>) -> Option<Value> {
+    if let Some(s) = v.as_str() {
+        if let Some(rest) = s.strip_prefix("group:") {
+            let gid = rest.parse::<i64>().ok()?;
+            let ng = *group_map.get(&gid)?;
+            return Some(Value::String(format!("group:{}", ng)));
+        }
+        // numeric string preset id
+        if let Ok(pid) = s.parse::<i64>() {
+            let np = *preset_map.get(&pid)?;
+            return Some(Value::String(np.to_string()));
+        }
+        return Some(v.clone());
+    }
+    if let Some(pid) = v.as_i64() {
+        let np = *preset_map.get(&pid)?;
+        return Some(json!(np));
+    }
+    Some(v.clone())
+}
+
+// Remap tableActivations: { srcGid: { srcOptionKey: [{ dstRowKey, dstOption }] } }.
+// srcGid (outer key) is a group id; srcOptionKey (inner key) is a preset id
+// (numeric string) or 'group:<gid>'; dstRowKey embeds gid path segments;
+// dstOption is a preset id or 'group:<gid>'. Drops an edge when ANY referenced
+// id is gone (conservative). NOTE: source is keyed by option id only (a preset
+// appears in exactly one table group, so srcRowKey is redundant and omitted).
+fn remap_activations(v: &Value, group_map: &HashMap<i64, i64>, preset_map: &HashMap<i64, i64>) -> Value {
+    let obj = match v.as_object() { Some(o) => o, None => return v.clone() };
+    let mut out = serde_json::Map::new();
+    for (k, by_src) in obj {
+        let src_gid = match k.parse::<i64>() { Ok(id) => id, Err(_) => continue };
+        let new_src_gid = match group_map.get(&src_gid) { Some(ng) => *ng, None => continue };
+        let src_obj = match by_src.as_object() { Some(o) => o, None => continue };
+        let mut new_src_obj = serde_json::Map::new();
+        for (src_key, targets) in src_obj {
+            // Re-key the source option: preset id → remapped preset id;
+            // 'group:<gid>' → remapped gid.
+            let new_src_key = if let Some(rest) = src_key.strip_prefix("group:") {
+                match rest.parse::<i64>() { Ok(gid) => match group_map.get(&gid) {
+                    Some(ng) => format!("group:{}", ng), None => continue,
+                }, Err(_) => continue }
+            } else {
+                match src_key.parse::<i64>() { Ok(pid) => match preset_map.get(&pid) {
+                    Some(np) => np.to_string(), None => continue,
+                }, Err(_) => src_key.clone() }
+            };
+            let targets_arr = match targets.as_array() { Some(a) => a, None => continue };
+            let mut new_targets: Vec<Value> = Vec::new();
+            for t in targets_arr {
+                let to = match t.as_object() { Some(o) => o, None => continue };
+                let dst_row = match to.get("dstRowKey").and_then(|v| v.as_str()) { Some(s) => s, None => continue };
+                let new_dst_row = match remap_row_key_path(dst_row, group_map) { Some(p) => p, None => continue };
+                let new_dst_opt = match to.get("dstOption").and_then(|v| remap_option(v, group_map, preset_map)) { Some(v) => v, None => continue };
+                // Preserve effect ('select' default, 'disable') — it carries no id.
+                let effect = to.get("effect").cloned().unwrap_or(json!("select"));
+                new_targets.push(json!({ "dstRowKey": new_dst_row, "dstOption": new_dst_opt, "effect": effect }));
+            }
+            if new_targets.is_empty() { continue; } // all targets gone → drop this source
+            new_src_obj.insert(new_src_key, Value::Array(new_targets));
+        }
+        if new_src_obj.is_empty() { continue; } // all sources gone → drop bucket
+        out.insert(new_src_gid.to_string(), Value::Object(new_src_obj));
+    }
+    Value::Object(out)
+}
 
 pub fn scan_skin(skin_path: &str) -> Value {
     let cfg = load_config(skin_path);
@@ -394,6 +493,7 @@ pub fn scan_skin(skin_path: &str) -> Value {
         "nextGroupId": cfg.next_group_id,
         "tableExpandedChildren": cfg.table_expanded_children,
         "tableRowSelection": cfg.table_row_selection,
+        "tableActivations": cfg.table_activations,
     })
 }
 
@@ -562,10 +662,11 @@ pub fn set_group_description(skin_path: &str, group_id: i64, description: &str) 
 /// unit itself). Empty actions (all four arrays empty) are stored as None to
 /// keep config.osp compact.
 /// Persist the table-group UI state (expanded children + row selections).
-pub fn set_table_state(skin_path: &str, expanded: &Value, row_selection: &Value) -> Result<(), String> {
+pub fn set_table_state(skin_path: &str, expanded: &Value, row_selection: &Value, activations: &Value) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
     cfg.table_expanded_children = expanded.clone();
     cfg.table_row_selection = row_selection.clone();
+    cfg.table_activations = activations.clone();
     save_config(skin_path, &cfg)
 }
 
@@ -849,6 +950,7 @@ mod compact_tests {
             presets: ids.iter().map(|id| json!({ "id": id })).collect(),
             table_expanded_children: table_exp,
             table_row_selection: table_sel,
+            table_activations: json!({}),
         }
     }
 
@@ -912,5 +1014,46 @@ mod compact_tests {
         let m = gmap(&[(1, 2)]);
         assert_eq!(remap_expanded(&json!(null), &m), json!(null));
         assert_eq!(remap_row_selection(&json!("x"), &m, &m), json!("x"));
+        assert_eq!(remap_activations(&json!(null), &m, &m), json!(null));
+    }
+
+    #[test]
+    fn remap_activations_rekeys_paths_options_and_drops_dead() {
+        // New structure: { srcGid: { srcOptionKey: [{ dstRowKey, dstOption }] } }.
+        // group map 10→1, 20→2 (30 gone); preset map 100→1 (200 gone).
+        // srcGid 10→1; srcOptionKey "100" (preset) → "1"; target dstRowKey
+        // "20:__direct__" → "2:__direct__"; dstOption 'group:20' → 'group:2'.
+        // Target with gone preset 200 (dstOption) → dropped; source "100" then has
+        // one live target so survives. Bucket "30" (srcGid gone) → dropped.
+        let gm = gmap(&[(10, 1), (20, 2)]);
+        let pm: HashMap<i64, i64> = [(100, 1)].iter().copied().collect();
+        let v = json!({
+            "10": {
+                "100": [
+                    { "dstRowKey": "20:__direct__", "dstOption": "group:20" },
+                    { "dstRowKey": "20:__direct__", "dstOption": 200, "effect": "disable" }
+                ]
+            },
+            "30": {
+                "100": [ { "dstRowKey": "20:__direct__", "dstOption": 100 } ]
+            }
+        });
+        let out = remap_activations(&v, &gm, &pm);
+        // Targets without an effect default to "select"; explicit effect preserved.
+        assert_eq!(out, json!({
+            "1": {
+                "1": [
+                    { "dstRowKey": "2:__direct__", "dstOption": "group:2", "effect": "select" }
+                ]
+            }
+        }));
+    }
+
+    #[test]
+    fn remap_row_key_path_drops_when_any_segment_gone() {
+        let m = gmap(&[(10, 1), (20, 2)]); // 30 gone
+        assert_eq!(remap_row_key_path("10:20:", &m), Some("1:2:".to_string()));
+        assert_eq!(remap_row_key_path("10:__direct__", &m), Some("1:__direct__".to_string()));
+        assert_eq!(remap_row_key_path("10:30:", &m), None); // 30 gone → whole path invalid
     }
 }

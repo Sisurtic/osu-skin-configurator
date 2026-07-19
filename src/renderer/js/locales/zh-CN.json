@@ -175,7 +175,18 @@
     "tabBasic": "基本信息",
     "tabIni": "INI 编辑",
     "tabFiles": "文件移动",
-    "tabTint": "图像编辑"
+    "tabTint": "图像编辑",
+    "activation": {
+      "title": "激活绑定",
+      "hint": "用于单向跨行同步选择选项。",
+      "dropHere": "把目标选项拖到这里，按住 shift 仅禁用",
+      "empty": "暂无绑定",
+      "bindFailed": "只能绑定不同顶层行或自身子项",
+      "rowMutexFailed": "同一行不能同时绑定激活与禁用",
+      "disableTag": "禁用",
+      "selectTag": "激活",
+      "deleteZone": "拖拽到此处删除绑定"
+    }
   },
   "group": {
     "movedOut": "已将 {count} 个预设移至根层级",

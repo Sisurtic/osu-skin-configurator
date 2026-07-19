@@ -59,7 +59,7 @@
     setGroupActions: (skinName, groupId, actions) => call('groups_set_actions', { skinName, groupId, actions }),
     applyGroup: (skinName, groupId, presetIds) => call('groups_apply', { skinName, groupId, presetIds: presetIds ?? null }),
     flattenGroupSubgroups: (skinName, groupId) => call('groups_flatten_subgroups', { skinName, groupId }),
-    setTableState: (skinName, expanded, rowSelection) => call('set_table_state', { skinName, expanded, rowSelection }),
+    setTableState: (skinName, expanded, rowSelection, activations) => call('set_table_state', { skinName, expanded, rowSelection, activations }),
 
     // --- images ---
     getPreviewDataUrl: (imagePath) => call('image_get_preview', { imagePath }),

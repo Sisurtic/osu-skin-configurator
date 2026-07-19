@@ -175,7 +175,18 @@
     "tabBasic": "基本情報",
     "tabIni": "INI 編集",
     "tabFiles": "ファイル移動",
-    "tabTint": "画像編集"
+    "tabTint": "画像編集",
+    "activation": {
+      "title": "アクティベーション割り当て",
+      "hint": "行をまたぐ一方向の選択同期。",
+      "dropHere": "対象オプションをここにドラッグ（Shift = 無効化のみ）",
+      "empty": "割り当てなし",
+      "bindFailed": "異なる最上位行または自身の子項目のみ割り当て可能",
+      "rowMutexFailed": "同じ行にアクティベーションと無効化は併用できません",
+      "disableTag": "無効",
+      "selectTag": "有効",
+      "deleteZone": "ドラッグして割り当てを削除"
+    }
   },
   "group": {
     "movedOut": "{count} 個のプリセットをルート階層に移動しました",

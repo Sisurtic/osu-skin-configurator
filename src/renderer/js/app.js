@@ -283,6 +283,7 @@
             rootChildren: presetsResult.data.rootChildren || [],
             tableExpandedChildren: presetsResult.data.tableExpandedChildren || {},
             tableRowSelection: presetsResult.data.tableRowSelection || {},
+            tableActivations: presetsResult.data.tableActivations || {},
           });
         }
       }
@@ -500,6 +501,7 @@
     state.set('activeTableGroups', {});
     state.set('tableExpandedChildren', {});
     state.set('tableRowSelection', {});
+    state.set('tableActivations', {});
       updateToolbarButtons();
       renderCurrentView();
       return;
@@ -524,6 +526,7 @@
           rootChildren: result.data.rootChildren || [],
           tableExpandedChildren: result.data.tableExpandedChildren || {},
           tableRowSelection: result.data.tableRowSelection || {},
+          tableActivations: result.data.tableActivations || {},
           activePresets: {},
           activeTableGroups: {},
         });
@@ -688,6 +691,7 @@
           rootChildren: result.data.rootChildren || [],
           tableExpandedChildren: result.data.tableExpandedChildren || {},
           tableRowSelection: result.data.tableRowSelection || {},
+          tableActivations: result.data.tableActivations || {},
         });
       }
     }
@@ -1567,6 +1571,11 @@
       const ed = editorFor('tab-ini', 'IniEditor') || editorFor('tab-files', 'FileCopyEditor') || editorFor('tab-tint', 'TintEditor');
       if (ed && typeof ed.hasSelection === 'function' && ed.hasSelection()) {
         if (typeof ed.clearSelection === 'function') ed.clearSelection();
+        return;
+      }
+      // Next: clear activation-binding selection (innermost after op-tables).
+      if (window.ActivationBinding && window.ActivationBinding.hasSelection()) {
+        window.ActivationBinding.clearSelection();
         return;
       }
       const proceed = async () => {

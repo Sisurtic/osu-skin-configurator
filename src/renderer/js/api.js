@@ -39,7 +39,7 @@ const api = {
   setGroupActions: (skinName, groupId, actions) => window.tauriAPI.setGroupActions(skinName, groupId, actions),
   applyGroup: (skinName, groupId, presetIds) => window.tauriAPI.applyGroup(skinName, groupId, presetIds),
   flattenGroupSubgroups: (skinName, groupId) => window.tauriAPI.flattenGroupSubgroups(skinName, groupId),
-  setTableState: (skinName, expanded, rowSelection) => window.tauriAPI.setTableState(skinName, expanded, rowSelection),
+  setTableState: (skinName, expanded, rowSelection, activations) => window.tauriAPI.setTableState(skinName, expanded, rowSelection, activations),
 
   // --- images / files ---
   getPreviewDataUrl: (imagePath) => window.tauriAPI.getPreviewDataUrl(imagePath),

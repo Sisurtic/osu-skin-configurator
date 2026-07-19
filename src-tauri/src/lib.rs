@@ -283,9 +283,9 @@ fn groups_flatten_subgroups(app: AppHandle, skin_name: String, group_id: i64) ->
     }
 }
 #[tauri::command]
-fn set_table_state(app: AppHandle, skin_name: String, expanded: Value, row_selection: Value) -> Value {
+fn set_table_state(app: AppHandle, skin_name: String, expanded: Value, row_selection: Value, activations: Value) -> Value {
     let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
-    match preset_manager::set_table_state(&sp, &expanded, &row_selection) {
+    match preset_manager::set_table_state(&sp, &expanded, &row_selection, &activations) {
         Ok(_) => wrap_ok(json!(true)),
         Err(e) => wrap_err(&e),
     }

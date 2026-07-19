@@ -23,6 +23,14 @@
   // right after a save (the old DOM is destroyed by render, firing blur on the
   // old inputs which write to the freshly-reloaded clean editData).
   let _suppressSubEditorWrites = false;
+  // Activation-binding selection state (module-level so app.js's layered Esc can
+  // query/clear it). Refreshed each time renderActivationSlot runs.
+  let _bindingSelectedTargets = null;
+  let _bindingRenderList = null;
+  window.ActivationBinding = {
+    hasSelection: () => !!(_bindingSelectedTargets && _bindingSelectedTargets.size),
+    clearSelection: () => { if (_bindingSelectedTargets) { _bindingSelectedTargets.clear(); if (_bindingRenderList) _bindingRenderList(); } },
+  };
 
   // Fill in default fields for a tint op loaded from config.osp (compact storage
   // omits defaults). darkenEnabled is derived (not stored).
@@ -277,6 +285,7 @@
         <textarea class="form-input" id="preset-desc" placeholder="${descPlaceholder}">${escapeHtml(meta.description || '')}</textarea>
       </div>
       <div id="preview-slot"></div>
+      ${findOptionContext() ? '<div id="activation-slot"></div>' : ''}
     `;
 
     // Name/desc: mark dirty on focus; write to editData on change (Enter/blur).
@@ -317,6 +326,414 @@
     // Preview image picker (merged into basic tab). Placed last + wrapped so
     // any error here never blocks the name/desc input handlers above.
     try { PreviewUpload.render(document.getElementById('preview-slot')); } catch (_) { /* ignore */ }
+    const optCtx = findOptionContext();
+    if (optCtx) {
+      try { renderActivationSlot(document.getElementById('activation-slot'), optCtx); } catch (_) { /* ignore */ }
+    }
+  }
+
+  // ── Row-activation binding UI (per option: preset or sub-table-group) ──
+  // The currently-edited option is the SOURCE. Dragging another option into the
+  // drop zone binds it as a TARGET ("when source is selected, force target").
+  // Storage: state.tableActivations[srcGid][srcOptionKey] = [{dstRowKey, dstOption}].
+  // Source is keyed by option id only (a preset appears in exactly one table
+  // group). See docs/row-activation-design.md.
+
+  // Resolve the currently-edited option's activation context, or null if it's
+  // not an activatable option. The scope is always the OUTERMOST table group
+  // (the one expanded in use mode) that contains this option — bindings live
+  // entirely within one outermost table group. A top-level table group itself,
+  // a plain group, or an orphan preset returns null (no binding UI).
+  // Returns { srcGid, srcOptionKey, rows } where rows = the outermost table
+  // group's FULL subtree (all nested table groups force-expanded) so the user
+  // can target any option even if its sub-group isn't currently expanded.
+  function findOptionContext() {
+    const groups = state.get('groups') || [];
+    const rootChildren = state.get('rootChildren') || [];
+    // Only root-level table groups are valid scopes.
+    const topTables = rootChildren
+      .map(c => c.type === 'group' ? groups.find(g => g.id === c.id && g.type === 'table') : null)
+      .filter(Boolean);
+    if (!topTables.length) return null;
+
+    if (editData.kind === 'preset') {
+      const pid = state.get('selectedPreset');
+      if (pid == null || pid === '__new__') return null;
+      for (const g of topTables) {
+        const rows = window.PresetSelector.collectAllRowsFor(g.id);
+        if (rows.some(r => r.options.some(o => o.kind === 'preset' && o.id === pid))) {
+          return { srcGid: g.id, srcOptionKey: pid, rows };
+        }
+      }
+      return null;
+    }
+    if (editData.kind === 'group' && editData._isTableGroup) {
+      const gid = editData._groupId;
+      // A top-level table group is NOT an activatable option (it's a scope, not
+      // an option inside a scope).
+      if (topTables.some(g => g.id === gid)) return null;
+      for (const g of topTables) {
+        const rows = window.PresetSelector.collectAllRowsFor(g.id);
+        if (rows.some(r => r.options.some(o => o.kind === 'group' && o.id === gid))) {
+          return { srcGid: g.id, srcOptionKey: 'group:' + gid, rows };
+        }
+      }
+      return null;
+    }
+    return null;
+  }
+
+  // Is option `optKey` a descendant of group `rootGid` (or rootGid itself if
+  // optKey is a group)? Used to allow a source's own descendants as targets.
+  function isDescendantOf(groups, rootGid, optKey) {
+    const isGroup = typeof optKey === 'string' && optKey.startsWith('group:');
+    const oid = isGroup ? Number(optKey.slice(6)) : Number(optKey);
+    if (isGroup && oid === rootGid) return true;
+    const walk = (gid, seen) => {
+      if (seen.has(gid)) return false;
+      seen.add(gid);
+      const g = groups.find(x => x.id === gid);
+      if (!g) return false;
+      for (const c of (g.children || [])) {
+        if (c.type === 'preset' && !isGroup && c.id === oid) return true;
+        if (c.type === 'group') {
+          if (isGroup && c.id === oid) return true;
+          const sub = groups.find(x => x.id === c.id);
+          if (sub) {
+            if (walk(c.id, seen)) return true;
+          }
+        }
+      }
+      return false;
+    };
+    return walk(rootGid, new Set());
+  }
+
+  // Which top-level ROW of the outermost table group (srcGid) contains option
+  // `optKey`? A "top-level row" is either a plain sub-group of the table (its
+  // id) or '__direct__' (options directly in the table's children). We first
+  // find the option's nearest ancestor that is a DIRECT child option of the
+  // table group (the "top option", e.g. A or B), then return which row that
+  // top option sits in. Returns null if not found.
+  function topRowOf(groups, srcGid, optKey) {
+    const tg = groups.find(g => g.id === srcGid);
+    if (!tg) return null;
+    const isGroup = typeof optKey === 'string' && optKey.startsWith('group:');
+    const oid = isGroup ? Number(optKey.slice(6)) : Number(optKey);
+
+    // Is optKey itself a direct child option of the table group (in __direct__
+    // or in one of its plain sub-groups = rows)? If so, return that row.
+    const rowOfDirectChild = (children, directOnly) => {
+      for (const c of (children || [])) {
+        const match = (c.type === 'preset' && !isGroup && c.id === oid)
+          || (c.type === 'group' && isGroup && c.id === oid);
+        if (match) return directOnly;
+      }
+      return null;
+    };
+    // __direct__ row
+    let r = rowOfDirectChild(tg.children, '__direct__');
+    if (r) return r;
+    // plain sub-group rows
+    for (const c of (tg.children || [])) {
+      if (c.type !== 'group') continue;
+      const pg = groups.find(g => g.id === c.id);
+      if (pg && pg.type !== 'table') {
+        r = rowOfDirectChild(pg.children, c.id);
+        if (r) return r;
+      }
+    }
+
+    // optKey is deeper (inside a sub-table-group). Find its nearest ancestor
+    // that IS a direct child option of the table group, then return that
+    // ancestor's row.
+    const byId = new Map(groups.map(g => [g.id, g]));
+    // parentOf[gid] = the group that has gid as a child option, or null.
+    function parentOf(gid) {
+      for (const g of groups) {
+        for (const c of (g.children || [])) {
+          if (c.type === 'group' && c.id === gid) return g.id;
+        }
+      }
+      return null;
+    }
+    // Walk up from optKey's owning group until we reach a group whose parent is srcGid.
+    let cur = parentOf(isGroup ? oid : oid); // gid of group containing the option
+    // For a preset option, find the group containing that preset.
+    if (!isGroup) {
+      for (const g of groups) {
+        if ((g.children || []).some(c => c.type === 'preset' && c.id === oid)) { cur = g.id; break; }
+      }
+    }
+    const seen = new Set();
+    while (cur != null && !seen.has(cur)) {
+      seen.add(cur);
+      // Is `cur` a direct child of the table group?
+      if ((tg.children || []).some(c => c.type === 'group' && c.id === cur)) {
+        // cur is a top option; find which row it's in.
+        if ((tg.children || []).some(c => c.type === 'group' && c.id === cur)) return '__direct__';
+      }
+      // Is `cur` inside a plain sub-group row of the table?
+      for (const c of (tg.children || [])) {
+        if (c.type !== 'group') continue;
+        const pg = byId.get(c.id);
+        if (pg && pg.type !== 'table' && (pg.children || []).some(sc => sc.type === 'group' && sc.id === cur)) {
+          return c.id; // c is the row containing cur
+        }
+      }
+      cur = parentOf(cur);
+    }
+    return null;
+  }
+
+  // Allowed target ⇔ source and target are in DIFFERENT top-level rows, OR the
+  // target is the source's own descendant. Same row + not a descendant is
+  // forbidden (siblings, ancestors, the whole subtree of every top option in
+  // that row).
+  function isAllowedTarget(groups, srcGid, srcOptionKey, dstOption) {
+    if (String(srcOptionKey) === String(dstOption)) return false; // never self
+    const srcRow = topRowOf(groups, srcGid, srcOptionKey);
+    const dstRow = topRowOf(groups, srcGid, dstOption);
+    if (srcRow == null || dstRow == null) return false; // unknown → forbid
+    if (srcRow !== dstRow) return true;                 // different top row → allow
+    // Same row: allowed only if dst is a descendant of the source.
+    const isSrcGroup = typeof srcOptionKey === 'string' && srcOptionKey.startsWith('group:');
+    if (isSrcGroup) {
+      const srcGid2 = Number(srcOptionKey.slice(6));
+      if (isDescendantOf(groups, srcGid2, dstOption)) return true;
+    }
+    return false;
+  }
+
+  function renderActivationSlot(slotEl, ctx) {
+    if (!slotEl) return;
+    const { srcGid, srcOptionKey, rows } = ctx;
+    const groups = state.get('groups') || [];
+    const presets = state.get('presets') || [];
+    const presetMap = new Map(presets.map(p => [p.id, p]));
+
+    // Resolve an option's display label from its optionKey, using a FRESH row
+    // Full ancestry path label for a target: walks the dstRowKey's gid segments
+    // (each is a sub-table-group on the path down) and joins each level's row
+    // label, then the option name. Uses a fresh row snapshot (post-move safe).
+    const fullPathLabel = (rowKey, optKey) => {
+      const liveRows = (window.PresetSelector && window.PresetSelector.collectAllRowsFor)
+        ? window.PresetSelector.collectAllRowsFor(srcGid) : rows;
+      const rowByKey = new Map(liveRows.map(r => [r.rowKey, r]));
+      const parts = [];
+      const segs = rowKey.split(':');
+      // First segment is the outermost table group — use its name.
+      const topG = groups.find(g => g.id === srcGid);
+      if (topG && topG.name) parts.push(topG.name);
+      let acc = '';
+      for (let i = 0; i < segs.length; i++) {
+        const seg = segs[i];
+        if (i > 0) acc += ':';
+        acc += seg;
+        if (seg === '__direct__') continue; // synthetic aggregate row, no label
+        const rr = rowByKey.get(acc);
+        if (rr && rr.label) { parts.push(rr.label); continue; }
+        // No row at this prefix → the segment is a sub-table-group OPTION's gid
+        // (an expanded group on the path). Look up its name from the groups tree.
+        if (/^\d+$/.test(seg)) {
+          const gg = groups.find(g => g.id === Number(seg));
+          if (gg && gg.name) parts.push(gg.name);
+        }
+      }
+      const r = rowByKey.get(rowKey);
+      const o = r && r.options.find(x => String(x.kind === 'group' ? 'group:' + x.id : x.id) === String(optKey));
+      const name = o ? (o.kind === 'group' ? (o.name || '') : (presetMap.get(o.id)?.meta?.name || ('#' + o.id))) : String(optKey);
+      parts.push(name);
+      return parts.filter(Boolean).join(' / ');
+    };
+
+    // Resolve a dragged payload to { dstRowKey, dstOption } within the source's
+    // visible rows, or null if it's not a visible option here.
+    const resolveTarget = (raw) => {
+      if (raw.startsWith('preset:')) {
+        const pid = Number(raw.slice(7).split(',')[0]);
+        const host = rows.find(r => r.options.some(o => o.kind === 'preset' && o.id === pid));
+        if (!host) return null;
+        return { dstRowKey: host.rowKey, dstOption: pid };
+      }
+      if (raw.startsWith('group:')) {
+        const childGid = Number(raw.slice(6));
+        const host = rows.find(r => r.options.some(o => o.kind === 'group' && o.id === childGid));
+        if (!host) return null;
+        return { dstRowKey: host.rowKey, dstOption: 'group:' + childGid };
+      }
+      return null;
+    };
+
+    const readTargets = () => {
+      const all = state.get('tableActivations') || {};
+      const bySrc = all[srcGid] || {};
+      return bySrc[srcOptionKey] || [];
+    };
+
+    slotEl.innerHTML = `
+      <div class="form-group" style="margin-top:14px">
+        <label class="form-label" style="font-weight:600">${i18n.t('preset.activation.title')}</label>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${i18n.t('preset.activation.hint')}</div>
+        <div id="act-drop" class="act-drop">${i18n.t('preset.activation.dropHere')}</div>
+        <div id="act-delete-zone" class="act-drop act-delete-zone">${i18n.t('preset.activation.deleteZone')}</div>
+        <div id="act-list" style="margin-top:8px"></div>
+      </div>
+    `;
+
+    const listEl = slotEl.querySelector('#act-list');
+    const drop = slotEl.querySelector('#act-drop');
+    const deleteZone = slotEl.querySelector('#act-delete-zone');
+    const selectedTargets = new Set(); // indices selected for multi-drag-delete
+    let anchor = -1; // selection anchor for Shift-range (persists across re-renders)
+    const renderList = () => {
+      const targets = readTargets();
+      // Drop any selected indices that no longer exist.
+      for (const i of [...selectedTargets]) if (i >= targets.length) selectedTargets.delete(i);
+      if (!targets.length) { listEl.innerHTML = `<div style="font-size:11px;color:var(--text-muted)">${i18n.t('preset.activation.empty')}</div>`; return; }
+      listEl.innerHTML = targets.map((t, ti) => {
+        const isDisable = (t.effect || 'select') === 'disable';
+        const badge = isDisable
+          ? `<span class="act-target__tag act-target__tag--disable">${i18n.t('preset.activation.disableTag')}</span>`
+          : `<span class="act-target__tag act-target__tag--select">${i18n.t('preset.activation.selectTag')}</span>`;
+        const sel = selectedTargets.has(ti) ? ' act-target--selected' : '';
+        return `
+        <div class="act-target${sel}" draggable="true" data-idx="${ti}">
+          <span class="act-target__label">${escapeHtml(fullPathLabel(t.dstRowKey, t.dstOption))}</span>
+          ${badge}
+        </div>`;
+      }).join('');
+      // Selection model: plain click = single-select (clears others); Ctrl-click
+      // = toggle one; Shift-click = range from last anchor. Dragging carries the
+      // selection (or just the dragged row if it isn't selected).
+      listEl.querySelectorAll('.act-target[data-idx]').forEach(el => {
+        el.addEventListener('click', (ev) => {
+          const idx = Number(el.dataset.idx);
+          if (ev.ctrlKey || ev.metaKey) {
+            if (selectedTargets.has(idx)) selectedTargets.delete(idx); else selectedTargets.add(idx);
+            anchor = idx;
+          } else if (ev.shiftKey && anchor >= 0) {
+            const lo = Math.min(anchor, idx), hi = Math.max(anchor, idx);
+            for (let i = lo; i <= hi; i++) selectedTargets.add(i);
+          } else {
+            selectedTargets.clear();
+            selectedTargets.add(idx);
+            anchor = idx;
+          }
+          renderList();
+        });
+        el.addEventListener('dragstart', (e) => {
+          const idx = Number(el.dataset.idx);
+          // Dragging an unselected row selects it first (single) so the dragged
+          // row is visually part of the selection. Update only this element's
+          // class — a full renderList() would rebuild the DOM mid-drag.
+          if (!selectedTargets.has(idx)) {
+            listEl.querySelectorAll('.act-target--selected').forEach(n => n.classList.remove('act-target--selected'));
+            el.classList.add('act-target--selected');
+            selectedTargets.clear();
+            selectedTargets.add(idx);
+            anchor = idx;
+          }
+          const dragSet = [...selectedTargets];
+          e.dataTransfer.effectAllowed = 'move';
+          // Custom MIME (NOT text/plain) so the bind-drop zone's text/plain-only
+          // dragover check rejects binding rows — only the delete zone accepts it.
+          e.dataTransfer.setData('application/x-activation-binding', 'actrm:' + dragSet.join(','));
+        });
+      });
+    };
+    renderList();
+
+    // Drop a target option. Highlight on dragenter/over — green for select,
+    // yellow when Shift is held (disable).
+    const setHl = (on, shift) => {
+      drop.classList.toggle('act-drop--over', on && !shift);
+      drop.classList.toggle('act-drop--over-disable', on && shift);
+    };
+    // Only accept NEW-option drops (text/plain = preset:/group:). Binding rows
+    // use a custom mime, so they won't pass this check → no highlight, no drop.
+    const isNewOptionDrag = (e) => (e.dataTransfer.types || []).includes('text/plain');
+    drop.addEventListener('dragenter', (e) => {
+      if (!isNewOptionDrag(e)) return;
+      e.preventDefault(); e.stopPropagation(); setHl(true, e.shiftKey);
+    });
+    drop.addEventListener('dragover', (e) => {
+      if (!isNewOptionDrag(e)) return;
+      e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; setHl(true, e.shiftKey);
+    });
+    drop.addEventListener('dragleave', () => { setHl(false, false); });
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault(); e.stopPropagation(); setHl(false, false);
+      const raw = e.dataTransfer.getData('text/plain') || '';
+      const tgt = resolveTarget(raw);
+      // Allowed: different top-level row, or source's own descendant. Else forbid.
+      // Unresolvable target (not visible in this table group) is treated the
+      // same as a forbidden one — single failure message.
+      if (!tgt || !isAllowedTarget(groups, srcGid, srcOptionKey, tgt.dstOption)) {
+        Toast.error(i18n.t('preset.activation.bindFailed')); return;
+      }
+      // Shift-drop = DISABLE the target (grey it out, unselectable); plain drop
+      // = SELECT it (the normal activation lock). Stored as target.effect.
+      const effect = e.shiftKey ? 'disable' : 'select';
+      const _all0 = state.get('tableActivations') || {};
+      const _existing = ((_all0[srcGid] || {})[srcOptionKey]) || [];
+      // Mutex: a row can't mix select and disable targets under the same source.
+      const _rowHasOther = _existing.some(t =>
+        t.dstRowKey === tgt.dstRowKey && (t.effect || 'select') !== effect);
+      if (_rowHasOther) { Toast.error(i18n.t('preset.activation.rowMutexFailed')); return; }
+      const all = { ..._all0 };
+      const bySrc = { ...(all[srcGid] || {}) };
+      const targets = (bySrc[srcOptionKey] || []).slice();
+      if (!targets.some(t => t.dstRowKey === tgt.dstRowKey && String(t.dstOption) === String(tgt.dstOption) && (t.effect || 'select') === effect)) {
+        targets.push({ dstRowKey: tgt.dstRowKey, dstOption: tgt.dstOption, effect });
+      }
+      bySrc[srcOptionKey] = targets;
+      all[srcGid] = bySrc;
+      state.set('tableActivations', all);
+      state.set('presetDirty', true);
+    });
+
+    // Drag-to-delete: accepts binding rows (custom mime) OR a preset/group
+    // (text/plain) to delete matching bindings.
+    const isDroppable = (e) => {
+      const types = e.dataTransfer.types || [];
+      return types.includes('application/x-activation-binding') || types.includes('text/plain');
+    };
+    const dzHl = (on) => deleteZone.classList.toggle('act-delete-zone--over', on);
+    deleteZone.addEventListener('dragenter', (e) => { if (isDroppable(e)) { e.preventDefault(); dzHl(true); } });
+    deleteZone.addEventListener('dragover', (e) => { if (isDroppable(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } });
+    deleteZone.addEventListener('dragleave', () => dzHl(false));
+    deleteZone.addEventListener('drop', (e) => {
+      e.preventDefault(); dzHl(false);
+      const bindRaw = e.dataTransfer.getData('application/x-activation-binding') || '';
+      const raw = bindRaw || (e.dataTransfer.getData('text/plain') || '');
+      const all = { ...(state.get('tableActivations') || {}) };
+      const bySrc = { ...(all[srcGid] || {}) };
+      let targets = (bySrc[srcOptionKey] || []).slice();
+      if (raw.startsWith('actrm:')) {
+        // Remove the dragged binding row(s) by index.
+        const rmSet = new Set(raw.slice(6).split(',').map(s => Number(s)).filter(n => !Number.isNaN(n)));
+        if (!rmSet.size) return;
+        targets = targets.filter((_, i) => !rmSet.has(i));
+      } else if (raw.startsWith('preset:') || raw.startsWith('group:')) {
+        // Remove bindings whose target option matches the dragged option.
+        const dragOptKey = raw.startsWith('group:') ? ('group:' + raw.slice(6)) : Number(raw.slice(7).split(',')[0]);
+        targets = targets.filter(t => String(t.dstOption) !== String(dragOptKey));
+      } else {
+        return;
+      }
+      if (targets.length) bySrc[srcOptionKey] = targets; else delete bySrc[srcOptionKey];
+      all[srcGid] = bySrc;
+      selectedTargets.clear();
+      state.set('tableActivations', all);
+      state.set('presetDirty', true);
+    });
+
+    // Binding selection state is module-level so app.js's layered Esc handler
+    // can query/clear it via window.ActivationBinding (innermost-first, same as
+    // ini/file/tint operation selections) — no separate capture listener.
+    _bindingSelectedTargets = selectedTargets;
+    _bindingRenderList = renderList;
   }
 
   // ── Group loading (writes into the shared editData with kind:'group') ──
@@ -694,6 +1111,17 @@
     const tabs = viewEl.querySelector('.tabs');
     if (tabs) tabs.classList.toggle('tabs--disabled', !!active);
     viewEl.classList.toggle('editor--locked', !!active);
+  });
+
+  // Re-render just the activation-binding slot when edges change (add/remove
+  // from within the slot itself). Local re-render only — a full editor rebuild
+  // would blur the basic-tab inputs the user may be typing in.
+  state.on('tableActivations', () => {
+    const ctx = findOptionContext();
+    if (ctx) {
+      const slot = document.getElementById('activation-slot');
+      if (slot) renderActivationSlot(slot, ctx);
+    }
   });
 
   function getCurrentEditData() {

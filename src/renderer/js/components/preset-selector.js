@@ -31,6 +31,33 @@
   // group (its nested rows are new).
   let _prevRowKeys = new Set();
 
+  // Row-activation state, keyed by ROWKEY (globally unique — a rowKey carries
+  // its full gid path, so it identifies a row regardless of which table group
+  // owns it). _activationLockedRows: set of locked rowKeys (seed skip + click
+  // block). _activationDisabledByRow: rowKey → Set of disabled option keys (render).
+  // Both recomputed every render / click.
+  const _activationLockedRows = new Set();
+  const _activationDisabledByRow = new Map();
+  // rowKey → Set of individually-disabled option keys (DISABLE-effect targets).
+  const _activationDisabledSingles = new Map();
+  // "rowKey\x00optionKey" → true for options just disabled (one-shot pulse).
+  let _newlyDisabledOptKeys = new Set();
+  // Options just UN-disabled (disabled last render, not now) → fade-in pulse.
+  let _newlyUndisabledOptKeys = new Set();
+  // Previous render's single-disabled keys, for the just-disabled diff.
+  let _prevSinglesForAnim = new Set();
+  // Previous render's locked rows, to detect the just-locked transition (for
+  // the one-shot lock-pulse animation). Updated at end of render.
+  let _prevLockedForAnim = new Set();
+  // Rows locked now but not last render (set in render(), read in renderTableGroup).
+  let _newlyLocked = new Set();
+  // Rows unlocked now (locked last render, not now) — also pulse on the transition.
+  let _newlyUnlocked = new Set();
+  // Rows whose pulse was started manually in the click handler (before the
+  // post-fade render). render() skips re-pulsing these so the animation doesn't
+  // play twice. Cleared at end of render.
+  let _manualPulsedRows = new Set();
+
   function render() {
     if (_suppressRender) return;
     const skin = state.get('selectedSkin');
@@ -104,15 +131,67 @@
       }
       if (Object.keys(live).length !== Object.keys(sel).length) rowSel[gid] = live;
     }
+    // tableActivations: coarse cleanup only — drop buckets whose srcGid is gone.
+    // Fine-grained rowKey/option remap on id changes is handled by backend
+    // compact_ids (remap_activations). Here we just shed dead top-level buckets.
+    const activations = state.get('tableActivations') || {};
+    for (const gid of Object.keys(activations)) {
+      if (!groupIds.has(Number(gid))) { delete activations[gid]; tableCleaned = true; }
+    }
     if (tableCleaned) {
       state.set('tableExpandedChildren', { ...expanded });
       state.set('tableRowSelection', { ...rowSel });
       state.set('activeTableGroups', { ...atg });
+      state.set('tableActivations', { ...activations });
     }
 
     // Collect all selected ids (arrays → flattened)
     const selectedIds = [].concat(...Object.values(activePresets).filter(a => Array.isArray(a)));
     const hasSelection = selectedIds.length > 0;
+
+    // Refresh activation state for every table group before rendering, so the
+    // disabled/activated classes match the persisted sel (which already holds
+    // activation-forced values from prior clicks). Uses a throwaway sel copy so
+    // render never mutates state; only the module lock/disable maps update.
+    const _activations = state.get('tableActivations') || {};
+    const _expanded = state.get('tableExpandedChildren') || {};
+    const _rowSel = state.get('tableRowSelection') || {};
+    _activationLockedRows.clear();
+    _activationDisabledByRow.clear();
+    _activationDisabledSingles.clear();
+    for (const g of groups) {
+      if (g.type !== 'table') continue;
+      const selCopy = { ...(_rowSel[g.id] || {}) };
+      const act = computeActivationTargets(g.id, groups, _expanded, selCopy, _activations);
+      for (const rk of act.lockedValue.keys()) _activationLockedRows.add(rk);
+      for (const [rk, set] of act.disabledOptions) _activationDisabledByRow.set(rk, set);
+      for (const [rk, set] of act.disabledSingles) _activationDisabledSingles.set(rk, set);
+    }
+    // Options disabled now but not last render → one-shot disable pulse.
+    _newlyDisabledOptKeys = new Set();
+    // Options disabled last render but not now → one-shot re-enable pulse.
+    _newlyUndisabledOptKeys = new Set();
+    const curSingKeys = new Set();
+    for (const [rk, set] of _activationDisabledSingles) {
+      for (const k of set) {
+        const composite = rk + '\x00' + k;
+        curSingKeys.add(composite);
+        if (!_prevSinglesForAnim.has(composite)) _newlyDisabledOptKeys.add(composite);
+      }
+    }
+    for (const composite of _prevSinglesForAnim) {
+      if (!curSingKeys.has(composite)) _newlyUndisabledOptKeys.add(composite);
+    }
+    // Rows locked now but NOT last render → play the one-shot lock pulse.
+    _newlyLocked = new Set();
+    for (const rk of _activationLockedRows) {
+      if (!_prevLockedForAnim.has(rk)) _newlyLocked.add(rk);
+    }
+    // Rows unlocked now (locked last render, not now) → pulse on unlock too.
+    _newlyUnlocked = new Set();
+    for (const rk of _prevLockedForAnim) {
+      if (!_activationLockedRows.has(rk)) _newlyUnlocked.add(rk);
+    }
 
     let html = '<div class="preset-selector"><div class="preset-selector__header">';
     html += `<h3>${i18n.t('selector.heading')}</h3><span style="font-size:12px;color:var(--text-muted)">${i18n.t('selector.headingHint')}</span>`;
@@ -539,6 +618,13 @@
         const groups = state.get('groups') || [];
         const g = groups.find(x => x.id === gid);
         if (!g) return;
+        // Block clicks on activation-locked rows (their sel is driven by an
+        // activation edge, not the user) and on individually disabled options.
+        if (_activationLockedRows.has(rowKey)) return;
+        const optK = kind === 'group' ? 'group:' + opt.dataset.childGroupId : Number(opt.dataset.presetId);
+        const dis = _activationDisabledByRow.get(rowKey);
+        const sing = _activationDisabledSingles.get(rowKey);
+        if ((dis && isSelDisKey(dis, optK)) || (sing && isSelDisKey(sing, optK))) return;
         const ownerGid = parseOwnerGid(rowKey, groups, gid);
         const expanded = { ...(state.get('tableExpandedChildren') || {}) };
         const allSel = { ...(state.get('tableRowSelection') || {}) };
@@ -576,33 +662,28 @@
           if (!expanded[ownerGid].has(childGid)) expanded[ownerGid].add(childGid);
         }
 
-        // Restore expanded + seed defaults for newly appeared rows.
-        let changed = true;
-        while (changed) {
-          changed = false;
-          const rows = collectTableRows(g, groups, expanded, 0, null);
-          for (const row of rows) {
-            // Seed unselected row → leftmost option.
-            if (sel[row.rowKey] == null) {
-              const first = row.options[0];
-              if (first) {
-                sel[row.rowKey] = first.kind === 'group' ? 'group:' + first.id : first.id;
-                changed = true;
-              }
-            }
-            // Expand child table groups that are selected.
-            const val = sel[row.rowKey];
-            if (typeof val === 'string' && val.startsWith('group:')) {
-              const childId = parseInt(val.slice(6), 10);
-              const rowOwner = parseOwnerGid(row.rowKey, groups, gid);
-              if (!expanded[rowOwner]) expanded[rowOwner] = new Set();
-              if (!expanded[rowOwner].has(childId)) {
-                expanded[rowOwner].add(childId);
-                changed = true;
-              }
-            }
-          }
-        }
+        // Seed + expand + activation, iterated to a fixed point. Activation =
+        // "when source is selected, also select target" — a locked target is
+        // treated as a user pick, sharing the SAME sel/expand/mutex path. We
+        // remember which rows activation currently owns (actRows) so when a
+        // target is no longer locked we can clear its sel (+ collapse its group
+        // via the normal mutex rule) — exactly as if the user switched away.
+        const activations = state.get('tableActivations') || {};
+        const lockedBeforeClick = new Set(_activationLockedRows); // for just-locked/unlocked pulse
+        const fp = runActivationFixedPoint(gid, groups, expanded, sel, activations, _activationLockedRows);
+        const actRows = fp.actRows;
+        const curDisabled = fp.curDisabled;
+        const curSingles = fp.curSingles;
+        // Sync this gid subtree's locked/disabled state into the flat maps.
+        _activationLockedRows.clear();
+        for (const rk of actRows) _activationLockedRows.add(rk);
+        _activationDisabledByRow.clear();
+        for (const [rk, set] of curDisabled) _activationDisabledByRow.set(rk, set);
+        _activationDisabledSingles.clear();
+        for (const [rk, set] of curSingles) _activationDisabledSingles.set(rk, set);
+        // Note: rows that unlocked fall out of actRes.lockedRows; they stay stale
+        // in the flat maps until the next full render clears + recomputes all
+        // groups. That re-render fires right after this click (state.set below).
 
         // Derive activePresets.
         const deriveRows = collectTableRows(g, groups, expanded, 0, null);
@@ -615,11 +696,13 @@
         }
         if (ids.length > 0) current[gid] = ids; else delete current[gid];
 
-        // When switching child groups, fade out the disappearing rows first,
-        // then render (new rows enter with --enter animation + base delay).
-        if (kind === 'group') {
-          // Compute which rows will DISAPPEAR: current visible rows minus the
-          // rows collectTableRows produces with the NEW expanded state.
+        // Fade out rows that will DISAPPEAR under the new expanded state, then
+        // render (new rows enter with --enter animation). This covers BOTH a
+        // direct group-option click AND an activation-driven switch (where the
+        // target's group opens / the previous one folds) — any vanishing row
+        // gets the exit animation, so activation switches animate the same way
+        // as manual ones instead of flashing.
+        {
           const newRows = collectTableRows(g, groups, expanded, 0, null);
           const newRowKeys = new Set(newRows.map(r => r.rowKey));
           const fadeOutEls = [];
@@ -627,6 +710,28 @@
             if (!newRowKeys.has(el.dataset.rowKey)) fadeOutEls.push(el);
           });
           if (fadeOutEls.length) {
+            // Sync option highlights IMMEDIATELY (don't wait for the post-fade
+            // render) so selected/activated switches happen in parallel with the
+            // child-row exit animation, not after it. Sync BOTH the clicked row
+            // AND every activation-locked row (the target may live in another row).
+            syncParentOptionHighlight(viewEl, rowKey, sel[rowKey]);
+            for (const lk of _activationLockedRows) {
+              if (lk !== rowKey) syncParentOptionHighlight(viewEl, lk, sel[lk]);
+            }
+            // Kick off the lock-pulse IMMEDIATELY on just-locked AND just-unlocked
+            // rows (don't wait for the post-fade render) so it plays in parallel
+            // with the child-row exit animation. Removing then re-adding the class
+            // restarts the animation if it was already mid-play.
+            const pulseRows = new Set([...actRows, ...lockedBeforeClick]);
+            for (const lk of pulseRows) {
+              const wasLocked = lockedBeforeClick.has(lk);
+              const isLocked = actRows.has(lk);
+              if (wasLocked === isLocked) continue; // no transition → no pulse
+              const r = viewEl.querySelector(`.preset-group__table-row[data-row-key="${lk}"]`);
+              const opts = r && r.querySelector('.preset-group__table-options');
+              if (opts) { opts.classList.remove('preset-group__table-options--lock-pulse'); void opts.offsetWidth; opts.classList.add('preset-group__table-options--lock-pulse'); }
+              _manualPulsedRows.add(lk); // render() will skip re-pulsing this row
+            }
             fadeOutEls.forEach(el => { el.classList.remove('preset-group__enter'); el.style.animationDelay = ''; el.classList.add('preset-group__exit'); });
             _enterAnimBaseDelay = 0;
             await new Promise(r => setTimeout(r, 200));
@@ -714,6 +819,13 @@
     // Clear after all synchronous renders settle (multiple 'groups' listeners
     // may trigger render in sequence; only clear after the last one).
     setTimeout(() => { _justToggledGid = null; _animDepthBase = 0; }, 0);
+    // Remember this render's locked rows for next render's just-locked detect.
+    _prevLockedForAnim = new Set(_activationLockedRows);
+    // Rebuild the singles key set for next render's just-disabled diff.
+    const _nextPrevSing = new Set();
+    for (const [rk, set] of _activationDisabledSingles) for (const k of set) _nextPrevSing.add(rk + '\x00' + k);
+    _prevSinglesForAnim = _nextPrevSing;
+    _manualPulsedRows = new Set(); // consumed by this render
     } // end afterRebuild
   }
 
@@ -800,7 +912,243 @@
     return out;
   }
 
-  // Parse owner table group id from a rowKey path.
+  // The canonical string key for a row option, matching how sel[rowKey] stores
+  // a choice: preset → its id (number); nested table group → 'group:<id>'.
+  function optionKey(opt) {
+    return opt.kind === 'group' ? 'group:' + opt.id : opt.id;
+  }
+
+  // Immediately sync a row's option highlight in the live DOM to a new sel
+  // value, without waiting for a full re-render. Used during the fade-out wait
+  // so the parent row's selected-option switches in parallel with the child
+  // exit animation (instead of snapping after it). selValue is a presetId
+  // (number) or 'group:<id>' (string).
+  function syncParentOptionHighlight(viewEl, rowKey, selValue) {
+    const row = viewEl.querySelector(`.preset-group__table-row[data-row-key="${rowKey}"]`);
+    if (!row) return;
+    // If this row is activation-locked, the selected option is the red
+    // "activated" one and its siblings are disabled — sync those too so the
+    // red highlight switches immediately, not after the fade.
+    const dis = _activationDisabledByRow.get(rowKey);
+    const opts = row.querySelectorAll('.preset-group__table-option');
+    const sv = String(selValue);
+    opts.forEach(opt => {
+      const kind = opt.dataset.kind;
+      const key = kind === 'group' ? 'group:' + opt.dataset.childGroupId : opt.dataset.presetId;
+      const isSel = String(key) === sv;
+      if (kind === 'group') {
+        opt.classList.toggle('preset-group__table-option--group-tag--expanded', isSel);
+      } else {
+        opt.classList.toggle('preset-group__table-option--selected', isSel);
+      }
+      opt.classList.toggle('preset-group__table-option--activated', isSel && !!dis);
+      opt.classList.toggle('preset-group__table-option--disabled', !isSel && !!dis && isSelDisKey(dis, kind === 'group' ? 'group:' + opt.dataset.childGroupId : Number(opt.dataset.presetId)));
+    });
+  }
+
+  // True if `key` (a preset id number or 'group:<id>' string) is in the disabled
+  // set `dis` (Set of optionKey values). coerces via String() since preset ids
+  // may be number in the set but the comparison value could be either form.
+  function isSelDisKey(dis, key) {
+    if (!dis || !dis.size) return false;
+    if (dis.has(key)) return true;
+    const sk = String(key);
+    for (const v of dis) if (String(v) === sk) return true;
+    return false;
+  }
+
+  // Compute the activation-driven sel values for one table group. Does NOT
+  // mutate sel or expanded — the caller applies them so activation behaves
+  // exactly like a user pick (same expand/mutex path). Storage:
+  // activations[gid] = { srcOptionKey: [{ dstRowKey, dstOption }] }.
+  // Returns { lockedValue: Map<rowKey, optKey>, disabledOptions: Map<rowKey, Set> }.
+  //   - lockedValue: rows whose sel should be forced (target selections).
+  //   - disabledOptions: per locked row, the sibling option keys to disable.
+  function computeActivationTargets(gid, groups, expanded, sel, activations) {
+    // out.lockedValue: rowKey → optKey for SELECT-effect targets (forces sel).
+    // out.disabledOptions: rowKey → Set of sibling option keys to disable (the
+    //   SELECT target's siblings — the whole row locked).
+    // out.disabledSingles: rowKey → Set of option keys to disable individually
+    //   (DISABLE-effect targets — only that option, not its siblings).
+    const out = { lockedValue: new Map(), disabledOptions: new Map(), disabledSingles: new Map(), needsReset: new Set() };
+    const g = groups.find(x => x.id === gid);
+    if (!g) return out;
+    const bySrc = (activations && activations[gid]) || null;
+    if (!bySrc) return out;
+    const rows = collectTableRows(g, groups, expanded, 0, null);
+    const renderedSet = new Set(rows.map(r => r.rowKey));
+    const rowByKey = new Map(rows.map(r => [r.rowKey, r]));
+    // A source fires when any visible row's sel equals a srcOptionKey.
+    const firedSrcKeys = new Set();
+    for (const r of rows) {
+      const v = sel[r.rowKey];
+      if (v == null) continue;
+      if (Object.prototype.hasOwnProperty.call(bySrc, String(v))) firedSrcKeys.add(String(v));
+    }
+    for (const srcKey of firedSrcKeys) {
+      for (const t of (bySrc[srcKey] || [])) {
+        if (!renderedSet.has(t.dstRowKey)) continue;
+        const effect = t.effect || 'select';
+        if (effect === 'disable') {
+          if (!out.disabledSingles.has(t.dstRowKey)) out.disabledSingles.set(t.dstRowKey, new Set());
+          out.disabledSingles.get(t.dstRowKey).add(t.dstOption);
+        } else {
+          out.lockedValue.set(t.dstRowKey, t.dstOption);
+        }
+      }
+    }
+    for (const [rowKey, optKey] of out.lockedValue) {
+      const row = rowByKey.get(rowKey);
+      if (!row) continue;
+      const dis = new Set();
+      for (const o of row.options) {
+        if (String(optionKey(o)) !== String(optKey)) dis.add(optionKey(o));
+      }
+      out.disabledOptions.set(rowKey, dis);
+    }
+    // If a row's current selection is individually disabled, flag it for reset
+    // (the caller clears sel so seed re-fills the default).
+    out.needsReset = new Set();
+    for (const r of rows) {
+      const v = sel[r.rowKey];
+      if (v == null) continue;
+      const sing = out.disabledSingles.get(r.rowKey);
+      if (sing && isSelDisKey(sing, v)) out.needsReset.add(r.rowKey);
+    }
+    return out;
+  }
+
+  // Run the activation fixed-point loop for one table group, mutating `sel` and
+  // `expanded` in place. Used by BOTH the click handler (after a user pick) and
+  // resyncTableActivations (after bindings change in the editor) so the two
+  // paths stay identical. `prevLocked` is the locked-row set to release from.
+  // Returns { actRows, curDisabled, curSingles }.
+  function runActivationFixedPoint(gid, groups, expanded, sel, activations, prevLocked) {
+    let actRows = new Set(prevLocked || []);
+    let curDisabled = new Map();
+    let curSingles = new Map();
+    let changed = true;
+    let guard = 0;
+    while (changed) {
+      if (++guard > 60) break; // cycle guard
+      changed = false;
+      const act = computeActivationTargets(gid, groups, expanded, sel, activations);
+      const want = act.lockedValue;
+      // (a2) a row whose current selection is individually disabled → clear sel
+      //      (+ fold its group) so seed re-fills the default.
+      if (act.needsReset.size) {
+        for (const rk of act.needsReset) {
+          const old = sel[rk];
+          if (old != null) { delete sel[rk]; changed = true; }
+          if (typeof old === 'string' && old.startsWith('group:')) {
+            const owner = parseOwnerGid(rk, groups, gid);
+            const childId = parseInt(old.slice(6), 10);
+            if (expanded[owner] && expanded[owner].has(childId)) { expanded[owner].delete(childId); changed = true; }
+          }
+        }
+      }
+      // (b) release rows activation owned last pass but no longer.
+      for (const rk of actRows) {
+        if (want.has(rk)) continue;
+        const old = sel[rk];
+        if (old != null) { delete sel[rk]; changed = true; }
+        if (typeof old === 'string' && old.startsWith('group:')) {
+          const owner = parseOwnerGid(rk, groups, gid);
+          const childId = parseInt(old.slice(6), 10);
+          if (expanded[owner] && expanded[owner].has(childId)) { expanded[owner].delete(childId); changed = true; }
+        }
+      }
+      // (c) force activation targets (= a user pick).
+      for (const [rk, optKey] of want) {
+        if (String(sel[rk]) !== String(optKey)) {
+          const owner = parseOwnerGid(rk, groups, gid);
+          if (typeof optKey === 'string' && optKey.startsWith('group:')) {
+            const newGid = parseInt(optKey.slice(6), 10);
+            if (expanded[owner]) for (const eg of [...expanded[owner]]) {
+              if (eg !== newGid) { expanded[owner].delete(eg); changed = true; }
+            }
+          } else {
+            if (expanded[owner] && expanded[owner].size) { expanded[owner].clear(); changed = true; }
+          }
+          sel[rk] = optKey; changed = true;
+        }
+      }
+      actRows = new Set(want.keys());
+      curDisabled = act.disabledOptions;
+      curSingles = act.disabledSingles;
+      // (d) seed + expand.
+      const rows = collectTableRows(groups.find(x => x.id === gid), groups, expanded, 0, null);
+      for (const row of rows) {
+        if (sel[row.rowKey] == null && !actRows.has(row.rowKey)) {
+          const sing = curSingles.get(row.rowKey);
+          const rowDis = curDisabled.get(row.rowKey);
+          const first = row.options.find(o => {
+            const k = o.kind === 'group' ? 'group:' + o.id : o.id;
+            return !(sing && isSelDisKey(sing, k)) && !(rowDis && isSelDisKey(rowDis, k));
+          });
+          if (first) { sel[row.rowKey] = first.kind === 'group' ? 'group:' + first.id : first.id; changed = true; }
+        }
+        const val = sel[row.rowKey];
+        if (typeof val === 'string' && val.startsWith('group:')) {
+          const childId = parseInt(val.slice(6), 10);
+          const rowOwner = parseOwnerGid(row.rowKey, groups, gid);
+          if (!expanded[rowOwner]) expanded[rowOwner] = new Set();
+          if (!expanded[rowOwner].has(childId)) { expanded[rowOwner].add(childId); changed = true; }
+        }
+      }
+    }
+    return { actRows, curDisabled, curSingles };
+  }
+
+  // After bindings change in the editor, re-run the activation fixed point for
+  // every top-level table group and persist the synced sel/expanded state — so
+  // the use-mode table reflects the new bindings without a click.
+  function resyncTableActivations() {
+    try {
+      resyncTableActivationsInner();
+    } catch (err) {
+      console.error('[resyncTableActivations] skipped:', err);
+    }
+  }
+  function resyncTableActivationsInner() {
+    const groups = state.get('groups') || [];
+    const rootChildren = state.get('rootChildren') || [];
+    const topTables = rootChildren
+      .map(c => c.type === 'group' ? groups.find(g => g.id === c.id && g.type === 'table') : null)
+      .filter(Boolean);
+    if (!topTables.length) return;
+    const activations = state.get('tableActivations') || {};
+    // Normalize: config.osp may have serialized expanded sets as arrays.
+    const _rawExp = state.get('tableExpandedChildren') || {};
+    const expanded = {};
+    for (const [k, v] of Object.entries(_rawExp)) {
+      expanded[k] = v instanceof Set ? v : new Set(Array.isArray(v) ? v : []);
+    }
+    const allSel = { ...(state.get('tableRowSelection') || {}) };
+    const current = { ...(state.get('activePresets') || {}) };
+    let dirty = false;
+    for (const g of topTables) {
+      if (!allSel[g.id]) allSel[g.id] = {};
+      const sel = allSel[g.id];
+      const before = JSON.stringify(sel);
+      runActivationFixedPoint(g.id, groups, expanded, sel, activations, _activationLockedRows);
+      if (JSON.stringify(sel) !== before) dirty = true;
+      // Derive activePresets for this group.
+      const rows = collectTableRows(g, groups, expanded, 0, null);
+      const ids = [];
+      for (const row of rows) {
+        const chosen = sel[row.rowKey];
+        const presetOpts = row.options.filter(o => o.kind === 'preset').map(o => o.id);
+        if (typeof chosen === 'number' && presetOpts.includes(chosen)) ids.push(chosen);
+        else if (typeof chosen !== 'string' && presetOpts.length > 0) ids.push(presetOpts[0]);
+      }
+      if (ids.length > 0) current[g.id] = ids; else delete current[g.id];
+    }
+    if (dirty) {
+      state.setMultiple({ tableExpandedChildren: expanded, tableRowSelection: allSel, activePresets: current });
+    }
+  }
+
   function parseOwnerGid(rowKey, allGroups, defaultGid) {
     const parts = rowKey.split(':');
     for (let i = parts.length - 2; i >= 0; i--) {
@@ -844,14 +1192,21 @@
       for (const row of rows) {
         html += `<div class="preset-group__table-row" data-row-key="${escapeHtml(row.rowKey)}" style="margin-left:0">
           <span class="preset-group__table-label"${row.label ? ` data-full-label="${escapeHtml(row.label)}"` : ''}>${escapeHtml(row.label)}</span>
-          <div class="preset-group__table-options">`;
+          <div class="preset-group__table-options${((_newlyLocked.has(row.rowKey) || _newlyUnlocked.has(row.rowKey)) && !_manualPulsedRows.has(row.rowKey)) ? ' preset-group__table-options--lock-pulse' : ''}">`;
         for (const opt of row.options) {
+          // Activation state for this row/option (disabled siblings + the
+          // activated value gets a red highlight). Keyed by rowKey directly
+          // (globally unique) so it works regardless of which table group
+          // owns this row.
+          const _dis = _activationDisabledByRow.get(row.rowKey);
+          const _singles = _activationDisabledSingles.get(row.rowKey);
           if (opt.kind === 'preset') {
             const p = presetMap.get(opt.id);
             if (!p) continue;
             const name = p.meta?.name || i18n.t('preset.fallbackName', { id: opt.id });
             const isSelected = rowSel[row.rowKey] === opt.id;
-            html += `<span class="preset-group__table-option${isSelected ? ' preset-group__table-option--selected' : ''}"
+            const isDisabled = !!(isSelDisKey(_dis, opt.id) || isSelDisKey(_singles, opt.id));
+            html += `<span class="preset-group__table-option${isSelected ? ' preset-group__table-option--selected' : ''}${isSelected && _dis ? ' preset-group__table-option--activated' : ''}${isDisabled ? ' preset-group__table-option--disabled' : ''}${_newlyDisabledOptKeys.has(row.rowKey + '\x00' + opt.id) ? ' preset-group__table-option--disable-pulse' : ''}${_newlyUndisabledOptKeys.has(row.rowKey + '\x00' + opt.id) ? ' preset-group__table-option--enable-pulse' : ''}"
               data-table-row="${gid}" data-row-key="${escapeHtml(row.rowKey)}" data-kind="preset" data-preset-id="${opt.id}">${escapeHtml(name)}</span>`;
           } else {
             // group-tag option: a nested table group.
@@ -859,7 +1214,8 @@
             const ownerGid2 = parseOwnerGid(row.rowKey, allGroups, gid);
             const isExpanded = (expanded[ownerGid2] || new Set()).has(opt.id);
             const isRowSelected = rowSel[row.rowKey] === groupKey;
-            html += `<span class="preset-group__table-option preset-group__table-option--group-tag${(isExpanded && isRowSelected) ? ' preset-group__table-option--group-tag--expanded' : ''}"
+            const isDisabled = !!(isSelDisKey(_dis, groupKey) || isSelDisKey(_singles, groupKey));
+            html += `<span class="preset-group__table-option preset-group__table-option--group-tag${(isExpanded && isRowSelected) ? ' preset-group__table-option--group-tag--expanded' : ''}${isRowSelected && _dis ? ' preset-group__table-option--activated' : ''}${isDisabled ? ' preset-group__table-option--disabled' : ''}${_newlyDisabledOptKeys.has(row.rowKey + '\x00' + groupKey) ? ' preset-group__table-option--disable-pulse' : ''}${_newlyUndisabledOptKeys.has(row.rowKey + '\x00' + groupKey) ? ' preset-group__table-option--enable-pulse' : ''}"
               data-table-row="${gid}" data-row-key="${escapeHtml(row.rowKey)}" data-kind="group" data-child-group-id="${opt.id}">${escapeHtml(opt.name)}</span>`;
           }
         }
@@ -1389,11 +1745,51 @@
   const queueDataRender = () => {
     if (_dataRenderQueued) return;
     _dataRenderQueued = true;
-    queueMicrotask(() => { _dataRenderQueued = false; render(); });
+    queueMicrotask(() => { _dataRenderQueued = false; syncActivationRowKeys(); render(); });
   };
   state.on('presets', queueDataRender);
   state.on('groups', queueDataRender);
   state.on('rootChildren', queueDataRender);
+
+  // After a move/reorder, a target option's rowKey (its row path in the table
+  // group) may have changed even though its id hasn't. Re-resolve every binding's
+  // dstRowKey against the current tree; drop targets that no longer resolve
+  // (moved out of their table group). Writes state only if something changed.
+  function syncActivationRowKeys() {
+    const activations = state.get('tableActivations') || {};
+    if (!activations || Object.keys(activations).length === 0) return;
+    const groups = state.get('groups') || [];
+    let changed = false;
+    const next = {};
+    for (const [srcGid, bySrc] of Object.entries(activations)) {
+      const gid = Number(srcGid);
+      const tg = groups.find(g => g.id === gid && g.type === 'table');
+      if (!tg) { changed = true; continue; } // table group gone → drop bucket
+      const rows = (window.PresetSelector && window.PresetSelector.collectAllRowsFor) ? window.PresetSelector.collectAllRowsFor(gid) : [];
+      const rowOf = (optKey) => {
+        for (const r of rows) {
+          for (const o of r.options) {
+            if (String(o.kind === 'group' ? 'group:' + o.id : o.id) === String(optKey)) return r.rowKey;
+          }
+        }
+        return null;
+      };
+      const nextBySrc = {};
+      for (const [srcKey, targets] of Object.entries(bySrc)) {
+        const nextTargets = [];
+        for (const t of targets) {
+          const rk = rowOf(t.dstOption);
+          if (rk == null) { changed = true; continue; } // target gone → drop
+          if (rk !== t.dstRowKey) { changed = true; }
+          nextTargets.push({ dstRowKey: rk, dstOption: t.dstOption });
+        }
+        if (nextTargets.length) nextBySrc[srcKey] = nextTargets;
+        else changed = true;
+      }
+      if (Object.keys(nextBySrc).length) next[srcGid] = nextBySrc;
+    }
+    if (changed) state.set('tableActivations', next);
+  }
   // On skin change, just reset the row-animation diff state; the actual
   // render happens when the new presets/groups arrive (queueDataRender). This
   // avoids a flash of empty/wrong content rendered with the OLD skin's data
@@ -1417,11 +1813,16 @@
         else expandedPlain[k] = [];
       }
       const rowSel = state.get('tableRowSelection') || {};
-      api.setTableState(skin, expandedPlain, rowSel).catch(() => {});
+      const activations = state.get('tableActivations') || {};
+      api.setTableState(skin, expandedPlain, rowSel, activations).catch(() => {});
     }, 500);
   }
   state.on('tableExpandedChildren', saveTableState);
   state.on('tableRowSelection', saveTableState);
+  state.on('tableActivations', saveTableState);
+  // Bindings changed (e.g. in the editor) → re-sync sel/expanded so the use-mode
+  // table reflects the new activation edges without needing a click.
+  state.on('tableActivations', resyncTableActivations);
   // tableExpandedChildren / tableRowSelection changes are always followed by an
   // explicit render() (or an activePresets change which re-renders), so they
   // don't need their own listeners — that would only multiply renders.
@@ -1509,6 +1910,55 @@
     render,
     invalidateCache: () => { previewCache = {}; },
     collectApplyUnits,
+    // Exposed so the editor's activation-binding UI can resolve rowKeys to
+    // human-readable row/option labels. Both read current persisted state.
+    collectTableRowsFor: (gid) => {
+      const groups = state.get('groups') || [];
+      const expanded = state.get('tableExpandedChildren') || {};
+      const g = groups.find(x => x.id === gid);
+      if (!g) return [];
+      return collectTableRows(g, groups, expanded, 0, null);
+    },
+    // Full-subtree rows with EVERY nested table group expanded, ignoring current
+    // expand state. Used by the activation-binding UI so the user can target any
+    // option even if its sub-table-group isn't currently expanded.
+    collectAllRowsFor: (gid) => {
+      const groups = state.get('groups') || [];
+      const g = groups.find(x => x.id === gid);
+      if (!g) return [];
+      const byId = new Map(groups.map(x => [x.id, x]));
+      // Build an "all expanded" map: for each table group, mark EVERY table-
+      // group option it directly owns (whether in its __direct__ row or in any
+      // plain sub-group row) as expanded. collectTableRows recurses on its own
+      // once each level's options are marked, so we don't recurse here — we just
+      // fill each table group's own expanded set completely.
+      const expanded = {};
+      for (const tg of groups) {
+        if (tg.type !== 'table') continue;
+        const set = new Set();
+        // Direct children that are table groups.
+        for (const c of (tg.children || [])) {
+          if (c.type === 'group') {
+            const cg = byId.get(c.id);
+            if (cg && cg.type === 'table') set.add(cg.id);
+          }
+        }
+        // Table-group options living inside this table's plain sub-groups (rows).
+        for (const c of (tg.children || [])) {
+          if (c.type !== 'group') continue;
+          const pg = byId.get(c.id);
+          if (!pg || pg.type === 'table') continue; // plain sub-group = a row
+          for (const sc of (pg.children || [])) {
+            if (sc.type === 'group') {
+              const sg = byId.get(sc.id);
+              if (sg && sg.type === 'table') set.add(sg.id);
+            }
+          }
+        }
+        expanded[tg.id] = set;
+      }
+      return collectTableRows(g, groups, expanded, 0, null);
+    },
     hasShortcutSelection: () => shortcutSelected.size > 0 || recorderActive,
     clearShortcutSelection: () => { if (recorderActive) cancelRecording(); else { shortcutSelected = new Set(); render(); } },
   };
