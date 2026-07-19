@@ -1,4 +1,8 @@
-# osu! Skin Configurator
+<p align="center">
+  <img src="docs/exe.svg" alt="osu! Skin Configurator" width="160">
+</p>
+
+<h1 align="center">osu! Skin Configurator</h1>
 
 A desktop tool for creating **presets** of osu! skin changes and switching between them instantly. Bundle skin.ini edits + file copies + file deletions into a named preset, apply with a click or a global hotkey — no more manual ini editing or backup/restore.
 
@@ -18,8 +22,9 @@ A desktop tool for creating **presets** of osu! skin changes and switching betwe
 | ⚡ **One-click apply** | Select presets, confirm, apply — or bind global hotkeys for instant switching |
 | 🌐 **Global hotkeys** | Bind per-preset global shortcuts that fire **only when osu! is focused** |
 | 🖱️ **Drag-and-drop editing** | Drag presets into groups, drag to delete, Ctrl+C duplicate, Ctrl+G smart grouping |
-| 🖼️ **Image editor** | Tint → crop → darken pipeline with real-time WebGL tint preview; build long-note (Percy LN) slider bodies from a short source |
-| 🔧 **Rebindable shortcuts** | All in-app actions (refresh, mode toggle, save, new, etc.) have customizable hotkeys |
+| 🖼️ **Image editor** | Tint → crop → darken pipeline with real-time WebGL tint preview; build long-note (Percy LN) slider bodies from a short source, with batch fill and per-source tint |
+| 🎞️ **Sequence-frame grouping** | Animated previews auto-group numbered frames (`-N` suffix or allowlist match) and apply as a unit in file-copy & tint operations |
+| 🔧 **Rebindable shortcuts** | All in-app actions (refresh, mode toggle, save, new, etc.) have customizable hotkeys, plus a dedicated global-shortcuts manager view |
 | 🪟 **Borderless window** | Custom titlebar with native resize frame; drag to move, double-click to maximize, Windows 11 Snap Layout |
 | 🔄 **Auto-update** | Checks GitHub for new releases on startup; one-click download with a live progress ring on the titlebar dot (right-click to cancel) |
 | 📎 **`.osp` file association** | Double-click a skin's `config.osp` to open it directly |
@@ -45,7 +50,7 @@ Get `osu-skin-configurator.exe` from [Releases](https://github.com/Sisurtic/osu-
 
 ### Changelog
 
-See [release-v1.1.0.md](release-v1.1.0.md) for the v1.1.0 release notes and post-release fixes (checkbox-group apply rework, unified drag/drop rewrite, multi-select `selection.js` module, mixed preset+group selection, copy/paste actions, editor empty-state, ESC to deselect).
+See the [GitHub Releases](https://github.com/Sisurtic/osu-skin-configurator/releases) for release notes and post-release fixes (checkbox-group apply rework, unified drag/drop rewrite, multi-select `selection.js` module, mixed preset+group selection, copy/paste actions, sequence-frame grouping, editor empty-state, ESC to deselect).
 
 ### Prerequisites
 
