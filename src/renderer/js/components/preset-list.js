@@ -1096,6 +1096,8 @@
         if (result.success) {
           Toast.success(i18n.t('group.created', { name: newName }));
           await refreshSkinData(skin);
+          Selection.setSingle('group', result.data);
+          state.setMultiple({ selectedGroup: result.data, selectedPreset: null, presetDirty: false });
         } else {
           Toast.error(i18n.t('group.createFailed', { msg: (result.error || i18n.t('app.unknownError')) }));
         }
@@ -1119,6 +1121,8 @@
         if (result.success) {
           Toast.success(i18n.t('group.createdTable', { name: newName }));
           await refreshSkinData(skin);
+          Selection.setSingle('group', result.data);
+          state.setMultiple({ selectedGroup: result.data, selectedPreset: null, presetDirty: false });
         } else {
           Toast.error(i18n.t('group.createFailed', { msg: (result.error || i18n.t('app.unknownError')) }));
         }
@@ -1460,39 +1464,57 @@
     const hasMultiGroups = Selection.groupIds().length > 0;
     const hasMultiPresets = Selection.presetIds().length > 0;
     if (hasSel || hasMultiGroups || hasMultiPresets) {
-      // Block: creating a PLAIN group whose source includes a row (plain group
-      // inside a table group) would create an invalid 2nd-level nesting.
-      if (!isTable) {
-        if (hasSel && isPlainRowInTable(groups, selGid)) {
+      // Special case: exactly ONE group is selected (no presets, no other
+      // groups) — clicking a group selects it via BOTH selectedGroup and the
+      // Selection set, so merge+dedupe to count unique selected groups. Create
+      // the new group AS A CHILD of that group (nest inside), not wrapping it.
+      const selGroupIds = new Set(Selection.groupIds());
+      if (hasSel && selGid != null) selGroupIds.add(selGid);
+      const singleGroupSelected = !hasMultiPresets && selGroupIds.size === 1;
+      if (singleGroupSelected) {
+        const target = [...selGroupIds][0];
+        // Respect the row-nesting limit: a plain group can't be created inside
+        // a table group's row (would be a 2nd-level plain nesting).
+        if (!isTable && isPlainRowInTable(groups, target)) {
           Toast.warning(i18n.t('group.cannotNestInTableRow'));
           return;
         }
-        if (Selection.groupIds().some(gid => isPlainRowInTable(groups, gid))) {
-          Toast.warning(i18n.t('group.cannotNestInTableRow'));
-          return;
-        }
-      }
-      // Collect the parent of every selected item (presets + groups + the
-      // single selected group). null = at root.
-      const parentIds = new Set();
-      if (hasSel) {
-        const parent = groups.find(g => g.children && g.children.some(c => c.type === 'group' && c.id === selGid));
-        parentIds.add(parent ? parent.id : null);
-      }
-      for (const gid of Selection.groupIds()) {
-        const p = groups.find(g => g.children && g.children.some(c => c.type === 'group' && c.id === gid));
-        parentIds.add(p ? p.id : null);
-      }
-      for (const pid of Selection.presetIds()) {
-        parentIds.add(findPresetParentGroupId(groups, pid));
-      }
-      const uniqueParents = [...parentIds].filter(id => id !== null);
-      if (parentIds.has(null)) {
-        parentGroupId = null;
-      } else if (uniqueParents.length === 1) {
-        parentGroupId = uniqueParents[0];
+        parentGroupId = target;
       } else {
-        parentGroupId = findOutermostCommonAncestor(groups, uniqueParents);
+        // Block: creating a PLAIN group whose source includes a row (plain group
+        // inside a table group) would create an invalid 2nd-level nesting.
+        if (!isTable) {
+          if (hasSel && isPlainRowInTable(groups, selGid)) {
+            Toast.warning(i18n.t('group.cannotNestInTableRow'));
+            return;
+          }
+          if (Selection.groupIds().some(gid => isPlainRowInTable(groups, gid))) {
+            Toast.warning(i18n.t('group.cannotNestInTableRow'));
+            return;
+          }
+        }
+        // Collect the parent of every selected item (presets + groups + the
+        // single selected group). null = at root.
+        const parentIds = new Set();
+        if (hasSel) {
+          const parent = groups.find(g => g.children && g.children.some(c => c.type === 'group' && c.id === selGid));
+          parentIds.add(parent ? parent.id : null);
+        }
+        for (const gid of Selection.groupIds()) {
+          const p = groups.find(g => g.children && g.children.some(c => c.type === 'group' && c.id === gid));
+          parentIds.add(p ? p.id : null);
+        }
+        for (const pid of Selection.presetIds()) {
+          parentIds.add(findPresetParentGroupId(groups, pid));
+        }
+        const uniqueParents = [...parentIds].filter(id => id !== null);
+        if (parentIds.has(null)) {
+          parentGroupId = null;
+        } else if (uniqueParents.length === 1) {
+          parentGroupId = uniqueParents[0];
+        } else {
+          parentGroupId = findOutermostCommonAncestor(groups, uniqueParents);
+        }
       }
     }
 
@@ -1514,8 +1536,15 @@
     // Collect ALL selected groups (the multi-set + the single selected group)
     // and ALL selected presets. Mixed selection moves everything into the new
     // group. Apply the per-source flatten check ONCE for all table-create cases.
+    // EXCEPT the nest-under-selected case (parentGroupId === selGid): the
+    // selected group stays put, nothing to move.
+    // nest-under: the new group's parent IS the selected group → don't move
+    // the selected group into the new group (it stays as the parent).
+    const nestUnderSelected = parentGroupId != null
+      && (parentGroupId === selGid || Selection.groupIds().includes(parentGroupId));
     const allSelGroups = new Set(Selection.groupIds());
-    if (selGid != null) allSelGroups.add(selGid);
+    if (nestUnderSelected) allSelGroups.delete(parentGroupId);
+    else if (selGid != null) allSelGroups.add(selGid);
     const movedAny = allSelGroups.size > 0 || Selection.presetIds().length > 0;
 
     if (movedAny) {
@@ -1553,18 +1582,24 @@
         await api.movePresetGroup(skin, pid, newGroupId);
       }
       const totalMoved = allSelGroups.size + Selection.presetIds().length;
-      state.setMultiple({ selectedGroup: newGroupId, selectedPreset: null });
       Selection.clear();
       Toast.success(isTable
         ? i18n.t('group.createdTable', { name: newName })
         : (totalMoved > 1 ? i18n.t('group.createdWithPresets', { name: newName, count: totalMoved }) : i18n.t('group.createdEmpty', { name: newName })));
     } else {
-      state.setMultiple({ selectedGroup: newGroupId, selectedPreset: null });
+      Selection.clear();
       Toast.success(isTable
         ? i18n.t('group.createdTable', { name: newName })
         : i18n.t('group.createdEmpty', { name: newName }));
     }
+    // Refresh FIRST so the new group is in state.groups, THEN set selectedGroup
+    // — the editor's selectedGroup listener reads state.groups to load the new
+    // group; setting it before the refresh left the editor on stale data.
     await refreshSkinData(skin);
+    // Select the new group the same way a click does (Selection.setSingle +
+    // selectedGroup) so the highlight + editor load match a manual pick.
+    Selection.setSingle('group', newGroupId);
+    state.setMultiple({ selectedGroup: newGroupId, selectedPreset: null, presetDirty: false });
 
     // Expand the ancestor chain so the new group is visible (auto-expand-to-new),
     // then focus its name input. Applies to plain groups and table groups alike.

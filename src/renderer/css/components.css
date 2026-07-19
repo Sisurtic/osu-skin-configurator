@@ -1703,17 +1703,19 @@ select.form-input {
 .preset-tree__group-header:hover {
   background: var(--bg-hover);
 }
-/* Selected group (basic-info editing) — same tint as a selected preset.
-   Hover keeps the accent tint (don't let the white hover override it). */
+/* Selected group (single or multi) — unified outline style. The single-edit
+   selected state and the multi-selection set share the same look so there's
+   only one "selected" visual. Hover keeps the tint (don't let white override). */
 .preset-tree__group-header--selected,
-.preset-tree__group-header--selected:hover {
-  background: var(--accent-bg);
-}
-.preset-tree__group-header--multi-selected {
+.preset-tree__group-header--selected:hover,
+.preset-tree__group-header--multi-selected,
+.preset-tree__group-header--multi-selected:hover {
   background: rgba(102, 204, 136, 0.14);
   outline: 1px solid var(--accent-dim);
   outline-offset: -1px;
   border-radius: var(--radius-sm);
+}
+.preset-tree__group-header--multi-selected {
   position: sticky;
   z-index: 2;
 }
@@ -1836,20 +1838,16 @@ select.form-input {
 .preset-tree__item:hover {
   background: var(--bg-hover);
 }
-.preset-tree__item--editing {
-  background: rgba(102,204,136,0.08);
-}
-.preset-tree__item--editing:hover {
-  background: rgba(102,204,136,0.08);
-}
-.preset-tree__item--multi-selected {
+/* Selected preset (single-edit or multi) — unified outline style, same look
+   for both so there's one "selected" visual. */
+.preset-tree__item--editing,
+.preset-tree__item--editing:hover,
+.preset-tree__item--multi-selected,
+.preset-tree__item--multi-selected:hover {
   background: rgba(102,204,136,0.14);
   outline: 1px solid var(--accent-dim);
   outline-offset: -1px;
   border-radius: var(--radius-sm);
-}
-.preset-tree__item--multi-selected:hover {
-  background: rgba(102,204,136,0.14);
 }
 .preset-tree__item--dragging {
   opacity: 0.3;
