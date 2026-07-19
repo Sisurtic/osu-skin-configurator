@@ -1047,16 +1047,13 @@
           }
         }
       }
-      // (b) release rows activation owned last pass but no longer.
+      // (b) release rows activation owned last pass but no longer. Keep their
+      // current sel + expand state (a released target should hold its option,
+      // just stop being force-locked) — only drop them from actRows so they're
+      // user-editable again.
       for (const rk of actRows) {
         if (want.has(rk)) continue;
-        const old = sel[rk];
-        if (old != null) { delete sel[rk]; changed = true; }
-        if (typeof old === 'string' && old.startsWith('group:')) {
-          const owner = parseOwnerGid(rk, groups, gid);
-          const childId = parseInt(old.slice(6), 10);
-          if (expanded[owner] && expanded[owner].has(childId)) { expanded[owner].delete(childId); changed = true; }
-        }
+        // sel[rk] deliberately preserved; nothing to change here.
       }
       // (c) force activation targets (= a user pick).
       for (const [rk, optKey] of want) {
