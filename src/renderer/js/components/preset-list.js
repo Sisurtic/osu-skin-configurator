@@ -459,12 +459,11 @@
         const targetGroupId = parseInt(row.dataset.groupId, 10);
         const groups0 = state.get('groups') || [];
 
-        // Nesting into a plain group that is a row of a table group requires the
-        // flatten check (table groups only allow one level of plain sub-groups).
-        // Nesting directly into a table group itself is fine (no prompt).
-        // Only applies when dragging PLAIN groups (not table groups).
-        const needsFlattenCheck = isPlainRowInTable(groups0, targetGroupId)
-          && dragItems.some(d => d.type === 'group' && (groups0.find(x => x.id === d.id) || {}).type !== 'table');
+        // Does any dragged group need flattening before nesting under the target?
+        // Single source of truth: needsFlattenBeforeNest.
+        const targetGroup0 = groups0.find(x => x.id === targetGroupId) || {};
+        const needsFlattenCheck = dragItems.some(d =>
+          d.type === 'group' && needsFlattenBeforeNest(groups0, targetGroupId, d.id));
 
         if (needsFlattenCheck) {
           // Prompt to flatten — regardless of whether the dragged group has
@@ -477,8 +476,7 @@
             ]
           );
           if (choice !== 'flatten') return;
-          // Flatten dragged plain groups: first flatten their internal sub-groups,
-          // then hoist their presets into the target (group shell deleted).
+          // Which plain groups need internal flattening (have nested sub-groups)?
           const plainGroupIds = dragItems
             .filter(d => d.type === 'group')
             .filter(d => {
@@ -486,21 +484,33 @@
               return g && g.type !== 'table';
             })
             .map(d => d.id);
-          for (const gid of plainGroupIds) {
-            // 1. Flatten internal sub-groups (hoist their presets into this group).
-            await api.flattenGroupSubgroups(skin, gid);
-            // 2. Move this group's presets directly into the target group.
-            const refreshed = await api.scanPresets(skin);
-            if (refreshed.success) { state.set('groups', refreshed.data.groups); }
-            const g2 = (state.get('groups') || []).find(x => x.id === gid);
-            if (g2 && g2.children) {
-              for (const c of g2.children) {
-                if (c.type === 'preset') await api.movePresetGroup(skin, c.id, targetGroupId);
-                else if (c.type === 'group') await api.moveGroup(skin, c.id, targetGroupId);
-              }
+          if (targetGroup0.type === 'table') {
+            // Dropping INTO a table group itself: the plain group becomes a row
+            // of the table (legal as one level). Only flatten ITS nested plain
+            // sub-groups (which would be the 2nd level); keep the group shell.
+            for (const gid of plainGroupIds) {
+              if (hasNestedSubGroups(groups0, gid)) await api.flattenGroupSubgroups(skin, gid);
+              await api.moveGroup(skin, gid, targetGroupId);
             }
-            // 3. Delete the now-empty group shell.
-            await api.removeGroup(skin, gid);
+          } else {
+            // Dropping into a plain row of a table: flatten internal sub-groups,
+            // then hoist the group's presets into the target (group shell deleted).
+            for (const gid of plainGroupIds) {
+              // 1. Flatten internal sub-groups (hoist their presets into this group).
+              await api.flattenGroupSubgroups(skin, gid);
+              // 2. Move this group's presets directly into the target group.
+              const refreshed = await api.scanPresets(skin);
+              if (refreshed.success) { state.set('groups', refreshed.data.groups); }
+              const g2 = (state.get('groups') || []).find(x => x.id === gid);
+              if (g2 && g2.children) {
+                for (const c of g2.children) {
+                  if (c.type === 'preset') await api.movePresetGroup(skin, c.id, targetGroupId);
+                  else if (c.type === 'group') await api.moveGroup(skin, c.id, targetGroupId);
+                }
+              }
+              // 3. Delete the now-empty group shell.
+              await api.removeGroup(skin, gid);
+            }
           }
           await refreshSkinData(skin);
           return;
@@ -527,10 +537,13 @@
       if (!alreadyHere) {
         // Cross-parent move into a plain group that is a row of a table group:
         // prompt to flatten first (same as nest).
-        if (parentId != null && isPlainRowInTable(state.get('groups') || [], parentId)) {
+        // Flatten check (single source of truth): any dragged group that would
+        // create a 2nd-level plain nesting under parentId must flatten first.
+        {
           const groups0 = state.get('groups') || [];
-          const hasPlainGroups = dragItems.some(d => d.type === 'group' && (groups0.find(x => x.id === d.id) || {}).type !== 'table');
-          if (hasPlainGroups) {
+          const needFlatten = dragItems
+            .filter(d => d.type === 'group' && needsFlattenBeforeNest(groups0, parentId, d.id));
+          if (needFlatten.length) {
             const choice = await ApplyDialog.showConfirmDialog(
               i18n.t('group.flattenConfirm'),
               [
@@ -539,13 +552,6 @@
               ]
             );
             if (choice !== 'flatten') return;
-            const groups0 = state.get('groups') || [];
-            const needFlatten = dragItems
-              .filter(d => d.type === 'group')
-              .filter(d => {
-                const g = groups0.find(x => x.id === d.id);
-                return g && g.type !== 'table' && hasNestedSubGroups(groups0, d.id);
-              });
             for (const d of needFlatten) await api.flattenGroupSubgroups(skin, d.id);
           }
         }
@@ -1195,6 +1201,11 @@
 
   async function confirmSwitchIfDirty() {
     if (!state.get('presetDirty')) return true;
+    // A new (unsaved) preset has nothing on disk to lose — discard silently.
+    if (state.get('selectedPreset') === '__new__') {
+      state.set('presetDirty', false);
+      return true;
+    }
     const unsavedMsg = state.get('selectedGroup') != null
       ? i18n.t('dialog.unsavedSwitchGroup')
       : i18n.t('dialog.unsavedSwitch');
@@ -1550,10 +1561,12 @@
     if (movedAny) {
       // For a TABLE parent, a plain source group with nested plain sub-groups
       // must be flattened first. Prompt ONCE for all such sources.
+      // newGroupId is a freshly-created table group (not yet in `groups`),
+      // so the guard reduces to: plain source group with nested plain sub-groups.
       if (isTable) {
         const needFlatten = [...allSelGroups].filter(gid => {
-          const srcIsTable = (groups.find(g => g.id === gid) || {}).type === 'table';
-          return !srcIsTable && hasNestedSubGroups(groups, gid);
+          const src = groups.find(g => g.id === gid);
+          return src && src.type !== 'table' && hasNestedSubGroups(groups, gid);
         });
         if (needFlatten.length > 0) {
           const choice = await ApplyDialog.showConfirmDialog(
@@ -1662,16 +1675,21 @@
     if (btn) updateSidebarSaveButton(btn);
   });
 
-  // Check: is the currently selected preset inside a table group or table row?
-  // Check if a group is a plain sub-group inside a table group (i.e. it's a
-  // "row" — creating another plain group inside it would be a 2nd-level nest).
-  // Check if a group is a plain sub-group inside a table group (i.e. it's a
-  // "row" — creating another plain group inside it would be a 2nd-level nest).
+  // ── Table-nesting guards (single source of truth) ──
+  // RULE: inside a table group's subtree, a plain group may not have its own
+  // plain sub-groups (a table allows only ONE level of plain groups = its rows).
+  // Table groups can nest freely; plain groups outside any table are unrestricted.
+  //
+  // All create/move/drop paths MUST go through these two predicates instead of
+  // re-deriving the rule at each call site (which is what made it drift).
+
+  // Is `groupId` a plain group living inside a table group (directly or as a
+  // row)? Such a group is already the one allowed plain level — nesting another
+  // plain group under it is forbidden.
   function isPlainRowInTable(allGroups, groupId) {
     if (groupId == null) return false;
     const g = allGroups.find(x => x.id === groupId);
     if (!g || g.type === 'table') return false;
-    // Find this group's parent.
     for (const pg of allGroups) {
       if (pg.children && pg.children.some(c => c.type === 'group' && c.id === groupId)) {
         return pg.type === 'table';
@@ -1680,7 +1698,7 @@
     return false;
   }
 
-  // Check if a group has any DIRECT plain (non-table) sub-groups.
+  // Does `groupId` have any DIRECT plain (non-table) sub-group?
   function hasNestedSubGroups(allGroups, groupId) {
     const g = allGroups.find(x => x.id === groupId);
     if (!g || !g.children) return false;
@@ -1689,6 +1707,21 @@
       const sub = allGroups.find(x => x.id === c.id);
       return sub && sub.type !== 'table';
     });
+  }
+
+  // Does `childId` (a plain group) need its own plain sub-groups flattened
+  // BEFORE being placed under `parentId`? True when child has plain sub-groups
+  // AND the destination is inside a table scope (parentId is a table, or a
+  // plain row of a table). The child shell itself is kept (becomes a row).
+  function needsFlattenBeforeNest(allGroups, parentId, childId) {
+    const child = allGroups.find(x => x.id === childId);
+    if (!child || child.type === 'table') return false;
+    if (!hasNestedSubGroups(allGroups, childId)) return false;
+    if (parentId == null) return false;
+    const parent = allGroups.find(x => x.id === parentId);
+    if (!parent) return false;
+    // Destination is in table scope if parent is a table, or parent is a row.
+    return parent.type === 'table' || isPlainRowInTable(allGroups, parentId);
   }
 
   window.PresetList = { render, createGroupWithSelected, duplicateSelected, clearSelection, confirmSwitchIfDirty, refreshSkinData };
