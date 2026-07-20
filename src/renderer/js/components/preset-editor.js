@@ -936,6 +936,18 @@
           _newPresetTargetParent = undefined;
         }
       }
+      // New-preset flow kept A highlighted during editing; now that the new
+      // preset exists, clear that stale selection THEN select the new preset
+      // like a manual click (Selection.setSingle puts it in the selection set
+      // so Shift-range / Ctrl-multi / delete all see it; selectedPreset loads
+      // it in the editor). clearSelection sets selectedPreset=null first, so
+      // order matters.
+      if (currentId === '__new__' && window.PresetList && typeof window.PresetList.clearSelection === 'function') {
+        window.PresetList.clearSelection();
+      }
+      if (currentId === '__new__' && window.Selection && typeof window.Selection.setSingle === 'function') {
+        window.Selection.setSingle('preset', result.data);
+      }
       state.set('selectedPreset', result.data);
       // Preview images may have changed — drop the cached ones before re-scan
       // so the next render reloads them (ids are also compacted on delete).

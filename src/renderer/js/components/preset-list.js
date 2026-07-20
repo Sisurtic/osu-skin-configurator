@@ -1076,7 +1076,9 @@
           targetParent = parent ? parent.id : null;
         }
         if (window.PresetEditor) window.PresetEditor.newPresetTargetParent = targetParent;
-        clearSelection();
+        // Don't clearSelection() yet: keep A highlighted so the user can see
+        // which item the new preset is being created under. Selection clears
+        // when the new preset is saved (selectedPreset → new id).
         state.set('selectedPreset', '__new__');
         // Force a fresh form even when already in __new__ (re-clicking "New Preset")
         if (window.PresetEditor && typeof window.PresetEditor.resetNew === 'function') {
