@@ -2,6 +2,17 @@
 (function () {
   const viewEl = document.getElementById('view-editor');
 
+  // Any input/textarea/select focus inside the editor marks it dirty — so the
+  // save button lights up the moment the user starts editing ANY field (ini
+  // value, file destination, tint color, etc.), not only name/desc. Event
+  // delegation (focusin bubbles) covers all current + future sub-editor inputs.
+  viewEl.addEventListener('focusin', (e) => {
+    const t = e.target;
+    if (!t || !t.matches || !t.matches('input:not([type="checkbox"]):not([disabled]), textarea:not([disabled]), select:not([disabled])')) return;
+    if (state.get('multiSelectActive')) return; // editor locked
+    if (!state.get('presetDirty')) state.set('presetDirty', true);
+  });
+
   // Editor state for the currently editing target (preset OR group).
   // kind: 'preset' | 'group'. Group reuses meta.name/description + _preview*;
   // actions stay empty (group has no ini/files/tint). _groupId/_originalName
@@ -843,9 +854,13 @@
   async function doSave() {
     const sk = skinName();
     if (!sk) { Toast.error(i18n.t('toast.selectSkinFirst')); return false; }
-    // Flush any focused input (name/desc) into editData before saving.
+    // Flush any focused input/textarea/select into editData before saving —
+    // blurring fires its change event so the sub-editor commits the in-flight
+    // value. Without this, saving while a field is focused stores the OLD value.
     const ae = document.activeElement;
-    if (ae && (ae.id === 'preset-name' || ae.id === 'preset-desc')) ae.blur();
+    if (ae && ae.matches && ae.matches('input, textarea, select') && typeof ae.blur === 'function') {
+      ae.blur();
+    }
     // Unified entry: dispatch to the group save path when a group is loaded.
     if (editData.kind === 'group') return doSaveGroup();
 
@@ -1252,6 +1267,9 @@
         i18n.t('paste.conflictTitle', { category: cat.label, count: conflicts.length }),
         opts
       );
+      // Esc / dialog dismissed → cancel the WHOLE paste (including the already-
+      // staged non-conflicting entries). Return without committing.
+      if (!choice) return;
       if (choice === 'overwrite') {
         // Replace target entries whose key matches a clipboard entry, then add
         // the clipboard's version. Preserve target order for surviving entries.
