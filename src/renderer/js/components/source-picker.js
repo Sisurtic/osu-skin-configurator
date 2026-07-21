@@ -67,6 +67,27 @@
     return toSkinRelative(result.data[0], skPath);
   }
 
+  // Multi-select variant: opens the same dialog but returns ALL chosen paths
+  // (skin-relative). Used by group-level re-source. Returns [] on cancel.
+  async function pickMulti(opts) {
+    const getSkinPath = (opts && opts.getSkinPath) || (async () => '');
+    const filters = (opts && opts.filters) || DEFAULT_FILTERS();
+    const skPath = (await getSkinPath() || '').replace(/\\/g, '/');
+    let defaultPath = skPath || undefined;
+    const cur = opts && opts.currentSource;
+    if (cur && skPath) {
+      const abs = cur.replace(/\\/g, '/');
+      const isAbs = /^[a-zA-Z]:[\\/]/.test(abs) || abs.startsWith('/');
+      const full = isAbs ? abs : (skPath.replace(/\/$/, '') + '/' + abs);
+      const lastSep = Math.max(full.lastIndexOf('/'), full.lastIndexOf('\\'));
+      const dir = lastSep > 0 ? full.substring(0, lastSep) : full;
+      defaultPath = dir;
+    }
+    const result = await api.selectFile(filters, defaultPath);
+    if (!result || !result.success || !result.data || !result.data.length) return [];
+    return result.data.map(p => toSkinRelative(p, skPath)).filter(Boolean);
+  }
+
   // Bind a thumbnail element so a click on its <img>/icon starts a pick and
   // calls onPick(relativePath, clickEvent). `opts`:
   //   getSkinPath: async () => absSkinPath   (required — skin root for normalization)
@@ -86,5 +107,5 @@
     });
   }
 
-  window.SourcePicker = { attach, pick };
+  window.SourcePicker = { attach, pick, pickMulti };
 })();

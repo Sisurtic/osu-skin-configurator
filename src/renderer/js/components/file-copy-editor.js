@@ -11,6 +11,9 @@
   // Snapshot of FOLDED header destinations taken at render start, so rebuilds
   // don't wipe an in-flight header edit. Keyed by seq group key.
   let _headerTempSnapshot = {};
+  // When a group is re-sourced, the old header's destination/exact is carried
+  // to the NEW group by seqKey. Consumed once by renderGroup.
+  let _carryHeaderTemp = {};
 
   // The view-model used for the current render (source order, left to right).
   // All data-idx consumers index into THIS, not a fresh buildFileOps().
@@ -631,7 +634,7 @@
     // ── Click thumbnail/icon to change source path ──
     // SourcePicker owns trigger detection (img/icon only) + the file dialog +
     // path normalization; onPick does the editor-specific data write/sync/render.
-    container.querySelectorAll('.file-thumb[data-path]').forEach(thumb => {
+    container.querySelectorAll('.file-thumb[data-path]:not(.file-seq-resrc)').forEach(thumb => {
       SourcePicker.attach(thumb, {
         getSkinPath: () => skinPath(),
         onPick: (chosen) => {
@@ -656,6 +659,19 @@
           if (sel && savedSel.length > 1) sel.setSelected(new Set(savedSel), savedAnchor);
         },
       });
+    });
+
+    // Group-level re-source (shared): click a group header's thumbnail →
+    // multi-pick new sources → replace the group's members → carry header temp.
+    OpTable.createGroupResrc({
+      container,
+      getOps: () => currentFileOps ? [...currentFileOps] : buildFileOps(),
+      applyOps: (arr) => { applyFileOps(arr); rerenderTable(container); },
+      memberIdx: groupMemberIdx,
+      makeOp: (src) => ({ _type: 'copy', source: src, destination: '', exact: false }),
+      seqKeyPrefix: 'copy',
+      carryStore: _carryHeaderTemp,
+      skinPath: () => skinPath(),
     });
 
     // ── Delete zone drop handler ── delegated to OpTable
@@ -879,8 +895,16 @@
       // edited it while folded), reuse that snapshot so re-rendering (e.g.
       // after a fill) doesn't wipe the in-flight header edit. Expanded headers
       // mirror the first member.
+      // Carry (re-source) takes priority, then folded snapshot, then first member.
+      const carry = isCopy ? _carryHeaderTemp[g.key] : null;
+      if (carry) delete _carryHeaderTemp[g.key]; // consume once
       let headerDest = isCopy ? (first.destination || '') : '';
-      if (isCopy && !expandedSeqGroups.has(gid) && _headerTempSnapshot[gid] != null) {
+      let headerExact = isCopy ? !!first.exact : false;
+      if (carry) {
+        headerDest = carry.dest || '';
+        if (carry.exact != null) headerExact = carry.exact;
+      }
+      if (isCopy && !carry && !expandedSeqGroups.has(gid) && _headerTempSnapshot[gid] != null) {
         headerDest = _headerTempSnapshot[gid];
       }
       const destCell = isCopy
@@ -891,7 +915,7 @@
       // Group-level exact toggle: enabled only when the group has @2x files;
       // otherwise a dimmed, disabled toggle (not empty) — matches member rows.
       const exactToggle = `<label class="toggle${groupHas2x ? '' : ' is-disabled'}" style="flex:0 0 auto">
-          <input type="checkbox" class="file-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${(groupHas2x && first.exact) ? 'checked' : ''}${groupHas2x ? '' : ' disabled'}>
+          <input type="checkbox" class="file-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${(groupHas2x && headerExact) ? 'checked' : ''}${groupHas2x ? '' : ' disabled'}>
           <span class="toggle__slider"></span>
         </label>`;
       const exactCell = `<td><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">
@@ -901,7 +925,7 @@
       const rows = [
         `<tr class="file-op-row file-seq-group${expanded ? ' file-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
           <td><span class="tag ${tagCls}" style="cursor:pointer">${i18n.t(tagKey)}</span></td>
-          <td style="cursor:pointer"><span style="display:flex;align-items:center;gap:6px;width:100%"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0">${escapeHtml(label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
+          <td style="cursor:pointer"><span style="display:flex;align-items:center;gap:6px;width:100%">${isCopy ? `<span class="file-thumb file-seq-resrc" data-group-resrc="${escapeHtml(gid)}" data-path="${escapeHtml(first.source || '')}" title="${escapeHtml(i18n.t('file.resrcGroupTitle'))}" style="display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0">${thumbHtmlFor(first.source || '', label)}</span>` : `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0">${escapeHtml(label)}</span>`}<span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
           ${destCell}
           ${exactCell}
         </tr>`,

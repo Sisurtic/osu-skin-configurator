@@ -634,5 +634,54 @@
     return { htmlFor, load };
   }
 
-  window.OpTable = { create, createGroupSync, createThumbLoader, escapeHtml, pathBasename, appendSrcExt, reorderArray, parseFrame, isFrame, seqKey, SEQ_NOHYPHEN, assignSeqGroupIds, pruneExpanded };
+  // Shared group-level re-source: bind a click handler on each group-header
+  // thumbnail (`.file-seq-resrc[data-group-resrc]`) so clicking it multi-picks
+  // new sources, removes the old group members, and inserts fresh ops in place.
+  // render re-groups; the old header temp (destination/exact + extra) is carried
+  // to the rebuilt header by seqKey. adapter:
+  //   getOps(): current op array (flat)
+  //   applyOps(arr): write + re-render
+  //   memberIdx(groupRow): [idx,...] of the group's members
+  //   makeOp(src): build a fresh op from a chosen source
+  //   seqKeyPrefix: e.g. 'copy' / 'tint' (combined with '|'+base)
+  //   carryStore: object used as a map (set carryStore[key] = {dest, exact, extra})
+  //   skinPath(): async abs skin path
+  //   container: the table container
+  //   captureExtra(groupRow): optional {params} to carry beyond dest/exact
+  function createGroupResrc(adapter) {
+    const { container, getOps, applyOps, memberIdx, makeOp, seqKeyPrefix, carryStore, skinPath, captureExtra } = adapter;
+    if (!container) return;
+    container.querySelectorAll('.file-seq-resrc[data-group-resrc]').forEach(thumb => {
+      thumb.addEventListener('click', async (e) => {
+        if (!e.target.matches('img, .file-thumb__icon')) return;
+        const groupRow = thumb.closest('.tint-seq-group, .file-seq-group');
+        const idxs = memberIdx(groupRow);
+        if (!idxs || idxs.length < 1) return;
+        const ops = [...(getOps() || [])];
+        const firstOp = ops[idxs[0]];
+        const oldDestInput = groupRow.querySelector('[data-group-header="1"].file-seq-dest, .file-seq-dest[data-group-header="1"]');
+        const oldExactInput = groupRow.querySelector('[data-group-header="1"].file-seq-exact-toggle, .file-seq-exact-toggle[data-group-header="1"]');
+        const carryDest = oldDestInput ? oldDestInput.value : '';
+        const carryExact = oldExactInput ? !!oldExactInput.checked : null;
+        const extra = captureExtra ? captureExtra(groupRow) : null;
+        const chosen = await window.SourcePicker.pickMulti({
+          getSkinPath: () => skinPath(),
+          currentSource: firstOp && (firstOp.source != null ? firstOp.source : ''),
+        });
+        if (!chosen || !chosen.length) return;
+        const insertAt = idxs[0];
+        const newOps = chosen.map(src => makeOp(src));
+        const rmSet = new Set(idxs);
+        const kept = ops.filter((_, i) => !rmSet.has(i));
+        kept.splice(insertAt, 0, ...newOps);
+        const f = parseFrame(newOps[0].source);
+        if (f) {
+          carryStore[seqKeyPrefix + '|' + f.base] = { dest: carryDest, exact: carryExact, extra };
+        }
+        applyOps(kept);
+      });
+    });
+  }
+
+  window.OpTable = { create, createGroupSync, createThumbLoader, escapeHtml, pathBasename, appendSrcExt, reorderArray, parseFrame, isFrame, seqKey, SEQ_NOHYPHEN, assignSeqGroupIds, pruneExpanded, createGroupResrc };
 })();

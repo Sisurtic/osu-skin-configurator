@@ -339,6 +339,15 @@ select.form-input {
   opacity: 0.85;
   box-shadow: 0 0 0 2px var(--accent);
 }
+/* Group-header thumbnail name: truncate (ellipsis) inside its flex parent so
+   the cut point sits just left of the (N) counter, not under it. */
+.file-seq-resrc .file-thumb__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .file-thumb__icon {
   width: 28px;
   height: 28px;

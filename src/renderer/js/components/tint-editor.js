@@ -63,6 +63,9 @@
   // Snapshot of FOLDED group-header destination + exact, taken at render start
   // so a rebuild preserves an in-flight header edit. Keyed by per-instance gid.
   let _headerDestSnapshot = {};
+  // When a group is re-sourced, the old header's destination + exact + tint/crop
+  // temp is carried to the NEW group by seqKey. Consumed once by renderGroup.
+  let _carryHeaderTemp = {};
   function pathBasename(p) { return OpTable.pathBasename(p); }
   function escapeHtml(s) { return OpTable.escapeHtml(s); }
   function colorToCss(c) {
@@ -315,12 +318,16 @@
     const ghAttr = `data-group-header="1" data-group="${escapeHtml(g.key)}"`;
     const rangeAttr = `data-range="${g.range[0]}-${g.range[1]}"`;
     const gidAttr = `data-gid="${escapeHtml(gid)}"`;
-    // Header keeps the first member's FULL destination by default, but if a
-    // previous render had a value in this FOLDED header's inputs (an in-flight
-    // edit), reuse that snapshot so rebuilds don't wipe it.
+    // Carry (re-source) takes priority, then folded snapshot, then first member.
+    const carry = _carryHeaderTemp[g.key];
+    if (carry) {
+      delete _carryHeaderTemp[g.key]; // consume once
+      // Also carry tint/crop params into the new group's seqKey.
+      if (carry.extra && carry.extra.params != null) headerTempParams.set(g.key, carry.extra.params);
+    }
     const snap = _headerDestSnapshot[gid];
-    const headerDest = (snap && snap.dest != null) ? snap.dest : (first.destination || '');
-    const headerExact = (snap && snap.exact != null) ? snap.exact : !!first.exact;
+    const headerDest = carry ? (carry.dest || '') : ((snap && snap.dest != null) ? snap.dest : (first.destination || ''));
+    const headerExact = carry ? (carry.exact != null ? carry.exact : !!first.exact) : ((snap && snap.exact != null) ? snap.exact : !!first.exact);
     const destCell = `<td><input type="text" class="form-input tint-dest tint-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>`;
     const fillBtn = `<button type="button" class="btn btn--secondary btn--sm tint-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap;margin-left:auto">${i18n.t('file.fillAll')}</button>`;
     const exactToggle = `<label class="toggle${groupHas2x ? '' : ' is-disabled'}" style="flex:0 0 auto">
@@ -330,7 +337,7 @@
     const exactCell = `<td><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">${exactToggle}${fillBtn}</div></td>`;
     const rows = [
       `<tr class="tint-row tint-seq-group${expanded ? ' tint-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
-        <td style="cursor:pointer"><span style="display:flex;align-items:center;gap:6px;width:100%"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0">${escapeHtml(label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
+        <td style="cursor:pointer"><span style="display:flex;align-items:center;gap:6px;width:100%"><span class="file-thumb file-seq-resrc" data-group-resrc="${escapeHtml(gid)}" data-path="${escapeHtml(first.source || '')}" title="${escapeHtml(i18n.t('file.resrcGroupTitle'))}" style="display:inline-flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0">${thumbHtmlFor(first.source || '', label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
         ${destCell}
         ${exactCell}
       </tr>`,
@@ -350,8 +357,8 @@
     placeholderHtml: () => `<span class="file-thumb__icon" title="${i18n.t('file.clickToChange')}">📄</span>`,
   });
 
-  function thumbHtmlFor(src) {
-    return thumbLoader.htmlFor(src, pathBasename(src));
+  function thumbHtmlFor(src, label) {
+    return thumbLoader.htmlFor(src, label != null ? label : pathBasename(src));
   }
 
   // ── Stage controls (right panel, under preview; no fade) ──
@@ -1568,7 +1575,7 @@
     // ── Bind row selection (unified) ── delegated to OpTable.
     // Click thumbnail image/icon to change source path. SourcePicker owns trigger
     // detection + dialog + path normalization; onPick does tint's data write/sync/render.
-    container.querySelectorAll('.file-thumb[data-path]').forEach(thumb => {
+    container.querySelectorAll('.file-thumb[data-path]:not(.file-seq-resrc)').forEach(thumb => {
       SourcePicker.attach(thumb, {
         getSkinPath: () => skinPath(),
         onPick: (chosen) => {
@@ -1596,6 +1603,24 @@
           if (opSel && savedSel.length > 1) opSel.setSelected(new Set(savedSel), savedAnchor);
         },
       });
+    });
+
+    // Group-level re-source (shared): click a group header's thumbnail →
+    // multi-pick new sources → replace the group's members → carry header temp
+    // (incl. tint/crop params).
+    OpTable.createGroupResrc({
+      container,
+      getOps: () => cur(),
+      applyOps: (arr) => { applyTints(arr); render(document.getElementById('tab-tint')); },
+      memberIdx: (row) => groupMemberIdx(row),
+      makeOp: (src) => ({ source: src }),
+      seqKeyPrefix: 'tint',
+      carryStore: _carryHeaderTemp,
+      skinPath: () => skinPath(),
+      captureExtra: (groupRow) => {
+        const oldSeqKey = groupRow.dataset.seqKey;
+        return { params: oldSeqKey ? (headerTempParams.get(oldSeqKey) || null) : null };
+      },
     });
 
     container.querySelectorAll('.tint-row').forEach(row => {
