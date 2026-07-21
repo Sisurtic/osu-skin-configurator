@@ -506,7 +506,7 @@
   },
   "tint": {
     "heading": "画像編集",
-    "desc": "PNG 画像を色替えします。osu!mania の Percy LN 生成機能を内蔵。",
+    "desc": "PNG 画像を色替え、または PercyLN を調整します。",
     "addImage": "画像を追加",
     "empty": "画像操作がありません。上から追加してください",
     "tagTint": "色替え",

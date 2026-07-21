@@ -190,7 +190,7 @@
             <div style="padding-bottom:10px;border-bottom:1px solid var(--border)">
               <div style="margin-bottom:8px">
                 <h3 style="margin-bottom:4px">${i18n.t('tint.heading')}</h3>
-                <p style="font-size:12px;color:var(vscode-webview://19084khphtq1eep9p51vp6po4fj3evs0q9pn9o0aaclmen5n41n9/src/renderer/js/components/file-copy-editor.js--text-muted)">${i18n.t('tint.desc')}</p>
+                <p style="font-size:12px;color:var(--text-muted)">${i18n.t('tint.desc')}</p>
               </div>
               <div style="margin:2px 0 8px">
                 <button class="btn btn--primary btn--sm" id="btn-add-tint-image" style="font-size:11px;padding:4px 6px">${i18n.t('tint.addImage')}</button>

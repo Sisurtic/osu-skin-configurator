@@ -226,7 +226,7 @@
   },
   "ini": {
     "heading": "skin.ini 修改",
-    "desc": "选择并编辑需要修改的 skin.ini 字段。Mania 字段需先指定键数。",
+    "desc": "选择并编辑需要修改的 skin.ini 字段，Mania 字段需先指定键数。",
     "selectSection": "选择分组",
     "keysPlaceholder": "键数",
     "keySearchPlaceholder": "请先选择分组",
@@ -310,7 +310,7 @@
   },
   "tint": {
     "heading": "图像编辑",
-    "desc": "为 PNG 图片调色，包含 o!m Percy LN 生成器。",
+    "desc": "为 PNG 图片调色，或调整 PercyLN。",
     "addImage": "添加图片",
     "empty": "暂无图片操作，请从上方添加",
     "tagTint": "调色",

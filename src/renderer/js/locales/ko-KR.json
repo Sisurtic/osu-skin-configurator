@@ -506,7 +506,7 @@
   },
   "tint": {
     "heading": "이미지 편집",
-    "desc": "PNG 이미지를 재색상합니다. osu!mania Percy LN 생성기를 포함합니다.",
+    "desc": "PNG 이미지를 재색상하거나 PercyLN을 조정합니다.",
     "addImage": "이미지 추가",
     "empty": "이미지 작업이 없습니다. 위에서 추가하세요",
     "tagTint": "색조",

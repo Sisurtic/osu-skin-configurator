@@ -226,7 +226,7 @@
   },
   "ini": {
     "heading": "skin.ini edits",
-    "desc": "Select and edit skin.ini fields. Mania fields require a key count first.",
+    "desc": "Select and edit skin.ini fields, Mania fields require a key count first.",
     "selectSection": "Select section",
     "keysPlaceholder": "Keys",
     "keySearchPlaceholder": "Select a section first",
@@ -296,7 +296,7 @@
   },
   "tint": {
     "heading": "Image edit",
-    "desc": "Recolor PNG images; includes an osu!mania Percy LN generator.",
+    "desc": "Recolor PNG images, or adjust Percy LN.",
     "addImage": "Add image",
     "empty": "No image operations yet — add one above",
     "tagTint": "Tint",
