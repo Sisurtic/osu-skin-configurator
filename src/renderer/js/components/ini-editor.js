@@ -5,6 +5,11 @@
   let getActions, setActions, skinPathFn;
   // OpTable instance — created lazily on first render (needs the container).
   let sel = null;
+  // Snapshot of FOLDED perColumn group-header VALUES (read off the live DOM
+  // before rebuild), so a re-render preserves an in-flight header edit instead
+  // of resetting it to the first member's value. Keyed by groupId. All control
+  // types (bool/section/rgb/string) render from edit.value, so one value fits.
+  let _headerTempSnapshot = {};
 
   // Column sort state for the operation table. Default = by action type
   // (modify/delete grouped), ascending. There is always an active sort.
@@ -80,6 +85,21 @@
     if (container.querySelector) {
       container.querySelectorAll('.ini-collapsed-row--expanded').forEach(r => {
         if (r.dataset.group) expandedGroups.add(r.dataset.group);
+      });
+      // Snapshot FOLDED group-header values so rebuilds preserve an in-flight
+      // header edit. Read each control type's current DOM value.
+      _headerTempSnapshot = {};
+      container.querySelectorAll('.ini-collapsed-row:not(.ini-collapsed-row--expanded)').forEach(r => {
+        const gid = r.dataset.group;
+        if (!gid) return;
+        const cb = r.querySelector('.ini-value-toggle[data-group-header="1"]');
+        const sel = r.querySelector('.ini-value-section[data-group-header="1"]');
+        const inp = r.querySelector('.ini-value-input[data-group-header="1"]');
+        let v = null;
+        if (cb) v = cb.checked ? '1' : '0';
+        else if (sel) v = sel.value;
+        else if (inp) v = inp.value;
+        if (v != null) _headerTempSnapshot[gid] = v;
       });
     }
 
@@ -1401,7 +1421,7 @@
                 <td><span class="tag">${sectionLabel(firstEdit)}</span></td>
                 <td><span class="ini-key-name">${escapeHtml(templateKey)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(fieldCn)}</span></td>
                 <td style="display:flex;align-items:center;gap:8px;padding-right:12px">
-                  <span style="flex:1;min-width:0">${hasModify ? renderValueInput(firstType, firstEdit, plan.indices[0], firstField, `data-group-header="1" data-group="${escapeHtml(groupId)}"`) : `<span style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</span>`}</span>
+                  <span style="flex:1;min-width:0">${hasModify ? renderValueInput(firstType, (_headerTempSnapshot[groupId] != null ? { ...firstEdit, value: _headerTempSnapshot[groupId] } : firstEdit), plan.indices[0], firstField, `data-group-header="1" data-group="${escapeHtml(groupId)}"`) : `<span style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</span>`}</span>
                   ${hasModify ? `<button type="button" class="btn btn--secondary btn--sm ini-fill-btn" data-group="${escapeHtml(groupId)}" title="${i18n.t('ini.fillAllTitle')}" data-full="${escapeHtml(i18n.t('ini.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('ini.fillAll')}</button>` : ''}
                 </td>
               </tr>`;

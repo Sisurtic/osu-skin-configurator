@@ -60,6 +60,9 @@
   // is applied to every member only via the Fill button. Falls back to the
   // first member's values when unset (the stage's initial template).
   const headerTempParams = new Map();
+  // Snapshot of FOLDED group-header destination + exact, taken at render start
+  // so a rebuild preserves an in-flight header edit. Keyed by per-instance gid.
+  let _headerDestSnapshot = {};
   function pathBasename(p) { return OpTable.pathBasename(p); }
   function escapeHtml(s) { return OpTable.escapeHtml(s); }
   function colorToCss(c) {
@@ -120,11 +123,23 @@
   function render(parent) {
     container = parent;
     const tints = cur();
-    // A full table render rebuilds every group-header row, so stage tint/crop
-    // temp values reset to the first member's — same as the group-header
-    // destination/exact inputs (re-read from first.destination on render).
-    // They persist across selection changes (no render) in between.
-    headerTempParams.clear();
+    // Snapshot FOLDED group-header destination + exact from the live DOM before
+    // rebuilding, so renderGroup can preserve an in-flight header edit (matches
+    // file-copy). Keyed by per-instance gid.
+    _headerDestSnapshot = {};
+    if (container && container.querySelectorAll) {
+      container.querySelectorAll('.tint-seq-group:not(.tint-seq-group--expanded)').forEach(r => {
+        const gid = r.dataset.gid;
+        const dest = r.querySelector('.tint-seq-dest[data-group-header="1"]');
+        const ex = r.querySelector('.tint-seq-exact-toggle[data-group-header="1"]');
+        if (gid && dest) {
+          _headerDestSnapshot[gid] = { dest: dest.value, exact: ex ? !!ex.checked : null };
+        }
+      });
+    }
+    // NOTE: do NOT clear headerTempParams here — a full table render rebuilds
+    // every group-header row, but an in-flight header edit (tint/crop temp)
+    // must survive it. Only a new edit session (init) clears them.
     // (Re)create the OpTable instance for this container on first render.
     if (!opSel) {
       opSel = OpTable.create({
@@ -300,13 +315,16 @@
     const ghAttr = `data-group-header="1" data-group="${escapeHtml(g.key)}"`;
     const rangeAttr = `data-range="${g.range[0]}-${g.range[1]}"`;
     const gidAttr = `data-gid="${escapeHtml(gid)}"`;
-    // Header keeps the first member's FULL destination (index NOT cleared).
-    // Fill writes a bare stem; the backend re-attaches each source's own index.
-    const headerDest = first.destination || '';
+    // Header keeps the first member's FULL destination by default, but if a
+    // previous render had a value in this FOLDED header's inputs (an in-flight
+    // edit), reuse that snapshot so rebuilds don't wipe it.
+    const snap = _headerDestSnapshot[gid];
+    const headerDest = (snap && snap.dest != null) ? snap.dest : (first.destination || '');
+    const headerExact = (snap && snap.exact != null) ? snap.exact : !!first.exact;
     const destCell = `<td><input type="text" class="form-input tint-dest tint-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>`;
     const fillBtn = `<button type="button" class="btn btn--secondary btn--sm tint-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap;margin-left:auto">${i18n.t('file.fillAll')}</button>`;
     const exactToggle = `<label class="toggle${groupHas2x ? '' : ' is-disabled'}" style="flex:0 0 auto">
-        <input type="checkbox" class="tint-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${(groupHas2x && first.exact) ? 'checked' : ''}${groupHas2x ? '' : ' disabled'}>
+        <input type="checkbox" class="tint-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${(groupHas2x && headerExact) ? 'checked' : ''}${groupHas2x ? '' : ' disabled'}>
         <span class="toggle__slider"></span>
       </label>`;
     const exactCell = `<td><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">${exactToggle}${fillBtn}</div></td>`;
