@@ -2,14 +2,14 @@
 (function () {
   const viewEl = document.getElementById('view-editor');
 
-  // Any input/textarea/select focus inside the editor marks it dirty — so the
-  // save button lights up the moment the user starts editing ANY field (ini
-  // value, file destination, tint color, etc.), not only name/desc. Event
-  // delegation (focusin bubbles) covers all current + future sub-editor inputs.
-  viewEl.addEventListener('focusin', (e) => {
+  // Mark presetDirty on the FIRST actual edit (input/change) of any field —
+  // not on focus. Event delegation covers all current + future sub-editor
+  // inputs. Checkboxes/toggles are excluded (their own change handlers mark
+  // dirty via the set* callbacks).
+  viewEl.addEventListener('input', (e) => {
     const t = e.target;
-    if (!t || !t.matches || !t.matches('input:not([type="checkbox"]):not([disabled]), textarea:not([disabled]), select:not([disabled])')) return;
-    if (state.get('multiSelectActive')) return; // editor locked
+    if (!t || !t.matches || !t.matches('input:not([type="checkbox"]):not([disabled]), textarea:not([disabled])')) return;
+    if (state.get('multiSelectActive')) return;
     if (!state.get('presetDirty')) state.set('presetDirty', true);
   });
 
@@ -299,13 +299,11 @@
       ${findOptionContext() ? '<div id="activation-slot"></div>' : ''}
     `;
 
-    // Name/desc: mark dirty on focus; write to editData on change (Enter/blur).
+    // Name/desc: write to editData on change (Enter/blur). Dirty is marked on
+    // the first input via the viewEl 'input' delegate above.
     ['name', 'desc'].forEach(field => {
       const el = document.getElementById(`preset-${field}`);
       if (!el) return;
-      el.addEventListener('focus', () => {
-        state.set('presetDirty', true);
-      });
       el.addEventListener('change', () => {
         if (field === 'desc') editData.meta.description = el.value;
         else editData.meta[field] = el.value;

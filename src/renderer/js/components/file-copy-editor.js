@@ -8,6 +8,9 @@
   // gone; callers that read selection use sel.getSelected()/sel.getAnchor().
   let sel = null;
   let fileDialogOpen = false;
+  // Snapshot of FOLDED header destinations taken at render start, so rebuilds
+  // don't wipe an in-flight header edit. Keyed by seq group key.
+  let _headerTempSnapshot = {};
 
   // The view-model used for the current render (source order, left to right).
   // All data-idx consumers index into THIS, not a fresh buildFileOps().
@@ -147,6 +150,19 @@
 
   function render(container) {
     const fileOps = buildFileOps();
+    // Snapshot FOLDED header destinations from the live DOM before rebuilding,
+    // so renderGroup can preserve an in-flight header edit (otherwise the
+    // rebuild resets it to the first member's value). Keyed by seq group key.
+    _headerTempSnapshot = {};
+    container.querySelectorAll('.copy-dest-input[data-group-header="1"]').forEach(inp => {
+      const gid = inp.dataset.gid;
+      // Skip EXPANDED groups (their header mirrors the first member, no temp).
+      const groupRow = inp.closest('.file-seq-group');
+      const isExpanded = groupRow && groupRow.classList.contains('file-seq-group--expanded');
+      if (gid && !isExpanded && inp.value) {
+        _headerTempSnapshot[gid] = inp.value;
+      }
+    });
 
     // (Re)create the OpTable instance for this container on first render. The
     // adapter closes over currentFileOps so rowMembers resolves group headers.
@@ -412,8 +428,9 @@
       // ESC restored the original value — keep it, skip normalize + sync.
       if (window.InputConfirm && window.InputConfirm.wasEscCancel(input)) return;
       const idx = parseInt(input.dataset.idx);
+      if (Number.isNaN(idx)) return;
       const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-      if (idx < 0 || idx >= ops.length || ops[idx]._type !== 'copy') return;
+      if (idx < 0 || idx >= ops.length || !ops[idx] || ops[idx]._type !== 'copy') return;
       const source = ops[idx].source || '';
       let val = input.value.trim().replace(/^["']|["']$/g, '');
       if (!val) { ops[idx].destination = ''; applyFileOps(ops); return; }
@@ -857,12 +874,17 @@
       const ghAttr = `data-group-header="1" data-group="${escapeHtml(g.key)}"`;
       const rangeAttr = `data-range="${g.range[0]}-${g.range[1]}"`;
       const gidAttr = `data-gid="${escapeHtml(gid)}"`;
-      // Header keeps the first member's FULL destination (index NOT cleared) —
-      // display mirrors the member. Fill writes a bare stem; the backend then
-      // re-attaches each source's own index at apply time.
-      const headerDest = isCopy ? (first.destination || '') : '';
+      // Header keeps the first member's FULL destination by default, BUT if a
+      // previous render had a value in this FOLDED header's input (the user
+      // edited it while folded), reuse that snapshot so re-rendering (e.g.
+      // after a fill) doesn't wipe the in-flight header edit. Expanded headers
+      // mirror the first member.
+      let headerDest = isCopy ? (first.destination || '') : '';
+      if (isCopy && !expandedSeqGroups.has(gid) && _headerTempSnapshot[gid] != null) {
+        headerDest = _headerTempSnapshot[gid];
+      }
       const destCell = isCopy
-        ? `<td style="padding-right:12px"><input type="text" class="form-input copy-dest-input file-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>`
+        ? `<td style="padding-right:12px"><input type="text" class="form-input copy-dest-input file-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} data-gid="${escapeHtml(gid)}" value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>`
         : `<td style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</td>`;
       // Group-level exact toggle (only if the group has @2x files) + fill button.
       const fillBtn = `<button type="button" class="btn btn--secondary btn--sm file-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" data-full="${escapeHtml(i18n.t('file.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap;margin-left:auto">${i18n.t('file.fillAll')}</button>`;
