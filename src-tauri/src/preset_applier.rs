@@ -165,12 +165,16 @@ fn parse_seq_index(source_name: &str) -> Option<(&'static str, i64)> {
     None
 }
 
-// If a sequence frame's destination stem has NO sequence index yet (and the dest
-// is not a directory), append the source's own index in the source's style, so a
-// group destination like "mania/sliderb" applied to source "sliderb-3.png" →
-// "mania/sliderb-3". Destinations that already end in an index, or are directory
-// paths, are returned unchanged. The osu! no-hyphen style is preserved
-// (sliderb3). Used by copy + tint before apply_source_suffix re-attaches @2x/ext.
+// Append the source's own sequence index to the destination stem, in the
+// source's style, so a group destination applied to each member produces a
+// distinct file: "mania/sliderb" + "sliderb-3.png" → "mania/sliderb-3", and a
+// dest carrying a USER suffix like "mania/N#0" + "fade-3.png" → "mania/N#0-3".
+// The index is appended UNCONDITIONALLY (even when the dest already ends in a
+// digit) — that trailing digit is a user suffix, not a frame index, and skipping
+// it would collapse every group member onto one file. Empty/directory dests are
+// returned unchanged (can't append to a folder). Non-frame sources are left as
+// typed. The osu! no-hyphen style is preserved (sliderb3). Used by copy + tint
+// before apply_source_suffix re-attaches @2x/ext.
 fn apply_seq_index(dest_rel: &str, source_name: &str) -> String {
     if dest_rel.is_empty() || dest_rel.ends_with('/') || dest_rel.ends_with('\\') {
         return dest_rel.to_string();
@@ -179,24 +183,8 @@ fn apply_seq_index(dest_rel: &str, source_name: &str) -> String {
         Some(v) => v,
         None => return dest_rel.to_string(), // source isn't a frame → leave dest as typed
     };
-    // Split dest into dir + last segment, strip @2x + extension from the last
-    // segment to inspect the stem, then check whether the stem already ends in
-    // an index (any trailing digit run, hyphenated or not).
-    let slash = dest_rel.rfind(|c| c == '/' || c == '\\').map(|p| p + 1).unwrap_or(0);
-    let seg = &dest_rel[slash..];
-    // Find where the stem ends (earliest of @2x marker or first '.').
-    let at = seg.rfind("@2x");
-    let dot = seg.find('.');
-    let stem_end = match (at, dot) { (Some(a), Some(d)) => a.min(d), (Some(a), None) => a, (None, Some(d)) => d, (None, None) => seg.len() };
-    let stem = &seg[..stem_end];
-    // Already has a trailing index? Leave it (user typed one explicitly).
-    let last_nondigit = stem.bytes().rposition(|c| !c.is_ascii_digit()).unwrap_or(0);
-    let has_trailing_digits = last_nondigit + 1 < stem.len();
-    let has_hyphen_index = stem.rfind('-').map(|i| i + 1 < stem.len() && stem[i + 1..].bytes().all(|c| c.is_ascii_digit())).unwrap_or(false);
-    if has_trailing_digits || has_hyphen_index {
-        return dest_rel.to_string();
-    }
-    // Append the index in the source's style.
+    // Append unconditionally (see the doc comment above for why a trailing user
+    // digit must not cause a skip).
     let sep = if style == "-" { "-" } else { "" };
     format!("{}{}{}", dest_rel, sep, index)
 }
@@ -256,7 +244,6 @@ struct TintOp {
     darken_enabled: bool,
     darken_d: f64,
     darken_opacity: f64,
-    exact: bool,
 }
 
 fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
@@ -462,6 +449,48 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
 }
 
 
+// Shared source-resolution for copy + tint: validate the dest path, resolve the
+// (possibly skin-relative) source to absolute, fall back to the non-@2x variant
+// when the @2x source is missing and not exact-match, and compute the final
+// source filename to drive destination suffixing. Returns None (after pushing a
+// warning) when the op should be skipped — invalid path or missing source.
+fn resolve_source(
+    skin_path: &str,
+    source: &str,
+    dest_rel: &str,
+    exact: bool,
+    warnings: &mut Vec<String>,
+) -> Option<(String, String)> {
+    let source_name = Path::new(source).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    if dest_rel.contains("..") || is_absolute_js(dest_rel) {
+        warnings.push(crate::i18n::t("warn.copy_invalid_path", &[("name", &source_name)]));
+        return None;
+    }
+    // Source is stored as a skin-relative path; resolve to absolute.
+    let source_abs = if is_absolute_js(source) || Path::new(source).is_absolute() {
+        source.to_string()
+    } else {
+        PathBuf::from(skin_path).join(source).to_string_lossy().to_string()
+    };
+    // Fallback: if the @2x source is missing and not exact-match, try the non-@2x variant.
+    let mut use_src = source_abs.clone();
+    if !Path::new(&use_src).exists() && !exact {
+        if let Some(alt) = without_2x(Path::new(&use_src)) {
+            if alt.exists() { use_src = alt.to_string_lossy().to_string(); }
+        }
+    }
+    if !Path::new(&use_src).exists() {
+        warnings.push(crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
+        return None;
+    }
+    // Destination suffix follows the ACTUAL source used (use_src), so a fallback
+    // to the non-@2x variant produces a non-@2x output (not an @2x-named file
+    // with SD content).
+    let use_src_name = Path::new(&use_src).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| source_name.clone());
+    Some((use_src, use_src_name))
+}
+
+
 fn apply_one_set(
     skin_path: &str,
     skin_ini_edits: &[Value],
@@ -489,42 +518,20 @@ fn apply_one_set(
     // copies
     for copy in file_copies {
         let source = copy.get("source").and_then(|v| v.as_str()).unwrap_or("");
-        let source_name = Path::new(source).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let dest_rel = copy.get("destination").and_then(|v| v.as_str()).unwrap_or("");
-
-        if dest_rel.contains("..") || is_absolute_js(dest_rel) {
-            warnings.push(crate::i18n::t("warn.copy_invalid_path", &[("name", &source_name)]));
-            continue;
-        }
-        // Source is stored as a skin-relative path; resolve to absolute.
-        let source_abs = if is_absolute_js(source) || Path::new(source).is_absolute() {
-            source.to_string()
-        } else {
-            PathBuf::from(skin_path).join(source).to_string_lossy().to_string()
-        };
         let exact = copy.get("exact").and_then(|v| v.as_bool()).unwrap_or(false);
-        // Fallback: if the @2x source is missing and not exact-match, try the non-@2x variant.
-        let mut use_src = source_abs.clone();
-        if !Path::new(&use_src).exists() && !exact {
-            if let Some(alt) = without_2x(Path::new(&use_src)) {
-                if alt.exists() { use_src = alt.to_string_lossy().to_string(); }
-            }
-        }
-        if !Path::new(&use_src).exists() {
-            warnings.push(crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
-            continue;
-        }
-        // Destination suffix follows the ACTUAL source used (use_src), so a
-        // fallback to the non-@2x variant produces a non-@2x output (not an
-        // @2x-named file with SD content).
-        let use_src_name = Path::new(&use_src).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(source_name.clone());
+        let source_name = Path::new(source).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let (use_src, use_src_name) = match resolve_source(skin_path, source, dest_rel, exact, &mut warnings) {
+            Some(v) => v,
+            None => continue,
+        };
         let is_dir_only = dest_rel.is_empty() || dest_rel.ends_with('/') || dest_rel.ends_with('\\');
         let dest_path = if is_dir_only {
             PathBuf::from(skin_path).join(dest_rel).join(&use_src_name)
         } else {
-            // If the destination has no sequence index yet, inherit the source's
-            // own index+style (so a group stem "mania/sliderb" + sliderb-3 →
-            // mania/sliderb-3); then re-attach the source's @2x + extension.
+            // Append the source's own sequence index to the dest stem (so a group
+            // stem "mania/sliderb" + sliderb-3 → mania/sliderb-3, and "mania/N#0"
+            // + fade-3 → mania/N#0-3); then re-attach the source's @2x + extension.
             let with_index = apply_seq_index(dest_rel, &use_src_name);
             PathBuf::from(skin_path).join(apply_source_suffix(&with_index, &use_src_name))
         };
@@ -572,6 +579,11 @@ fn apply_one_set(
         let source = tint.get("source").and_then(|v| v.as_str()).unwrap_or("");
         let source_name = Path::new(source).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let dest_rel = tint.get("destination").and_then(|v| v.as_str()).unwrap_or("");
+        let exact = tint.get("exact").and_then(|v| v.as_bool()).unwrap_or(false);
+        let (use_src, use_src_name) = match resolve_source(skin_path, source, dest_rel, exact, &mut warnings) {
+            Some(v) => v,
+            None => continue,
+        };
         let op = TintOp {
             tint_enabled: tint.get("tintEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
             color: tint.get("color").and_then(|v| v.as_str()).unwrap_or("255,255,255,255").to_string(),
@@ -585,40 +597,14 @@ fn apply_one_set(
             darken_enabled: tint.get("darkenEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
             darken_d: tint.get("darkenD").and_then(|v| v.as_f64()).unwrap_or(0.0),
             darken_opacity: tint.get("darkenOpacity").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            exact: tint.get("exact").and_then(|v| v.as_bool()).unwrap_or(false),
         };
 
-        if dest_rel.contains("..") || is_absolute_js(dest_rel) {
-            warnings.push(crate::i18n::t("warn.copy_invalid_path", &[("name", &source_name)]));
-            continue;
-        }
-        let source_abs = if is_absolute_js(source) || Path::new(source).is_absolute() {
-            source.to_string()
-        } else {
-            PathBuf::from(skin_path).join(source).to_string_lossy().to_string()
-        };
-        // Fallback: if the @2x source is missing and not exact-match, try the
-        // non-@2x variant (same rule as copy/delete).
-        let mut use_src = source_abs.clone();
-        if !Path::new(&use_src).exists() && !op.exact {
-            if let Some(alt) = without_2x(Path::new(&use_src)) {
-                if alt.exists() { use_src = alt.to_string_lossy().to_string(); }
-            }
-        }
-        if !Path::new(&use_src).exists() {
-            warnings.push(crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
-            continue;
-        }
-        // Destination follows the ACTUAL source used (use_src): a fallback to the
-        // non-@2x variant produces a non-@2x output name (not an @2x-named file
-        // with SD content).
-        let use_src_name = Path::new(&use_src).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(source_name.clone());
         let is_dir_only = dest_rel.is_empty() || dest_rel.ends_with('/') || dest_rel.ends_with('\\');
         let dest_name = if is_dir_only {
             use_src_name
         } else {
-            // Inherit the source's sequence index+style when the dest has none,
-            // then re-attach @2x + extension (+ .png fallback if source had none).
+            // Append the source's own sequence index to the dest stem, then
+            // re-attach @2x + extension (+ .png fallback if source had none).
             let with_index = apply_seq_index(dest_rel, &use_src_name);
             let with_suffix = apply_source_suffix(&with_index, &use_src_name);
             if Path::new(&with_suffix).extension().is_some() {
@@ -922,7 +908,7 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
 
 #[cfg(test)]
 mod seq_tests {
-    use super::{parse_seq_index, apply_seq_index};
+    use super::{parse_seq_index, apply_seq_index, apply_source_suffix};
 
     #[test]
     fn parse_hyphen_style() {
@@ -949,9 +935,67 @@ mod seq_tests {
         assert_eq!(apply_seq_index("mania/sliderb", "sliderb-3.png"), "mania/sliderb-3");
         // No-hyphen style.
         assert_eq!(apply_seq_index("mania/sliderb", "sliderb7.png"), "mania/sliderb7");
-        // Header value WITH an index already → left alone (user typed it).
-        assert_eq!(apply_seq_index("mania/sliderb-5", "sliderb-3.png"), "mania/sliderb-5");
-        assert_eq!(apply_seq_index("mania/sliderb5", "sliderb7.png"), "mania/sliderb5");
+        // A dest that already ends in a digit is treated as a USER suffix, not a
+        // frame index — the source's own index is STILL appended, so every group
+        // member gets a distinct file (the whole-group-collapses bug).
+        assert_eq!(apply_seq_index("mania/sliderb-5", "sliderb-3.png"), "mania/sliderb-5-3");
+        assert_eq!(apply_seq_index("mania/sliderb5", "sliderb7.png"), "mania/sliderb57");
+    }
+
+    #[test]
+    fn group_dest_with_hash_suffix_gets_distinct_per_member() {
+        // The actual reported case: dest "Add-ons/.../N#0" (user "#0" suffix) +
+        // sources fade-0..fade-25 → each member must get its OWN index appended,
+        // not all collapse onto "N#0".
+        let dest = "Add-ons/MNA/Note/4K/animation/N#0";
+        let d0 = apply_seq_index(dest, "fade-0@2x.png");
+        let d1 = apply_seq_index(dest, "fade-1@2x.png");
+        let d25 = apply_seq_index(dest, "fade-25@2x.png");
+        assert_eq!(d0, "Add-ons/MNA/Note/4K/animation/N#0-0");
+        assert_eq!(d1, "Add-ons/MNA/Note/4K/animation/N#0-1");
+        assert_eq!(d25, "Add-ons/MNA/Note/4K/animation/N#0-25");
+        // Critically: all distinct (the bug was all → "N#0").
+        let mut set = std::collections::HashSet::new();
+        for i in 0..26 {
+            set.insert(apply_seq_index(dest, &format!("fade-{i}@2x.png")));
+        }
+        assert_eq!(set.len(), 26);
+    }
+
+    #[test]
+    fn full_dest_path_for_hash_suffix_group_is_distinct() {
+        // End-to-end (apply_seq_index + apply_source_suffix): the FULL destination
+        // each member resolves to must be distinct. The old bug produced the SAME
+        // "N#0@2x.png" for all members because apply_seq_index returned the dest
+        // unchanged (the "#0" digit fooled the "already indexed" skip).
+        let dest = "Add-ons/MNA/Note/4K/animation/N#0";
+        let norm = |src: &str| apply_source_suffix(&apply_seq_index(dest, src), src).replace('\\', "/");
+        assert_eq!(norm("fade-0@2x.png"), "Add-ons/MNA/Note/4K/animation/N#0-0@2x.png");
+        assert_eq!(norm("fade-1@2x.png"), "Add-ons/MNA/Note/4K/animation/N#0-1@2x.png");
+        assert_eq!(norm("fade-25@2x.png"), "Add-ons/MNA/Note/4K/animation/N#0-25@2x.png");
+        let mut set = std::collections::HashSet::new();
+        for i in 0..26 {
+            set.insert(norm(&format!("fade-{i}@2x.png")));
+        }
+        assert_eq!(set.len(), 26);
+    }
+
+    #[test]
+    fn hyphen_at2x_group_members_get_distinct_dests() {
+        // Reproduce the reported "whole -N @2x group copies to one file" case.
+        // Three members share the bare stem "mania/sliderb"; each source should
+        // produce a DISTINCT destination after index re-attachment + suffix.
+        let stem = "mania/sliderb";
+        let d0 = apply_source_suffix(&apply_seq_index(stem, "sliderb-0@2x.png"), "sliderb-0@2x.png");
+        let d1 = apply_source_suffix(&apply_seq_index(stem, "sliderb-1@2x.png"), "sliderb-1@2x.png");
+        let d2 = apply_source_suffix(&apply_seq_index(stem, "sliderb-2@2x.png"), "sliderb-2@2x.png");
+        assert_ne!(d0, d1);
+        assert_ne!(d1, d2);
+        assert_ne!(d0, d2);
+        // Separator is platform-dependent (PathBuf on Windows); normalize for the check.
+        assert_eq!(d0.replace('\\', "/"), "mania/sliderb-0@2x.png");
+        assert_eq!(d1.replace('\\', "/"), "mania/sliderb-1@2x.png");
+        assert_eq!(d2.replace('\\', "/"), "mania/sliderb-2@2x.png");
     }
 
     #[test]
