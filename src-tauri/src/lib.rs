@@ -373,7 +373,7 @@ fn global_shortcuts_reload(app: AppHandle, skin_name: Option<String>) -> Value {
 
 #[tauri::command]
 fn app_get_open_file(app: AppHandle, pending: State<'_, PendingOsp>) -> Value {
-    let mut g = pending.0.lock().unwrap();
+    let mut g = pending.0.lock().unwrap_or_else(|e| e.into_inner());
     let v = g.take();
     let _ = &app;
     wrap_ok(json!(v))
@@ -671,7 +671,7 @@ pub fn run() {
             }
             if let Some(name) = found {
                 let pending = app.state::<PendingOsp>();
-                *pending.0.lock().unwrap() = Some(name);
+                *pending.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(name);
             }
             // Defer non-critical startup work (global-shortcut registration scans
             // the skin dir; file_assoc writes registry + SHChangeNotify). Running

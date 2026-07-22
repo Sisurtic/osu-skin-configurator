@@ -21,7 +21,9 @@ pub fn register(app: &AppHandle) {
 
     let exe_str = exe_path.to_string_lossy().to_string();
     let ico_str = ico_temp.to_string_lossy().to_string();
-    let app_exe = "osu-skin-configurator.exe";
+    // Derive the ProgID exe name from the running binary so a renamed/rebundled
+    // exe keeps its .osp association consistent with the open command.
+    let app_exe = exe_path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()).unwrap_or_else(|| "osu-skin-configurator.exe".to_string());
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let classes = hkcu.open_subkey_with_flags("Software\\Classes", KEY_SET_VALUE | KEY_READ).unwrap_or_else(|_| {

@@ -1164,7 +1164,7 @@ select.form-input {
 .preset-group__table-option--activated,
 .preset-group__table-option--activated:hover {
   background: rgba(229, 90, 90, 0.20);
-  color: #e55a5a;
+  color: var(--danger);
   cursor: default;
 }
 .preset-group__table-option--disabled {
@@ -1224,18 +1224,18 @@ select.form-input {
   color: var(--text-muted);
 }
 .act-target__tag--select { background: rgba(102, 204, 136, 0.18); color: var(--accent, #66cc88); }
-.act-target__tag--disable { background: rgba(229, 90, 90, 0.18); color: var(--danger, #e55a5a); }
+.act-target__tag--disable { background: rgba(229, 90, 90, 0.18); color: var(--danger); }
 /* Drag-to-delete zone — reuses .act-drop's look (same border/radius), red tone. */
 .act-delete-zone {
-  color: var(--danger, #e55a5a);
-  border-color: var(--danger, #e55a5a);
+  color: var(--danger);
+  border-color: var(--danger);
   opacity: 0.5;
   transition: opacity 0.2s, background 0.2s;
 }
 .act-delete-zone--over {
-  border-color: var(--danger, #e55a5a);
+  border-color: var(--danger);
   background: rgba(229, 90, 90, 0.12);
-  color: var(--danger, #e55a5a);
+  color: var(--danger);
   opacity: 1;
 }
 /* Edit-mode table group marker */
