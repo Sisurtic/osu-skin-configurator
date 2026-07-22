@@ -96,6 +96,7 @@
     getOpenFileArg: () => call('app_get_open_file'),
     getAppVersion: () => call('app_get_version'),
     listLocales: () => call('locales_list'),
+    setLocale: (tag) => call('set_locale', { tag }),
     checkLatestRelease: () => call('check_latest_release'),
     downloadAndRunLatestRelease: () => call('download_and_run_latest_release'),
     onOpenOspFile: (callback) => {

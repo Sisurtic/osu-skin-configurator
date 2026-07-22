@@ -129,6 +129,11 @@
     try { localStorage.setItem(STORAGE_KEY, tag); } catch (_) {}
     active = tag;
     applyStatic();
+    // Mirror the choice to the backend so Rust-produced strings (error
+    // envelopes, apply warnings, OS notifications) follow the in-app language.
+    if (window.api && typeof window.api.setLocale === 'function') {
+      window.api.setLocale(tag); // fire-and-forget; UI switching must not wait
+    }
     if (typeof _rerenderAll === 'function') _rerenderAll();
   }
 

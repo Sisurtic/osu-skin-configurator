@@ -409,6 +409,12 @@ fn embedded_locales() -> Vec<(&'static str, &'static str)> {
 }
 
 #[tauri::command]
+fn set_locale(tag: String) -> Value {
+    i18n::set_locale(&tag);
+    wrap_ok(json!(true))
+}
+
+#[tauri::command]
 fn locales_list() -> Value {
     let raw = embedded_locales();
     let mut entries: Vec<(String, Value)> = Vec::new();
@@ -704,7 +710,7 @@ pub fn run() {
             image_get_preview,
             shortcuts_load, shortcuts_save,
             global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_bind_batch, global_shortcuts_reload,
-            app_get_open_file, app_get_version, check_latest_release, download_and_run_latest_release, cancel_update_download, locales_list,
+            app_get_open_file, app_get_version, check_latest_release, download_and_run_latest_release, cancel_update_download, locales_list, set_locale,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
