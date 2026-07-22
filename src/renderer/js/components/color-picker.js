@@ -163,6 +163,8 @@
       popover.remove();
       activeTrigger = null;
       activeForward = null;
+      if (onMove) { document.removeEventListener('mousemove', onMove); }
+      if (onUp) { document.removeEventListener('mouseup', onUp); }
       if (unlistenWin) { try { unlistenWin(); } catch (_) {} unlistenWin = null; }
       if (opts.onClose) opts.onClose();
     }
@@ -389,8 +391,9 @@
       });
     }
 
-    // Global mouse move/up
-    document.addEventListener('mousemove', (e) => {
+    // Global mouse move/up. Stored so closePopover can remove them (otherwise
+    // every open leaks two document-level listeners + their closure).
+    const onMove = (e) => {
       if (draggingPalette) {
         const rect = paletteCanvas.getBoundingClientRect();
         setFromPalette(
@@ -407,13 +410,14 @@
         const rect = alphaTrack.getBoundingClientRect();
         setAlphaFromPos(Math.max(0, Math.min(rect.width, e.clientX - rect.left)));
       }
-    });
-
-    document.addEventListener('mouseup', () => {
+    };
+    const onUp = () => {
       draggingPalette = false;
       draggingHue = false;
       draggingAlpha = false;
-    });
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
 
     // Preset swatches
     popover.querySelectorAll('.cp-preset-swatch').forEach(sw => {
