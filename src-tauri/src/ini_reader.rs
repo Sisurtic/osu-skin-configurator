@@ -75,7 +75,7 @@ pub fn serialize_ini(sections: &[Section]) -> String {
         lines.push(String::new());
     }
     let mut joined = lines.join("\n");
-    joined.trim_end_matches(|c: char| c.is_whitespace()).to_string();
+    joined = joined.trim_end_matches(|c: char| c.is_whitespace()).to_string();
     joined.push('\n');
     joined
 }
@@ -100,7 +100,7 @@ pub fn section_key(entry: &Section) -> String {
     }
 }
 
-fn find_section_mut<'a>(sections: &'a mut [Section], key: &str) -> Option<usize> {
+fn find_section_mut(sections: &mut [Section], key: &str) -> Option<usize> {
     // can't borrow mut while scanning; collect index first
     let mut found: Option<usize> = None;
     for (i, e) in sections.iter().enumerate() {

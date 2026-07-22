@@ -226,7 +226,7 @@ fn groups_set_shortcut(app: AppHandle, skin_name: String, group_id: i64, shortcu
     match preset_manager::set_group_shortcut(&sp, group_id, &shortcut) {
         Ok(_) => {
             // Re-register global shortcuts so the new binding takes effect immediately.
-            let _ = global_shortcut::reload(&app, Some(sp));
+            global_shortcut::reload(&app, Some(sp));
             wrap_ok(json!(true))
         }
         Err(e) => wrap_err(&e),
@@ -420,7 +420,7 @@ fn locales_list() -> Value {
     }
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     let tags: Vec<Value> = entries.iter().map(|(t, _)| json!(t)).collect();
-    let map = entries.into_iter().map(|(t, v)| (t, v)).collect::<serde_json::Map<_, _>>();
+    let map = entries.into_iter().collect::<serde_json::Map<_, _>>();
     wrap_ok(json!({ "tags": tags, "dicts": Value::Object(map) }))
 }
 

@@ -2325,6 +2325,7 @@ select.form-input {
   height: 100%;
   position: relative;
   z-index: 1;
+  transition: transform 0.2s ease;
 }
 .info-dialog__logo img {
   width: 100%;
@@ -2332,9 +2333,6 @@ select.form-input {
   display: block;
 }
 /* Logo: hover scales up; click resets the scale-up animation. */
-.info-dialog__logo {
-  transition: transform 0.2s ease;
-}
 .info-dialog__logo-wrap:hover .info-dialog__logo {
   transform: scale(1.12);
 }
@@ -2364,11 +2362,6 @@ select.form-input {
 @keyframes logoRipple {
   0%   { transform: scale(1.4); opacity: 0.4; }
   100% { transform: scale(2); opacity: 0; }
-}
-.info-dialog__logo img {
-  width: 100%;
-  height: 100%;
-  display: block;
 }
 .info-dialog__content {
   flex: 1;
@@ -2405,13 +2398,6 @@ select.form-input {
   border-top: 1px solid var(--border);
   padding-top: 12px;
 }
-.info-dialog__label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
 .info-dialog__credits {
   list-style: none;
 }
@@ -2421,11 +2407,6 @@ select.form-input {
   padding: 2px 0;
   display: flex;
   gap: 8px;
-}
-.info-dialog__role {
-  color: var(--text-muted);
-  min-width: 56px;
-  font-size: 11px;
 }
 
 

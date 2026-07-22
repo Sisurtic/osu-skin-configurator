@@ -410,23 +410,12 @@
       commit: (touched) => { if (touched) applyFileOpsNoRender(currentFileOps ? [...currentFileOps] : buildFileOps()); },
     });
 
-    function commitDestRaw(input) {
-      const idx = parseInt(input.dataset.idx);
-      if (isNaN(idx)) return;
-      const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
-      if (idx >= 0 && idx < ops.length && ops[idx]._type === 'copy') {
-        const val = input.value.trim().replace(/^["']|["']$/g, '');
-        ops[idx].destination = val;
-        syncField(input, 'destination', val);
-      }
-    }
     // Normalize a file dest's extension to the SOURCE's extension (shared impl
     // in OpTable.appendSrcExt — see the comment there).
     function appendSrcExt(val) {
       return OpTable.appendSrcExt(val);
     }
 
-    function convertDestDisplay(input) { return convertDestDisplayImpl(input); }
     async function convertDestDisplayImpl(input) {
       // ESC restored the original value — keep it, skip normalize + sync.
       if (window.InputConfirm && window.InputConfirm.wasEscCancel(input)) return;
@@ -467,7 +456,7 @@
     container.querySelectorAll('.copy-dest-input').forEach(input => {
       // Sync only on commit (Enter/blur → change), not per keystroke.
       // Enter/Escape→blur is provided globally by InputConfirm (app.js).
-      input.addEventListener('change', () => convertDestDisplay(input));
+      input.addEventListener('change', () => convertDestDisplayImpl(input));
     });
 
     // Exact-match toggles (@2x fallback on/off). State is per-op, so toggles

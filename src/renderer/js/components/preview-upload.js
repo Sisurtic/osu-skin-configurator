@@ -104,10 +104,6 @@
 
   // Cache of previewPath → data URL (for images/sequence frames).
   const previewCache = new Map();
-  function absFor(relPath) {
-    // resolved lazily; caller passes skPath
-    return null;
-  }
 
   async function loadPreview(meta) {
     if (!meta || !meta.path) return;

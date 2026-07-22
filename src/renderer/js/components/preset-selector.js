@@ -1479,16 +1479,6 @@
     setTimeout(() => { _suppressRender = false; cancelRecording(); }, 400);
   }
 
-  // Fade out the gradient on selected items before re-render removes them.
-  function fadeOutAndCancel() {
-    const items = document.querySelectorAll('.preset-group__item--shortcut-sel:not(.preset-group__item--shortcut-fadeout)');
-    if (items.length > 0) {
-      items.forEach(el => el.classList.add('preset-group__item--shortcut-fadeout'));
-      setTimeout(() => { _suppressRender = false; cancelRecording(); }, 400);
-    } else {
-      cancelRecording();
-    }
-  }
 
   // Global keydown: capture the combo while recording; Esc cancels; Tab/Space/Enter pass through for buttons
   if (!window._shortcutRecordBound) {
@@ -1524,12 +1514,6 @@
         e.preventDefault();
       }
     });
-  }
-
-  // Click outside the recorder while recording → only right-click is handled
-  // (for multi-select). Left-click outside does NOT cancel — use Esc or Cancel.
-  if (!window._shortcutOutsideBound) {
-    window._shortcutOutsideBound = true;
   }
 
   // Preload all preset preview images into the cache (fire-and-forget).

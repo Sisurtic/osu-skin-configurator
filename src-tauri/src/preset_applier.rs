@@ -40,8 +40,10 @@ fn normalize_lexical(p: &str) -> String {
         joined
     } else if root.ends_with('/') {
         format!("{}{}", root, joined)
+    } else if joined.is_empty() {
+        root
     } else {
-        if joined.is_empty() { root } else { format!("{}/{}", root, joined) }
+        format!("{}/{}", root, joined)
     }
 }
 
@@ -50,6 +52,9 @@ fn normalize_lexical(p: &str) -> String {
 fn is_within(dest: &str, skin_root: &str) -> bool {
     let n_dest = normalize_lexical(dest);
     let n_root = normalize_lexical(skin_root);
+    // An empty skin_root would make starts_with("") trivially true for every
+    // dest, defeating the path-containment check. Treat it as "not contained".
+    if n_root.is_empty() { return false; }
     if n_dest == n_root { return true; }
     let with_sep = if n_root.ends_with('/') || n_root.is_empty() {
         format!("{}{}", n_root, "")
@@ -158,7 +163,7 @@ fn parse_seq_index(source_name: &str) -> Option<(&'static str, i64)> {
         let prefix = &b[..digits_start];
         let digits = &b[digits_start..];
         const NOHYPHEN: [&str; 5] = ["sliderb", "pippidonclear", "pippidonfail", "pippidonidle", "pippidonkiai"];
-        if NOHYPHEN.iter().any(|n| *n == prefix) {
+        if NOHYPHEN.contains(&prefix) {
             if let Ok(n) = digits.parse::<i64>() { return Some(("", n)); }
         }
     }
@@ -193,7 +198,7 @@ fn apply_seq_index(dest_rel: &str, source_name: &str) -> String {
 // Parse a "r,g,b[,a]" color string into (r,g,b,a) u8. Defaults to opaque white.
 fn parse_color(s: &str) -> (u8, u8, u8, u8) {
     let parts: Vec<f64> = s.split(',').filter_map(|t| t.trim().parse::<f64>().ok()).collect();
-    let r = parts.get(0).map(|v| *v as u8).unwrap_or(255);
+    let r = parts.first().map(|v| *v as u8).unwrap_or(255);
     let g = parts.get(1).map(|v| *v as u8).unwrap_or(255);
     let b = parts.get(2).map(|v| *v as u8).unwrap_or(255);
     let a = parts.get(3).map(|v| *v as u8).unwrap_or(255);
@@ -224,9 +229,8 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (f64, f64, f64) {
         if t < 2.0 / 3.0 { return p + (q - p) * (2.0 / 3.0 - t) * 6.0; }
         p
     };
-    t_to_rgb_helper(hue_to(h + 1.0 / 3.0), hue_to(h), hue_to(h - 1.0 / 3.0))
+    (hue_to(h + 1.0 / 3.0), hue_to(h), hue_to(h - 1.0 / 3.0))
 }
-fn t_to_rgb_helper(r: f64, g: f64, b: f64) -> (f64, f64, f64) { (r, g, b) }
 
 // Decode PNG at src, apply the tint blend, write PNG to dest.
 // All parameters for one image-edit operation (tint → crop → darken stages).
@@ -247,20 +251,11 @@ struct TintOp {
 }
 
 fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
-    let _t0 = std::time::Instant::now();
-    let mut _t_decode = std::time::Duration::ZERO;
-    let img = {
-        let s = std::time::Instant::now();
-        let i = image::open(src).map_err(|e| e.to_string())?;
-        _t_decode = s.elapsed();
-        i
-    };
+    let img = image::open(src).map_err(|e| e.to_string())?;
     let mut rgba = img.to_rgba8();
 
     // Stage 1: tint (parallelized across pixel rows via rayon).
-    let mut _t_tint = std::time::Duration::ZERO;
     if op.tint_enabled {
-        let _ts = std::time::Instant::now();
         let (cr, cg, cb, ca) = parse_color(&op.color);
         let cf = |c: u8| c as f64 / 255.0;
         let crf = cf(cr); let cgf = cf(cg); let cbf = cf(cb);
@@ -308,13 +303,10 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
                 // px[3] (alpha) preserved
             }
         });
-        _t_tint = _ts.elapsed();
     }
 
     // Stage 2: crop — split at row tail_h; compose blank + tail + body-extended to out_h.
-    let mut _t_crop = std::time::Duration::ZERO;
     if op.crop_enabled {
-        let _ts = std::time::Instant::now();
         let (w, h) = rgba.dimensions();
         let tail_h = ((op.crop_a.round() as u64).min(h as u64)) as usize;
         let blank = (op.crop_b.round().max(0.0) as u64) as usize;
@@ -360,8 +352,7 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
             orow[..stride].copy_from_slice(src_row_bytes);
         });
         // Wrap into RgbaImage (dimensions = w × out_h).
-        rgba = image::ImageBuffer::from_raw(w as u32, out_h as u32, out.into_vec()).unwrap_or(rgba);
-        _t_crop = _ts.elapsed();
+        rgba = image::ImageBuffer::from_raw(w, out_h as u32, out.into_vec()).unwrap_or(rgba);
     }
 
     // Stage 3: darken — single parallel pass. For each output row y:
@@ -373,7 +364,6 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
     // Darkening is a derived sub-state: active when crop is on AND opacity > 0
     // (matches the frontend's isDarkening — darkenD just controls the shift).
     if op.crop_enabled && op.darken_opacity > 0.0 {
-        let _ts = std::time::Instant::now();
         let shift = op.darken_d.round() as i64;
         let (w, h) = rgba.dimensions();
         let alpha = (255.0 * (op.darken_opacity / 100.0)).round().clamp(0.0, 255.0) as u8;
@@ -387,7 +377,7 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
         out_buf.par_chunks_mut(stride).enumerate().for_each(|(y, orow)| {
             let sy_opaque = y as i64 - shift;
             for (ox, opx) in orow.chunks_exact_mut(4).enumerate() {
-                let gi = y as usize * stride + ox * 4;
+                let gi = y * stride + ox * 4;
                 let (gr, gg, gb, ga) = (src_buf[gi], src_buf[gi+1], src_buf[gi+2], src_buf[gi+3]);
                 let ga_f = ga as f64 * af;
                 if sy_opaque < 0 || sy_opaque >= h as i64 {
@@ -411,7 +401,6 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
             }
         });
         rgba = out;
-        let _ = _ts.elapsed();
     }
 
     // Clear the bottom row of the final image (transparent). Done AFTER darken
@@ -432,7 +421,6 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
 
     // Encode PNG with zune-png (much faster than `image`'s deflate for large
     // outputs). Falls back to `image`'s encoder if zune-png fails.
-    let _ts = std::time::Instant::now();
     let (w, h) = rgba.dimensions();
     let raw = rgba.as_raw();
     // Encode PNG with the `image` crate (flate2 deflate, Fast compression).
@@ -444,7 +432,6 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
     use image::ImageEncoder;
     let r = enc.write_image(raw, w, h, image::ExtendedColorType::Rgba8)
         .map_err(|e| e.to_string());
-    let _ = (_t_decode, _t_tint, _t_crop, _ts.elapsed(), _t0.elapsed());
     r
 }
 

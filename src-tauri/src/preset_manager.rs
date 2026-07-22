@@ -202,13 +202,13 @@ fn save_config(skin_path: &str, cfg: &Config) -> Result<(), String> {
     if !cfg.presets.is_empty() {
         v.insert("presets".into(), json!(cfg.presets));
     }
-    if !cfg.table_expanded_children.is_null() && cfg.table_expanded_children.as_object().map_or(false, |o| !o.is_empty()) {
+    if !cfg.table_expanded_children.is_null() && cfg.table_expanded_children.as_object().is_some_and(|o| !o.is_empty()) {
         v.insert("tableExpandedChildren".into(), cfg.table_expanded_children.clone());
     }
-    if !cfg.table_row_selection.is_null() && cfg.table_row_selection.as_object().map_or(false, |o| !o.is_empty()) {
+    if !cfg.table_row_selection.is_null() && cfg.table_row_selection.as_object().is_some_and(|o| !o.is_empty()) {
         v.insert("tableRowSelection".into(), cfg.table_row_selection.clone());
     }
-    if !cfg.table_activations.is_null() && cfg.table_activations.as_object().map_or(false, |o| !o.is_empty()) {
+    if !cfg.table_activations.is_null() && cfg.table_activations.as_object().is_some_and(|o| !o.is_empty()) {
         v.insert("tableActivations".into(), cfg.table_activations.clone());
     }
     // Compact (non-pretty) serialization keeps config.osp small — the file is
@@ -221,7 +221,7 @@ fn save_config(skin_path: &str, cfg: &Config) -> Result<(), String> {
 
 // ── Tree helpers ──
 
-fn find_group_mut<'a>(cfg: &'a mut Config, group_id: i64) -> Option<usize> {
+fn find_group_mut(cfg: &mut Config, group_id: i64) -> Option<usize> {
     cfg.groups.iter().position(|g| g.id == group_id)
 }
 
@@ -575,7 +575,7 @@ pub fn delete_presets(skin_path: &str, preset_ids: &[i64]) -> usize {
     let to_delete: HashSet<i64> = preset_ids.iter().copied().collect();
     cfg.presets.retain(|p| {
         let id = p.get("id").and_then(|v| v.as_i64());
-        id.map_or(true, |id| !to_delete.contains(&id))
+        id.is_none_or(|id| !to_delete.contains(&id))
     });
     let mut removed = 0;
     for id in preset_ids {
@@ -658,10 +658,8 @@ pub fn set_group_description(skin_path: &str, group_id: i64, description: &str) 
     save_config(skin_path, &cfg)
 }
 
-/// Set or clear the own actions on a group (a table group can be an applicable
-/// unit itself). Empty actions (all four arrays empty) are stored as None to
-/// keep config.osp compact.
-/// Persist the table-group UI state (expanded children + row selections).
+/// Persist the table-group UI state (expanded children + row selections +
+/// activations).
 pub fn set_table_state(skin_path: &str, expanded: &Value, row_selection: &Value, activations: &Value) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
     cfg.table_expanded_children = expanded.clone();
@@ -670,6 +668,9 @@ pub fn set_table_state(skin_path: &str, expanded: &Value, row_selection: &Value,
     save_config(skin_path, &cfg)
 }
 
+/// Set or clear the own actions on a group (a table group can be an applicable
+/// unit itself). Empty actions (all four arrays empty) are stored as None to
+/// keep config.osp compact.
 pub fn set_group_actions(skin_path: &str, group_id: i64, actions: &Value) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
     let g = cfg.groups.iter_mut().find(|g| g.id == group_id)
@@ -679,7 +680,6 @@ pub fn set_group_actions(skin_path: &str, group_id: i64, actions: &Value) -> Res
     save_config(skin_path, &cfg)
 }
 
-/// Persist the table-group UI state (expanded children + row selections).
 /// Flatten a group's nested sub-groups: move every preset from any depth in
 /// the group's subtree into the group's DIRECT children, then delete all
 /// intermediate sub-groups. Used when dragging a group with nested plain
@@ -898,7 +898,7 @@ pub fn delete_group_recursive(skin_path: &str, group_id: i64) -> Result<Value, S
     let deleted_preset_ids: Vec<i64> = preset_ids.iter().copied().collect();
     let deleted_group_ids: Vec<i64> = group_ids.iter().copied().collect();
 
-    cfg.presets.retain(|p| p.get("id").and_then(|v| v.as_i64()).map_or(true, |id| !preset_ids.contains(&id)));
+    cfg.presets.retain(|p| p.get("id").and_then(|v| v.as_i64()).is_none_or(|id| !preset_ids.contains(&id)));
     cfg.groups.retain(|g| !group_ids.contains(&g.id));
     remove_from_parent(&mut cfg, group_id, "group");
     // Purge any deleted group/preset refs from the unified root children.

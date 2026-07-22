@@ -14,8 +14,8 @@
   border-bottom: 1px solid var(--border);
   padding: 0 0 0 12px;
   /* No -webkit-app-region: drag here — on WebView2 it swallows clicks on child
-     buttons. Window dragging + double-click-maximize are wired imperatively in
-     app.js (startDragging / toggleMaximize on mousedown of the bar background). */
+     buttons. Window dragging uses the native `data-tauri-drag-region` attribute
+     on this element (set in index.html); double-click-maximize is native too. */
 }
 .titlebar__title {
   display: flex;
@@ -24,12 +24,6 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
-}
-.titlebar__dot {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 .titlebar__dot-core {
   width: 8px;
@@ -209,10 +203,6 @@ button#decorum-tb-close:hover {
 @keyframes layer-enter-left  { 0% { opacity: 0.35; transform: translateX(-24px); } 35% { opacity: 1; } 100% { opacity: 1; transform: translateX(0); } }
 @keyframes layer-exit-left   { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-24px); } }
 @keyframes layer-exit-right  { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(24px); } }
-.sidebar__layer--active {
-  opacity: 1;
-  pointer-events: auto;
-}
 /* Edit-mode layer: preset section fills; use-mode layer: skins fill. */
 .sidebar__layer--use .sidebar__section--skins { flex: 1; overflow: hidden; }
 .sidebar__layer--edit .sidebar__section--presets { flex: 1; max-height: none; overflow: hidden; }

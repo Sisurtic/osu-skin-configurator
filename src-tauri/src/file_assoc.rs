@@ -48,7 +48,7 @@ pub fn register(app: &AppHandle) {
     // Re-register
     let _ = (|| -> std::io::Result<()> {
         // Applications\<exe>\DefaultIcon
-        let app_key = classes.create_subkey(&format!("Applications\\{}", app_exe))?.0;
+        let app_key = classes.create_subkey(format!("Applications\\{}", app_exe))?.0;
         let default_icon = app_key.create_subkey("DefaultIcon")?.0;
         default_icon.set_value("", &ico_str)?;
         // shell\open\command
@@ -59,7 +59,7 @@ pub fn register(app: &AppHandle) {
         let osp = classes.create_subkey(".osp")?.0;
         osp.set_value("", &format!("Applications\\{}", app_exe))?;
         let open_with = osp.create_subkey("OpenWithProgids")?.0;
-        let _ = open_with.set_value(&format!("Applications\\{}", app_exe), &"");
+        let _ = open_with.set_value(format!("Applications\\{}", app_exe), &"");
         Ok(())
     })();
 

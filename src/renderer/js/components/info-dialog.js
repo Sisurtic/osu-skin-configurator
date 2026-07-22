@@ -134,12 +134,6 @@
   if (overlay) {
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   }
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && overlay && !overlay.hidden) {
-      e.stopPropagation();
-      close();
-    }
-  });
 
   // External links open in the system browser (Tauri WebView2 swallows plain
   // target=_blank). Use the opener API if available, else fall back.
