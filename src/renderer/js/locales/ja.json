@@ -129,6 +129,7 @@
     "appliedSingle": "プリセットを適用しました! {ini} 項目を変更、{copy} 個のファイルをコピー、{tint} 個を画像編集",
     "appliedMulti": "プリセットを適用しました! {ini} 項目を変更、{copy} 個のファイルをコピー、{del} 個のファイルを削除、{tint} 個を画像編集",
     "applyFailed": "適用に失敗しました: {msg}",
+    "appliedWithWarnings": "適用完了しましたが {n} 件の警告があります（ソース欠落、コピー失敗など）。先頭: {first}",
     "loadPresetFailed": "プリセットデータを読み込めません",
     "willApplyMulti": "{count} 個のプリセットをスキン \"{name}\" に適用します:",
     "fragmentCopy": "コピー×{n}",

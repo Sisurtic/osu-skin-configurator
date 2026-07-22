@@ -129,6 +129,7 @@
     "appliedSingle": "预设已应用! 修改 {ini} 个设置，复制 {copy} 个文件，图像编辑 {tint} 个文件",
     "appliedMulti": "预设已应用! 修改 {ini} 个设置，复制 {copy} 个文件，删除 {del} 个文件，图像编辑 {tint} 个文件",
     "applyFailed": "应用失败: {msg}",
+    "appliedWithWarnings": "应用完成，但有 {n} 项警告（如源文件缺失、复制失败）。首条：{first}",
     "loadPresetFailed": "无法加载预设数据",
     "willApplyMulti": "将应用 {count} 个预设到皮肤 \"{name}\":",
     "fragmentCopy": "复制×{n}",

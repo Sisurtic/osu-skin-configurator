@@ -129,6 +129,7 @@
     "appliedSingle": "Preset applied! {ini} setting(s) changed, {copy} file(s) copied, {tint} image-edited",
     "appliedMulti": "Presets applied! {ini} setting(s) changed, {copy} file(s) copied, {del} file(s) deleted, {tint} image-edited",
     "applyFailed": "Apply failed: {msg}",
+    "appliedWithWarnings": "Applied with {n} warning(s) (e.g. missing source, copy failed). First: {first}",
     "loadPresetFailed": "Could not load preset data",
     "willApplyMulti": "Will apply {count} preset(s) to skin \"{name}\":",
     "fragmentCopy": "Copy×{n}",

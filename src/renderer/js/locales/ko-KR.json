@@ -129,6 +129,7 @@
     "appliedSingle": "프리셋 적용 완료! 항목 {ini}개 수정, 파일 {copy}개 복사, {tint}개 이미지 편집",
     "appliedMulti": "프리셋 적용 완료! 항목 {ini}개 수정, 파일 {copy}개 복사, {del}개 삭제, {tint}개 이미지 편집",
     "applyFailed": "적용 실패: {msg}",
+    "appliedWithWarnings": "적용 완료, 단 {n}개 경고가 있습니다(원본 누락, 복사 실패 등). 첫 번째: {first}",
     "loadPresetFailed": "프리셋 데이터를 불러올 수 없습니다",
     "willApplyMulti": "프리셋 {count}개를 스킨 \"{name}\"에 적용합니다:",
     "fragmentCopy": "복사×{n}",

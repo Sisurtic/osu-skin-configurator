@@ -93,6 +93,12 @@
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
         const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0);
         Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
+        // Surface partial-failure warnings (missing sources, copy/tint failures,
+        // paths outside the skin) the backend reports alongside the success.
+        const warns = d.warnings || [];
+        if (warns.length > 0) {
+          Toast.warning(i18n.t('apply.appliedWithWarnings', { n: warns.length, first: warns[0] }));
+        }
       } else {
         Toast.error(i18n.t('apply.applyFailed', { msg: result.error || i18n.t('app.unknownError') }));
       }
@@ -322,6 +328,7 @@
               combined.filesCopied = (combined.filesCopied || 0) + (d.filesCopied || 0);
               combined.filesDeleted = (combined.filesDeleted || 0) + (d.filesDeleted || 0);
               combined.filesTinted = (combined.filesTinted || 0) + (d.filesTinted || 0);
+              combined.warnings = [...(combined.warnings || []), ...(d.warnings || [])];
             }
           } else { failed = rg; break; }
         }
@@ -341,6 +348,12 @@
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
         const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0);
         Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
+        // Surface partial-failure warnings (missing sources, copy/tint failures,
+        // paths outside the skin) the backend reports alongside the success.
+        const warns = d.warnings || [];
+        if (warns.length > 0) {
+          Toast.warning(i18n.t('apply.appliedWithWarnings', { n: warns.length, first: warns[0] }));
+        }
         // "Apply without saving" applied the SAVED state; reload it into the
         // editor so the editor matches (discards the unsaved edits).
         if (mode === 'nosave' && window.PresetEditor && typeof window.PresetEditor.reloadCurrent === 'function') {

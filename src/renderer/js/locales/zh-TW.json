@@ -129,6 +129,7 @@
     "appliedSingle": "預設已套用! 修改 {ini} 個設定,複製 {copy} 個檔案,圖像編輯 {tint} 個檔案",
     "appliedMulti": "預設已套用! 修改 {ini} 個設定,複製 {copy} 個檔案,刪除 {del} 個檔案,圖像編輯 {tint} 個檔案",
     "applyFailed": "套用失敗: {msg}",
+    "appliedWithWarnings": "套用完成，但有 {n} 項警告（如來源檔案缺失、複製失敗）。首條：{first}",
     "loadPresetFailed": "無法載入預設資料",
     "willApplyMulti": "將套用 {count} 個預設到皮膚 \"{name}\":",
     "fragmentCopy": "複製×{n}",
