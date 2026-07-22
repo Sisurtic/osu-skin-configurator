@@ -463,21 +463,6 @@ select.form-input {
 .th--sortable--active {
   background: var(--bg-tertiary);
 }
-.ini-sort-indicator {
-  display: inline-flex;
-  flex-direction: column;
-  line-height: 1;
-  font-size: 7px;
-  gap: 2px;
-  margin-left: 6px;
-  vertical-align: middle;
-}
-.ini-sort-arrow {
-  color: var(--text-muted);
-}
-.ini-sort-arrow--active {
-  color: var(--accent);
-}
 /* The two leftmost INI columns hold badge "tag" pills whose text is inset by
    the pill padding; offset these headers' left padding so the header text
    aligns with the badge TEXT, not the badge background edge. */

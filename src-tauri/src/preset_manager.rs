@@ -221,7 +221,7 @@ fn save_config(skin_path: &str, cfg: &Config) -> Result<(), String> {
 
 // ── Tree helpers ──
 
-fn find_group_mut(cfg: &mut Config, group_id: i64) -> Option<usize> {
+fn find_group_index(cfg: &Config, group_id: i64) -> Option<usize> {
     cfg.groups.iter().position(|g| g.id == group_id)
 }
 
@@ -249,7 +249,7 @@ fn insert_into_parent(cfg: &mut Config, child_id: i64, kind: &str, parent_group_
             cfg.root_children.insert(i, ChildRef { kind: kind.to_string(), id: child_id });
         }
         Some(pid) => {
-            let gi = find_group_mut(cfg, pid).ok_or_else(|| crate::i18n::t("err.target_group_not_found", &[("id", &pid.to_string())]))?;
+            let gi = find_group_index(cfg, pid).ok_or_else(|| crate::i18n::t("err.target_group_not_found", &[("id", &pid.to_string())]))?;
             let len = cfg.groups[gi].children.len() as i64;
             let i = index.filter(|x| *x >= 0).unwrap_or(len) as usize;
             let i = i.min(cfg.groups[gi].children.len());
@@ -763,7 +763,7 @@ pub fn set_group_preview(
 
 pub fn remove_group(skin_path: &str, group_id: i64) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
-    let gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
+    let gi = find_group_index(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
     if !cfg.groups[gi].children.is_empty() {
         return Err(crate::i18n::t("err.group_not_empty", &[]));
     }
@@ -776,7 +776,7 @@ pub fn remove_group(skin_path: &str, group_id: i64) -> Result<(), String> {
 
 pub fn rename_group(skin_path: &str, group_id: i64, new_name: &str) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
-    let gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
+    let gi = find_group_index(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
     cfg.groups[gi].name = if new_name.is_empty() { crate::i18n::t("group.unnamed", &[]) } else { new_name.to_string() };
     save_config(skin_path, &cfg)?;
     Ok(())
@@ -790,7 +790,7 @@ pub fn move_preset(skin_path: &str, preset_id: i64, target_group_id: Option<i64>
         return Err(crate::i18n::t("err.preset_not_found", &[("id", &preset_id.to_string())]));
     }
     if let Some(tg) = target_group_id {
-        if find_group_mut(&mut cfg, tg).is_none() {
+        if find_group_index(&mut cfg, tg).is_none() {
             return Err(crate::i18n::t("err.target_group_not_found", &[("id", &tg.to_string())]));
         }
         // A single-level (top-level) table group may hold presets directly, as
@@ -804,7 +804,7 @@ pub fn move_preset(skin_path: &str, preset_id: i64, target_group_id: Option<i64>
 
 pub fn move_group(skin_path: &str, group_id: i64, target_group_id: Option<i64>, index: Option<i64>) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
-    if find_group_mut(&mut cfg, group_id).is_none() {
+    if find_group_index(&mut cfg, group_id).is_none() {
         return Err(crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]));
     }
     if let Some(tg) = target_group_id {
@@ -842,7 +842,7 @@ pub fn reorder_children(skin_path: &str, parent_group_id: Option<i64>, child_ord
     match parent_group_id {
         None => { cfg.root_children = child_order; }
         Some(pid) => {
-            let gi = find_group_mut(&mut cfg, pid).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &pid.to_string())]))?;
+            let gi = find_group_index(&mut cfg, pid).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &pid.to_string())]))?;
             let order_map: HashMap<(String, i64), usize> = child_order.iter().enumerate()
                 .map(|(i, c)| ((c.kind.clone(), c.id), i)).collect();
             cfg.groups[gi].children.sort_by(|a, b| {
@@ -858,7 +858,7 @@ pub fn reorder_children(skin_path: &str, parent_group_id: Option<i64>, child_ord
 
 pub fn set_group_collapsed(skin_path: &str, group_id: i64, collapsed: bool) -> Result<(), String> {
     let mut cfg = load_config(skin_path);
-    let gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
+    let gi = find_group_index(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
     cfg.groups[gi].collapsed = collapsed;
     save_config(skin_path, &cfg)?;
     Ok(())
@@ -877,7 +877,7 @@ pub fn set_groups_collapsed_batch(skin_path: &str, group_ids: &[i64], collapsed:
 
 pub fn delete_group_recursive(skin_path: &str, group_id: i64) -> Result<Value, String> {
     let mut cfg = load_config(skin_path);
-    let root_gi = find_group_mut(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
+    let root_gi = find_group_index(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
     let mut preset_ids: HashSet<i64> = HashSet::new();
     let mut group_ids: HashSet<i64> = HashSet::new();
     fn collect(cfg: &Config, gid: i64, preset_ids: &mut HashSet<i64>, group_ids: &mut HashSet<i64>) {

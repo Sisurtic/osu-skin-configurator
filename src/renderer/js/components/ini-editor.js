@@ -11,9 +11,6 @@
   // types (bool/section/rgb/string) render from edit.value, so one value fits.
   let _headerTempSnapshot = {};
 
-  // Column sort state for the operation table. Default = by action type
-  // (modify/delete grouped), ascending. There is always an active sort.
-  let sortState = { col: 'action', dir: 'asc' };
   // Last actions array reference rendered — handed to OpTable.maybeResetSelection
   // so selection is reset only on a real data change, not on sort/delete re-renders.
   let lastActionsRef = null;
@@ -1110,48 +1107,6 @@
     return base + '@' + mk;
   }
 
-  function cmpStr(a, b) { return a < b ? -1 : (a > b ? 1 : 0); }
-
-  // Action-type rank for the "操作" sort: modify (green) < delete (red).
-  // (perColumn groups are formed AFTER sorting by collapsing adjacent equal
-  // base keys, so individual edits sort by modify/delete; the blue group header
-  // is a derived row, not sorted here.)
-  function actionRank(edit) { return edit._delete ? 1 : 0; }
-
-  // The per-header sort-key chain. Each header sorts by a specific sequence of
-  // fields so that, e.g., sorting by 操作 groups all modifies then deletes and
-  // within each by section→key→value. Reverse (desc) inverts the whole compare
-  // but keeps the field PRIORITY order.
-  // Sort key for the section column: section name (string) then maniaKeys
-  // (numeric) so "Mania (4K)" < "Mania (7K)" < "Mania (18K)" numerically,
-  // not lexicographically.
-  function sectionSortKey(edit) {
-    if (edit.section === 'Mania' && edit.maniaKeys != null) {
-      return edit.section + '\0' + String(edit.maniaKeys).padStart(3, '0');
-    }
-    return edit.section;
-  }
-
-  function editSortKeys(edit, col) {
-    const sec = sectionSortKey(edit);
-    const key = groupSortKey(edit);
-    const val = edit.value || '';
-    const act = actionRank(edit);
-    if (col === 'action')  return [act, sec, key, val];
-    if (col === 'section') return [sec, key, val, act];
-    if (col === 'key')     return [key, val, sec, act];
-    /* value */           return [val, sec, key, act];
-  }
-
-  function compareEdit(a, b, col) {
-    const ka = editSortKeys(a, col), kb = editSortKeys(b, col);
-    for (let i = 0; i < ka.length; i++) {
-      const c = cmpStr(ka[i], kb[i]);
-      if (c !== 0) return c;
-    }
-    return 0;
-  }
-
   // Auto-size the operation table's first three columns to fit their content
   // (headers + cells) in the current language, then lock to fixed layout so
   // adding/removing rows never shifts them. The 4th (Value) column takes the
@@ -1291,21 +1246,6 @@
     });
   }
 
-
-  // Re-render the editor after a sort change (preserves expanded-group state,
-  // which render() already saves/restores).
-  function rerenderTable(container) {
-    render(container);
-  }
-
-  // Render the up/down sort arrows for a column header.
-  function sortIndicatorHtml(col) {
-    if (sortState.col !== col) return '';
-    const ascActive = sortState.dir === 'asc';
-    const upCls = ascActive ? 'ini-sort-arrow ini-sort-arrow--active' : 'ini-sort-arrow';
-    const downCls = !ascActive ? 'ini-sort-arrow ini-sort-arrow--active' : 'ini-sort-arrow';
-    return `<span class="ini-sort-indicator"><span class="${upCls}">▲</span><span class="${downCls}">▼</span></span>`;
-  }
 
   function renderIniTableBody(iniEdits) {
     if (iniEdits.length === 0) {

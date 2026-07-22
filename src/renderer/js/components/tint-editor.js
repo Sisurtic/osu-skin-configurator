@@ -1627,11 +1627,6 @@
       opSel.bindRow(row);
     });
 
-    // Strip a destination's extension + @2x, leaving just the stem (shared impl
-    // in OpTable.appendSrcExt — the backend re-attaches the source's suffix).
-    function appendSrcExt(val) {
-      return OpTable.appendSrcExt(val);
-    }
 
     // Multi-select destination/exact sync — shared skeleton (OpTable.createGroupSync),
     // same as file-copy/ini. Folded sequence-group headers act as virtual rows
@@ -1722,7 +1717,7 @@
         }
         val = val.replace(/\\/g, '/');
         // Strip to a stem (the backend re-attaches the source's @2x + extension).
-        val = appendSrcExt(val);
+        val = OpTable.appendSrcExt(val);
         if (val !== input.value) input.value = val;
         // Writes the source row's normalized destination + syncs to selected
         // siblings (data + DOM).
