@@ -800,7 +800,11 @@
     // Own actions (INI/file/tint) — table groups only; plain groups have none.
     if (editData._isTableGroup) {
     const actionsToSave = {
-      skinIni: [...editData.actions.skinIni],
+      skinIni: (editData.actions.skinIni || []).map(e => ({
+        section: e.section, maniaKeys: e.maniaKeys, key: e.key, value: e.value,
+        ...(e._cn ? { _cn: e._cn } : {}),
+        ...(e._delete ? { _delete: true } : {}),
+      })),
       fileCopies: (editData.actions.fileCopies || []).map(c => ({
         source: c.source, destination: c.destination || '', exact: !!c.exact,
       })),
@@ -887,7 +891,11 @@
     const dataToSave = {
       meta,
       actions: {
-        skinIni: [...editData.actions.skinIni],
+        skinIni: (editData.actions.skinIni || []).map(e => ({
+        section: e.section, maniaKeys: e.maniaKeys, key: e.key, value: e.value,
+        ...(e._cn ? { _cn: e._cn } : {}),
+        ...(e._delete ? { _delete: true } : {}),
+      })),
         fileCopies: (editData.actions.fileCopies || []).map(c => ({
           source: c.source, destination: c.destination || '', exact: !!c.exact,
         })),

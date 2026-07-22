@@ -7,9 +7,12 @@
   let sel = null;
   // Snapshot of FOLDED perColumn group-header VALUES (read off the live DOM
   // before rebuild), so a re-render preserves an in-flight header edit instead
-  // of resetting it to the first member's value. Keyed by groupId. All control
+  // of resetting it to the first member's value. Keyed by gid. All control
   // types (bool/section/rgb/string) render from edit.value, so one value fits.
   let _headerTempSnapshot = {};
+  // Expanded perColumn groups (by STABLE per-instance gid). Default: collapsed.
+  // gids live on the member iniEdits objects (_groupId); reorder preserves them.
+  const expandedSeqGroups = new Set();
 
   // Last actions array reference rendered — handed to OpTable.maybeResetSelection
   // so selection is reset only on a real data change, not on sort/delete re-renders.
@@ -77,17 +80,14 @@
       lastActionsRef = actions;
     }
 
-    // Save expanded group state before rebuilding DOM
-    const expandedGroups = new Set();
+    // Snapshot FOLDED group-header values so rebuilds preserve an in-flight
+    // header edit. Keyed by gid (stable across reorder/re-render). Expanded
+    // groups mirror their first member's value live, so they are skipped.
+    _headerTempSnapshot = {};
     if (container.querySelector) {
-      container.querySelectorAll('.ini-collapsed-row--expanded').forEach(r => {
-        if (r.dataset.group) expandedGroups.add(r.dataset.group);
-      });
-      // Snapshot FOLDED group-header values so rebuilds preserve an in-flight
-      // header edit. Read each control type's current DOM value.
-      _headerTempSnapshot = {};
-      container.querySelectorAll('.ini-collapsed-row:not(.ini-collapsed-row--expanded)').forEach(r => {
-        const gid = r.dataset.group;
+      container.querySelectorAll('.ini-collapsed-row').forEach(r => {
+        if (r.classList.contains('ini-collapsed-row--expanded')) return;
+        const gid = r.dataset.gid;
         if (!gid) return;
         const cb = r.querySelector('.ini-value-toggle[data-group-header="1"]');
         const sel = r.querySelector('.ini-value-section[data-group-header="1"]');
@@ -773,18 +773,21 @@
       });
     });
     // Fill-all buttons for Mania per-column fields (collapsed group)
-    container.querySelectorAll('.ini-fill-btn[data-group]').forEach(btn => {
+    container.querySelectorAll('.ini-fill-btn[data-gid]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const groupId = btn.dataset.group;
-        // Find all sub-rows belonging to this group
-        const subRows = container.querySelectorAll(`.ini-sub-row[data-group-parent="${CSS.escape(groupId)}"]`);
+        const gid = btn.dataset.gid;
+        const syncKey = btn.dataset.group;
+        // Find all sub-rows belonging to THIS group (by gid, so a same-name
+        // sibling group is never touched).
+        const subRows = container.querySelectorAll(`.ini-sub-row[data-gid="${CSS.escape(gid)}"]`);
         if (subRows.length === 0) return;
         // Read the group HEADER's current (temporary) value — the header holds a
         // local value initialized from the first sub-row; the user may have edited
-        // it. Committing (fill) writes that value to every sub-row.
-        const headerInput = container.querySelector(`.ini-value-input[data-group-header="1"][data-group="${CSS.escape(groupId)}"]`);
-        const headerToggle = container.querySelector(`.ini-value-toggle[data-group-header="1"][data-group="${CSS.escape(groupId)}"]`);
-        const headerSelect = container.querySelector(`.ini-value-section[data-group-header="1"][data-group="${CSS.escape(groupId)}"]`);
+        // it. Committing (fill) writes that value to every sub-row. Header controls
+        // are queried by the content sync key (data-group).
+        const headerInput = container.querySelector(`.ini-value-input[data-group-header="1"][data-group="${CSS.escape(syncKey)}"]`);
+        const headerToggle = container.querySelector(`.ini-value-toggle[data-group-header="1"][data-group="${CSS.escape(syncKey)}"]`);
+        const headerSelect = container.querySelector(`.ini-value-section[data-group-header="1"][data-group="${CSS.escape(syncKey)}"]`);
         let fillValue;
         if (headerToggle) fillValue = headerToggle.checked ? '1' : '0';
         else if (headerSelect) fillValue = headerSelect.value;
@@ -801,19 +804,23 @@
     });
     // Expand/collapse a perColumn group. Triggered by double-clicking the row
     // OR single-clicking the group tag (the "分组" badge in the Action column).
+    // State lives in the module-level expandedSeqGroups Set (keyed by gid); the
+    // DOM display/class follow as a consequence.
     function toggleGroupExpansion(row) {
-      const groupId = row.dataset.group;
-      const subRows = container.querySelectorAll(`.ini-sub-row[data-group-parent="${CSS.escape(groupId)}"]`);
+      const gid = row.dataset.gid;
+      if (!gid) return;
+      const subRows = container.querySelectorAll(`.ini-sub-row[data-gid="${CSS.escape(gid)}"]`);
       if (subRows.length === 0) return;
-      const isExpanded = subRows[0].style.display !== 'none';
-      for (const sr of subRows) {
-        sr.style.display = isExpanded ? 'none' : '';
-      }
-      row.classList.toggle('ini-collapsed-row--expanded', !isExpanded);
+      if (expandedSeqGroups.has(gid)) expandedSeqGroups.delete(gid);
+      else expandedSeqGroups.add(gid);
+      const expand = expandedSeqGroups.has(gid);
+      for (const sr of subRows) sr.style.display = expand ? '' : 'none';
+      row.classList.toggle('ini-collapsed-row--expanded', expand);
     }
     container.querySelectorAll('.ini-collapsed-row').forEach(row => {
       let last = 0;
       row.addEventListener('click', (e) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) { last = 0; return; }
         if (e.target.closest('button, input, select, .ini-group-toggle')) return;
         const now = Date.now();
         if (now - last < 250) { toggleGroupExpansion(row); last = 0; }
@@ -919,16 +926,6 @@
         if (input) input.value = converted;
       });
     });
-
-    // Restore expanded group state
-    for (const groupId of expandedGroups) {
-      const row = container.querySelector(`.ini-collapsed-row[data-group="${CSS.escape(groupId)}"]`);
-      if (row) {
-        const subRows = container.querySelectorAll(`.ini-sub-row[data-group-parent="${CSS.escape(groupId)}"]`);
-        for (const sr of subRows) sr.style.display = '';
-        row.classList.add('ini-collapsed-row--expanded');
-      }
-    }
 
     // Measure + apply column widths. If the tab is active but layoutColumns
     // skipped (container width not settled yet this frame), retry next frame.
@@ -1293,6 +1290,19 @@
       }
     }
 
+    // Assign stable per-instance gids to each collapsed group (writes _groupId
+    // onto the member iniEdits objects; reuses when a group's members already
+    // share one). Reorder moves object refs, so _groupId survives → expand state
+    // survives. Then drop expand-state for gids that no longer exist.
+    const groupEntries = [];
+    for (const p of rowPlan) {
+      if (p.kind === 'collapsed-group') groupEntries.push({ members: p.indices.map(i => iniEdits[i]) });
+    }
+    OpTable.assignSeqGroupIds(groupEntries);
+    let gi = 0;
+    for (const p of rowPlan) if (p.kind === 'collapsed-group') p.gid = groupEntries[gi++].gid;
+    OpTable.pruneExpanded(expandedSeqGroups, groupEntries.map(e => e.gid));
+
     return `
       <div class="ini-body-table">
         <div class="table-wrap">
@@ -1345,7 +1355,10 @@
               const firstEdit = iniEdits[plan.indices[0]];
               const firstField = findFieldByTemplate(firstEdit.section, firstEdit.key);
               const firstType = firstField?.type || 'string';
-              const groupId = `${plan.baseKey}-${plan.maniaKeys}`;
+              // gid = stable per-instance id (expand state + parent linkage);
+              // syncKey = content-derived key for control-sync queries (applyToHeader).
+              const groupId = plan.gid;
+              const syncKey = `${plan.baseKey}-${plan.maniaKeys}`;
               const templateKey = plan.field.key;
               const fieldCn = INI_FIELD_LABELS.fieldLabel(plan.field);
               const rowTitle = `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(plan.field) + ' (' + templateKey + ')')}"`;
@@ -1355,32 +1368,34 @@
               const hasDelete = plan.indices.some(i => iniEdits[i]._delete);
               // Use string-based data-idx to avoid collision with sub-row indices
               const groupDataIdx = `G-${groupId}`;
+              const expanded = expandedSeqGroups.has(groupId);
 
-              let html = `<tr class="ini-edit-row ini-collapsed-row" data-group="${escapeHtml(groupId)}" data-group-indices="${escapeHtml(JSON.stringify(plan.indices))}" data-idx="${escapeHtml(groupDataIdx)}" ${rowTitle}>
+              let html = `<tr class="ini-edit-row ini-collapsed-row${expanded ? ' ini-collapsed-row--expanded' : ''}" data-gid="${escapeHtml(groupId)}" data-group="${escapeHtml(syncKey)}" data-group-indices="${escapeHtml(JSON.stringify(plan.indices))}" data-idx="${escapeHtml(groupDataIdx)}" ${rowTitle}>
                 <td><span class="tag ini-group-toggle" style="background:rgba(102,153,255,0.15);color:#69f;cursor:pointer">${i18n.t('ini.tagGroup')}</span></td>
                 <td><span class="tag">${sectionLabel(firstEdit)}</span></td>
                 <td><span class="ini-key-name">${escapeHtml(templateKey)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(fieldCn)}</span></td>
                 <td style="display:flex;align-items:center;gap:8px;padding-right:12px">
-                  <span style="flex:1;min-width:0">${hasModify ? renderValueInput(firstType, (_headerTempSnapshot[groupId] != null ? { ...firstEdit, value: _headerTempSnapshot[groupId] } : firstEdit), plan.indices[0], firstField, `data-group-header="1" data-group="${escapeHtml(groupId)}"`) : `<span style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</span>`}</span>
-                  ${hasModify ? `<button type="button" class="btn btn--secondary btn--sm ini-fill-btn" data-group="${escapeHtml(groupId)}" title="${i18n.t('ini.fillAllTitle')}" data-full="${escapeHtml(i18n.t('ini.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('ini.fillAll')}</button>` : ''}
+                  <span style="flex:1;min-width:0">${hasModify ? renderValueInput(firstType, (!expanded && _headerTempSnapshot[groupId] != null ? { ...firstEdit, value: _headerTempSnapshot[groupId] } : firstEdit), plan.indices[0], firstField, `data-group-header="1" data-group="${escapeHtml(syncKey)}"`) : `<span style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</span>`}</span>
+                  ${hasModify ? `<button type="button" class="btn btn--secondary btn--sm ini-fill-btn" data-gid="${escapeHtml(groupId)}" data-group="${escapeHtml(syncKey)}" title="${i18n.t('ini.fillAllTitle')}" data-full="${escapeHtml(i18n.t('ini.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('ini.fillAll')}</button>` : ''}
                 </td>
               </tr>`;
 
-              // Sub-rows — hidden initially; per-row _delete determines appearance
+              // Sub-rows — visibility follows the group's expand state.
+              const subHide = expanded ? '' : ' style="display:none"';
               for (const subIdx of plan.indices) {
                 const subEdit = iniEdits[subIdx];
                 const subField = findFieldByTemplate(subEdit.section, subEdit.key);
                 const subType = subField?.type || 'string';
                 const subTitle = subField ? `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(subField) + ' (' + subField.key + ')')}"` : '';
                 if (subEdit._delete) {
-                  html += `<tr class="ini-edit-row ini-sub-row ini-delete-row" data-idx="${subIdx}" data-group-parent="${escapeHtml(groupId)}" style="display:none" ${subTitle}>
+                  html += `<tr class="ini-edit-row ini-sub-row ini-delete-row" data-idx="${subIdx}" data-gid="${escapeHtml(groupId)}" data-group-parent="${escapeHtml(groupId)}"${subHide} ${subTitle}>
                     <td><span class="tag tag--danger">${i18n.t('ini.tagDelete')}</span></td>
                     <td><span class="tag">${sectionLabel(subEdit)}</span></td>
                     <td><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></td>
                     <td style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</td>
                   </tr>`;
                 } else {
-                  html += `<tr class="ini-edit-row ini-sub-row" data-idx="${subIdx}" data-group-parent="${escapeHtml(groupId)}" style="display:none" ${subTitle}>
+                  html += `<tr class="ini-edit-row ini-sub-row" data-idx="${subIdx}" data-gid="${escapeHtml(groupId)}" data-group-parent="${escapeHtml(groupId)}"${subHide} ${subTitle}>
                     <td><span class="tag tag--accent">${i18n.t('ini.tagModify')}</span></td>
                     <td><span class="tag">${sectionLabel(subEdit)}</span></td>
                     <td><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></td>
@@ -1490,7 +1505,15 @@
     if (set.size === 0 || actions.length === 0) return [];
     const out = [];
     for (const i of [...set].sort((a, b) => a - b)) {
-      if (i >= 0 && i < actions.length) out.push(actions[i]);
+      if (i >= 0 && i < actions.length) {
+        // Hand-pick fields (mirror file-copy): drop _groupId and any other
+        // runtime-only keys so they never reach the clipboard/disk/backend.
+        const e = actions[i];
+        const o = { section: e.section, maniaKeys: e.maniaKeys, key: e.key, value: e.value };
+        if (e._cn) o._cn = e._cn;
+        if (e._delete) o._delete = true;
+        out.push(o);
+      }
     }
     return JSON.parse(JSON.stringify(out));
   }
