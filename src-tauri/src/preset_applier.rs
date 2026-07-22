@@ -128,6 +128,16 @@ fn apply_source_suffix(dest_rel: &str, source_name: &str) -> String {
     }
 }
 
+// Append the source's sequence index, then re-attach its @2x + extension — the
+// shared dest-stem computation used by both copy and tint. Returns the dest
+// relative path with both transforms applied (no skin_path prefix). Callers
+// that need a guaranteed extension (tint's image::save) add a .png fallback on
+// top; byte copy doesn't need one.
+fn apply_index_and_suffix(dest_rel: &str, use_src_name: &str) -> String {
+    let with_index = apply_seq_index(dest_rel, use_src_name);
+    apply_source_suffix(&with_index, use_src_name)
+}
+
 // Parse a sequence-frame index out of a source filename, returning
 // (style, index) where style is "-" ("-N" form, e.g. "sliderb-0") or "" (no-
 // hyphen "N" form, e.g. "sliderb0"). Returns None when the name is not a frame.
@@ -516,11 +526,10 @@ fn apply_one_set(
         let dest_path = if is_dir_only {
             PathBuf::from(skin_path).join(dest_rel).join(&use_src_name)
         } else {
-            // Append the source's own sequence index to the dest stem (so a group
-            // stem "mania/sliderb" + sliderb-3 → mania/sliderb-3, and "mania/N#0"
-            // + fade-3 → mania/N#0-3); then re-attach the source's @2x + extension.
-            let with_index = apply_seq_index(dest_rel, &use_src_name);
-            PathBuf::from(skin_path).join(apply_source_suffix(&with_index, &use_src_name))
+            // Append the source's own sequence index, then re-attach @2x + ext
+            // (so "mania/sliderb" + sliderb-3 → mania/sliderb-3, and "mania/N#0"
+            // + fade-3 → mania/N#0-3).
+            PathBuf::from(skin_path).join(apply_index_and_suffix(dest_rel, &use_src_name))
         };
         let dest_str = dest_path.to_string_lossy().to_string();
         if !is_within(&dest_str, skin_path) {
@@ -590,10 +599,8 @@ fn apply_one_set(
         let dest_name = if is_dir_only {
             use_src_name
         } else {
-            // Append the source's own sequence index to the dest stem, then
-            // re-attach @2x + extension (+ .png fallback if source had none).
-            let with_index = apply_seq_index(dest_rel, &use_src_name);
-            let with_suffix = apply_source_suffix(&with_index, &use_src_name);
+            // Append the source's own sequence index, then re-attach @2x + ext.
+            let with_suffix = apply_index_and_suffix(dest_rel, &use_src_name);
             if Path::new(&with_suffix).extension().is_some() {
                 with_suffix
             } else {
