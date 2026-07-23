@@ -132,6 +132,7 @@
 textarea.form-input {
   resize: vertical;
   min-height: 80px;
+  scrollbar-gutter: stable;   /* reserve gutter so the field doesn't shift when its scrollbar appears */
 }
 select.form-input {
   appearance: none;
@@ -244,6 +245,8 @@ select.form-input {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+  background: var(--bg-primary);
+  scrollbar-gutter: stable;   /* reserve gutter so content doesn't shift left when a scrollbar appears */
 }
 .tab-content--active {
   display: block;
