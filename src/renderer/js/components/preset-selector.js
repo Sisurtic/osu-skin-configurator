@@ -773,6 +773,34 @@
       });
     });
 
+    // Hover a row LABEL (a plain sub-group name) → show that group's
+    // description/preview, mirroring group-header hover. Only labels that carry
+    // a data-group-id (plain sub-group rows) act; the __direct__ row has none.
+    viewEl.querySelectorAll('.preset-group__table-label[data-group-id]').forEach(label => {
+      label.addEventListener('mouseenter', () => {
+        const gid = parseInt(label.dataset.groupId, 10);
+        if (Number.isNaN(gid)) return;
+        clearTimeout(resetTimer);
+        const groups = state.get('groups') || [];
+        const g = groups.find(x => x.id === gid);
+        if (!g) return;
+        showPreview(
+          g.name || '',
+          g.description || '',
+          g.previewPath || null,
+          g.previewKind || 'image',
+          g.previewFrames || null,
+          g.previewFps || 12,
+          'group:' + gid
+        );
+      });
+      label.addEventListener('mouseleave', () => {
+        clearTimeout(hoverTimer);
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(() => resetPreview(), 3000);
+      });
+    });
+
     initDividerDrag();
 
     // Truncated-label tooltips: only row labels that actually overflow their
@@ -1188,7 +1216,7 @@
       html += '<div class="preset-group__table-rows">';
       for (const row of rows) {
         html += `<div class="preset-group__table-row" data-row-key="${escapeHtml(row.rowKey)}" style="margin-left:0">
-          <span class="preset-group__table-label"${row.label ? ` data-full-label="${escapeHtml(row.label)}"` : ''}>${escapeHtml(row.label)}</span>
+          <span class="preset-group__table-label"${row.label ? ` data-full-label="${escapeHtml(row.label)}"` : ''}${row.labelId != null ? ` data-group-id="${escapeHtml(row.labelId)}"` : ''}>${escapeHtml(row.label)}</span>
           <div class="preset-group__table-options${((_newlyLocked.has(row.rowKey) || _newlyUnlocked.has(row.rowKey)) && !_manualPulsedRows.has(row.rowKey)) ? ' preset-group__table-options--lock-pulse' : ''}">`;
         for (const opt of row.options) {
           // Activation state for this row/option (disabled siblings + the
