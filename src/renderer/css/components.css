@@ -101,11 +101,6 @@
   padding: 4px 10px;
   font-size: 12px;
 }
-.btn--icon {
-  padding: 6px;
-  width: 32px;
-  height: 32px;
-}
 
 /* ── Form Elements ── */
 .form-group {
@@ -301,31 +296,6 @@ select.form-input {
   color: var(--text-muted);
   padding: 1px 7px;
   border-radius: 10px;
-}
-
-/* ── Preset List Item ── */
-.preset-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px 6px 22px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-  font-size: 13px;
-}
-.preset-item:hover {
-  background: var(--bg-hover);
-}
-.preset-item--active {
-  background: var(--accent-bg);
-  color: var(--accent);
-}
-.preset-item__name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .file-thumb img,
@@ -699,20 +669,6 @@ tr[data-group-parent] .file-thumb__icon {
   margin-bottom: 16px;
 }
 
-/* ── Inline Row Editors ── */
-.inline-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-}
-.inline-row__grow {
-  flex: 1;
-}
-.inline-row .form-input {
-  width: 100%;
-}
-
 /* ── Color Swatch ── */
 .color-swatch {
   width: 28px;
@@ -859,14 +815,6 @@ tr[data-group-parent] .file-thumb__icon {
   color: var(--text-muted);
 }
 
-/* ── Mania Keys selector (unused, removed in round 4) ── */
-
-/* ── Upload zone drag state ── */
-.upload-zone--drag-over {
-  border-color: var(--accent) !important;
-  background: rgba(102, 204, 136, 0.08) !important;
-}
-
 /* ── Preset Groups ── */
 .preset-group {
   margin-bottom: 4px;
@@ -904,25 +852,6 @@ tr[data-group-parent] .file-thumb__icon {
   cursor: pointer;
   position: relative;
 }
-.preset-group__header--table-active {
-  background: rgba(102, 204, 136, 0.06);
-}
-.preset-group__header--table-active .preset-group__label {
-  color: var(--accent);
-}
-/* Table header shortcut bar (child element — ::after is reserved for the
-   underline and is overridden by .preset-group__header::after above). */
-.preset-group__header-bar {
-  position: absolute;
-  right: 0;
-  top: 4px;
-  bottom: 4px;
-  width: 3px;
-  background: #ded77a;
-  border-radius: 2px;
-  pointer-events: none;
-  z-index: 2;
-}
 .preset-group__label {
   flex: 1;
   font-size: 10px;
@@ -950,15 +879,6 @@ tr[data-group-parent] .file-thumb__icon {
   /* Darken progressively with nesting depth; veils stack across nested levels.
      (depth+1) so the root level also gets a starting shade. */
   background: color-mix(in srgb, transparent, #000 calc((var(--depth, 0) + 1) * 17%));
-}
-.preset-selector__sep {
-  height: 2px;
-  min-height: 2px;
-  margin: 8px 0;
-  background: var(--border-light);
-  position: relative;
-  z-index: 1;
-  flex-shrink: 0;
 }
 .preset-group__item {
   display: flex;
@@ -1006,8 +926,7 @@ tr[data-group-parent] .file-thumb__icon {
   position: relative;
 }
 /* Yellow vertical bar (right edge) — shown when selected via right-click OR
-   when a shortcut is bound. Excludes table group headers (they use a child
-   .preset-group__header-bar element instead, keeping ::after for the underline). */
+   when a shortcut is bound. */
 .preset-group__item--shortcut-sel::after,
 .preset-group__item--has-shortcut::after {
   content: '';
@@ -1072,12 +991,7 @@ tr[data-group-parent] .file-thumb__icon {
 /* Slide-in (left→right) for newly-appeared rows/items. Plays per element when
    a checkbox group is activated, a child sub-group is expanded, OR a plain
    group is expanded — any element with data-row-key that wasn't in the previous
-   render. Two-phase: --enter-init hides synchronously (born hidden), --enter
-   (added next rAF) runs the animation. */
-.preset-group__enter-init {
-  opacity: 0;
-  transform: translateX(-10px);
-}
+   render. */
 .preset-group__enter {
   animation: group-row-enter 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
@@ -1333,27 +1247,6 @@ tr[data-group-parent] .file-thumb__icon {
 .preset-selector__header h3 {
   margin: 0 0 4px 0;
   font-size: 16px;
-}
-.preset-selector__actions {
-  padding: 16px 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* ── Underline input (no border box) ── */
-.input--underline {
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  padding: 6px 4px;
-  color: var(--text-primary);
-  transition: border-color var(--transition-fast);
-}
-.input--underline:focus {
-  border-bottom-color: var(--accent);
-  outline: none;
 }
 
 /* ── Drag & drop states ── */
@@ -1646,9 +1539,6 @@ tr[data-group-parent] .file-thumb__icon {
 .ini-collapsed-row--expanded td {
   border-bottom-color: var(--accent-dim);
 }
-.ini-collapsed-preview {
-  font-family: monospace;
-}
 .ini-sub-row td {
   border-bottom: 1px solid var(--border-light);
 }
@@ -1760,9 +1650,6 @@ tr[data-group-parent] .file-thumb__icon {
   flex-shrink: 0;
   margin-left: auto;
 }
-.preset-tree__group-count--hidden {
-  display: none;
-}
 #preset-count {
   font-size: 10px;
   color: var(--text-muted);
@@ -1821,12 +1708,6 @@ tr[data-group-parent] .file-thumb__icon {
   background: transparent;
   outline: none;
 }
-.preset-tree--drop-before {
-  border-top: 2px solid var(--accent) !important;
-}
-.preset-tree--drop-after {
-  border-bottom: 2px solid var(--accent) !important;
-}
 
 /* ── Preset Tree Item (preset row in tree) ── */
 .preset-tree__item {
@@ -1858,14 +1739,6 @@ tr[data-group-parent] .file-thumb__icon {
 }
 .preset-tree__item--dragging {
   opacity: 0.3;
-}
-/* Drop-to-reorder indicator: fixed-position accent line overlay. */
-.preset-drop-line-overlay {
-  position: fixed;
-  height: 0;
-  z-index: 9999;
-  pointer-events: none;
-  border-top: 2px solid var(--accent);
 }
 .preset-tree__item-icon {
   font-size: 12px;
@@ -2012,7 +1885,6 @@ tr[data-group-parent] .file-thumb__icon {
   white-space: nowrap;
 }
 #tab-tint .tint-guide__label--left { left: 8px; }
-#tab-tint .tint-guide__label--right { right: 8px; }
 #tab-tint .tint-guide__label--above {
   top: auto;
   bottom: 0;
