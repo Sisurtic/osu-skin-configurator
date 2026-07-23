@@ -42,16 +42,6 @@ body.is-ready {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
-::-webkit-scrollbar-corner {
-  background: transparent;   /* stop the light corner showing through at scrollbar bottoms */
-}
-/* Textarea resize handle: keep it VISIBLE (don't fall back to a bright system
-   default) but tint it to the theme so it doesn't read as a white mark. */
-::-webkit-resizer {
-  background: transparent;
-  border-bottom: 6px solid var(--border-light);
-  border-left: 6px solid var(--border-light);
-}
 
 h1 { font-size: 20px; font-weight: 600; }
 h2 { font-size: 16px; font-weight: 600; }

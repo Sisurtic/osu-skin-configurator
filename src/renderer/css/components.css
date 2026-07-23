@@ -132,7 +132,10 @@
 textarea.form-input {
   resize: vertical;
   min-height: 80px;
-  scrollbar-gutter: stable;   /* reserve gutter so the field doesn't shift when its scrollbar appears */
+  scrollbar-width: none;   /* Firefox: hide scrollbar (still scrollable) */
+}
+textarea.form-input::-webkit-scrollbar {
+  display: none;           /* WebKit/WebView2: hide scrollbar (still scrollable) */
 }
 select.form-input {
   appearance: none;
