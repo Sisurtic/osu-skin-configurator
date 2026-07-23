@@ -1930,6 +1930,7 @@
         if (seqKey) headerTempParams.delete(seqKey); // temp consumed
         applyTints(arr);
         render(document.getElementById('tab-tint'));
+        Toast.success(i18n.t('tint.filled', { n: memberIdx.length }));
       });
     });
 

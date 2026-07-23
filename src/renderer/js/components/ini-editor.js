@@ -815,6 +815,7 @@
         }
         setActions([...iniEdits]);
         render(container);
+        Toast.success(i18n.t('ini.filled', { n: subRows.length }));
       });
     });
     // Expand/collapse a perColumn group. Triggered by double-clicking the row
@@ -867,6 +868,7 @@
         setActions([...iniEdits]);
         const input = container.querySelector(`.ini-value-input[data-idx="${idx}"]`);
         if (input) input.value = edit.value;
+        Toast.success(i18n.t('ini.filledColumns', { n: count }));
       });
     });
 

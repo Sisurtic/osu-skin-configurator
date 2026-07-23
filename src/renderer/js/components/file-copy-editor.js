@@ -601,6 +601,7 @@
         for (const k of memberIdx) { ops[k].destination = dest; ops[k].exact = exact; }
         applyFileOps(ops);
         rerenderTable(container);
+        Toast.success(i18n.t('file.filled', { n: memberIdx.length }));
       });
     });
 
