@@ -1,26 +1,15 @@
-// Source picker — click-to-repick a source image file for an operation row.
-// Independent component, paralleling color-picker.js: each editor binds its
-// thumbnail element via SourcePicker.attach; the component owns the trigger
-// detection (only the <img> or the file-icon starts a pick), the file dialog,
-// and path normalization (absolute skin path → skin-relative). The editor's
-// onPick callback receives the normalized relative path and does its own data
-// write / sync / render.
+// Source picker — opens the file dialog and returns skin-relative paths for
+// re-sourcing operation rows. Each editor binds its own thumbnail click handler
+// (img/icon only) and calls SourcePicker.pickMulti; the component owns the
+// dialog + path normalization (absolute skin path → skin-relative).
 //
-// Vanilla JS, no modules. window.SourcePicker = { attach, pick }.
+// Vanilla JS, no modules. window.SourcePicker = { pickMulti }.
 (function () {
   // Default image filter for the open-file dialog.
   const DEFAULT_FILTERS = () => [
     { name: 'Image', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng', 'bmp'] },
     { name: 'All', extensions: ['*'] },
   ];
-
-  // Only a click on the <img> or the .file-thumb__icon starts a pick — NOT the
-  // filename label or the surrounding whitespace (those are for row selection).
-  function isPickTrigger(target) {
-    if (!target) return false;
-    if (target.tagName === 'IMG') return true;
-    return target.classList && target.classList.contains('file-thumb__icon');
-  }
 
   // Normalize an absolute/relative chosen path to skin-relative: if it's inside
   // the skin folder, strip the skin prefix; otherwise leave it as-is (relative
@@ -36,39 +25,12 @@
     return p;
   }
 
-  // Open the file dialog and resolve to a skin-relative path, or null if the
-  // user cancels. `opts`: { getSkinPath: async () => absSkinPath, filters?,
-  //   currentSource?: skin-relative path of the current source }.
-  // The dialog's initial directory is the current source's directory (if it
-  // exists on disk), falling back to the skin root.
-  async function pick(opts) {
-    const getSkinPath = (opts && opts.getSkinPath) || (async () => '');
-    const filters = (opts && opts.filters) || DEFAULT_FILTERS();
-    const skPath = (await getSkinPath() || '').replace(/\\/g, '/');
-
-    // Resolve the current source's directory as the dialog default path.
-    let defaultPath = skPath || undefined;
-    const cur = opts && opts.currentSource;
-    if (cur && skPath) {
-      const abs = cur.replace(/\\/g, '/');
-      const isAbs = /^[a-zA-Z]:[\\/]/.test(abs) || abs.startsWith('/');
-      const full = isAbs ? abs : (skPath.replace(/\/$/, '') + '/' + abs);
-      const lastSep = Math.max(full.lastIndexOf('/'), full.lastIndexOf('\\'));
-      const dir = lastSep > 0 ? full.substring(0, lastSep) : full;
-      // Only use it if the directory exists on disk.
-      try {
-        // Check via the existing API — if the path is inside the skin, it exists.
-        defaultPath = dir;
-      } catch (_) { /* fall back to skPath */ }
-    }
-
-    const result = await api.selectFile(filters, defaultPath);
-    if (!result || !result.success || !result.data || !result.data.length) return null;
-    return toSkinRelative(result.data[0], skPath);
-  }
-
-  // Multi-select variant: opens the same dialog but returns ALL chosen paths
-  // (skin-relative). Used by group-level re-source. Returns [] on cancel.
+  // Open the file dialog (multi-select) and resolve to ALL chosen paths
+  // (skin-relative), or [] on cancel. `opts`:
+  //   getSkinPath: async () => absSkinPath   (skin root for normalization)
+  //   filters?: dialog filter list (defaults to image + all)
+  //   currentSource?: skin-relative path — its directory becomes the dialog's
+  //     initial folder (falls back to the skin root).
   async function pickMulti(opts) {
     const getSkinPath = (opts && opts.getSkinPath) || (async () => '');
     const filters = (opts && opts.filters) || DEFAULT_FILTERS();
@@ -88,24 +50,5 @@
     return result.data.map(p => toSkinRelative(p, skPath)).filter(Boolean);
   }
 
-  // Bind a thumbnail element so a click on its <img>/icon starts a pick and
-  // calls onPick(relativePath, clickEvent). `opts`:
-  //   getSkinPath: async () => absSkinPath   (required — skin root for normalization)
-  //   filters?: dialog filter list (defaults to image + all)
-  //   onPick(relativePath, e): editor callback (write data, sync, render)
-  //   shouldPick?(e): extra gate (default: click target is img/icon)
-  function attach(thumbEl, opts) {
-    if (!thumbEl || !opts || typeof opts.onPick !== 'function') return;
-    const shouldPick = opts.shouldPick || isPickTrigger;
-    thumbEl.addEventListener('click', async (e) => {
-      if (!shouldPick(e.target)) return;
-      // Pass the current source path so the dialog opens in its directory.
-      const currentSource = thumbEl.dataset.path || '';
-      const rel = await pick({ ...opts, currentSource });
-      if (rel == null) return;
-      opts.onPick(rel, e);
-    });
-  }
-
-  window.SourcePicker = { attach, pick, pickMulti };
+  window.SourcePicker = { pickMulti };
 })();

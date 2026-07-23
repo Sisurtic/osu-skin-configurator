@@ -61,11 +61,13 @@
           const actions = getActions ? getActions() : [];
           const { arr, insertAt, count } = OpTable.reorderArray(actions, fromIndices, toIndex);
           setActions(arr);
+          lastActionsRef = arr;
+          render(document.getElementById('tab-ini'));
+          // Select the moved block AFTER render so rows exist when setSelected
+          // auto-highlights them.
           const ns = new Set();
           for (let i = 0; i < count; i++) ns.add(insertAt + i);
           sel.setSelected(ns, insertAt);
-          lastActionsRef = arr;
-          render(document.getElementById('tab-ini'));
         },
       });
     } else {
@@ -405,6 +407,13 @@
       setActions(updated);
       render(container);
       restoreSelection(container, savedSection, savedKey, savedManiaKeys);
+      // Select the newly added rows (render first so they exist when setSelected
+      // auto-highlights them).
+      if (sel) {
+        const ns = new Set();
+        for (let k = 0; k < filtered.length; k++) ns.add(updated.length - filtered.length + k);
+        if (ns.size) sel.setSelected(ns, updated.length - filtered.length);
+      }
     });
 
     // Delete selected button — add a "delete this key" operation entry
@@ -469,6 +478,12 @@
       setActions(updated);
       render(container);
       restoreSelection(container, savedSection, savedKey, savedManiaKeys);
+      // Select the newly added delete rows.
+      if (sel) {
+        const ns = new Set();
+        for (let k = 0; k < delFiltered.length; k++) ns.add(updated.length - delFiltered.length + k);
+        if (ns.size) sel.setSelected(ns, updated.length - delFiltered.length);
+      }
     });
     // ── Bind row selection (unified) ── delegated to OpTable
     container.querySelectorAll('.ini-edit-row').forEach(row => {
@@ -1518,5 +1533,18 @@
     return JSON.parse(JSON.stringify(out));
   }
 
-  window.IniEditor = { init, render, deleteSelected, layoutColumns, getSelectedActions, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection() };
+  // Select every row touched by a paste (appended + overwrite-replaced), called
+  // by PresetEditor.pasteActions after render. idx are positions within the
+  // flat actions array (also the row layout).
+  function selectAdded({ idx }) {
+    if (!sel) return;
+    const actions = getActions ? getActions() : [];
+    const ns = new Set();
+    let anchor = -1;
+    for (const i of (idx || [])) { if (i >= 0 && i < actions.length) { ns.add(i); if (anchor < 0) anchor = i; } }
+    if (anchor < 0) return;
+    sel.setSelected(ns, anchor);
+  }
+
+  window.IniEditor = { init, render, deleteSelected, layoutColumns, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection() };
 })();

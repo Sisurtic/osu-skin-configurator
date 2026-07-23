@@ -63,9 +63,6 @@
   // Snapshot of FOLDED group-header destination + exact, taken at render start
   // so a rebuild preserves an in-flight header edit. Keyed by per-instance gid.
   let _headerDestSnapshot = {};
-  // When a group is re-sourced, the old header's destination + exact + tint/crop
-  // temp is carried to the NEW group by seqKey. Consumed once by renderGroup.
-  let _carryHeaderTemp = {};
   function pathBasename(p) { return OpTable.pathBasename(p); }
   function escapeHtml(s) { return OpTable.escapeHtml(s); }
   function colorToCss(c) {
@@ -154,7 +151,6 @@
         // which file-copy gets right. Keep this aligned with file-copy-editor.
         interactiveSelector: 'input, select, textarea, button, label, .toggle, .toggle__slider, .file-thumb__icon, img',
         deleteMimeType: 'application/tint-indices',
-        selectedClass: 'tint-row--selected',
         // A plain row → [idx]; a sequence-group header → every member index.
         rowMembers: (row) => rowMemberIndices(row),
         rowAnchor: (row) => { const m = rowMemberIndices(row); return m.length ? m[0] : -1; },
@@ -288,7 +284,7 @@
     const set = opSel ? opSel.getSelected() : new Set();
     const anchor = opSel ? opSel.getAnchor() : 0;
     const isSel = set.has(idx) || (set.size === 0 && idx === anchor);
-    const selCls = isSel ? ' tint-row--selected' : '';
+    const selCls = isSel ? ' row--selected' : '';
     // Exact toggle only applies to @2x sources (fallback to the non-HD variant
     // when the @2x file is missing and Exact is off) — mirrors file-copy.
     // Non-@2x sources render a dimmed, disabled, unchecked toggle (not an empty cell).
@@ -318,16 +314,14 @@
     const ghAttr = `data-group-header="1" data-group="${escapeHtml(g.key)}"`;
     const rangeAttr = `data-range="${g.range[0]}-${g.range[1]}"`;
     const gidAttr = `data-gid="${escapeHtml(gid)}"`;
-    // Carry (re-source) takes priority, then folded snapshot, then first member.
-    const carry = _carryHeaderTemp[g.key];
-    if (carry) {
-      delete _carryHeaderTemp[g.key]; // consume once
-      // Also carry tint/crop params into the new group's seqKey.
-      if (carry.extra && carry.extra.params != null) headerTempParams.set(g.key, carry.extra.params);
-    }
+    // Group-header dest/exact: folded snapshot (uncommitted folded edit) if set,
+    // else the first member's value. Re-source bakes the old header's values
+    // (incl. stage temp color/crop) into the new rows' own data (collectTargets
+    // reads the header input box + headerTempParams), so first-member display is
+    // correct with no carryStore.
     const snap = _headerDestSnapshot[gid];
-    const headerDest = carry ? (carry.dest || '') : ((snap && snap.dest != null) ? snap.dest : (first.destination || ''));
-    const headerExact = carry ? (carry.exact != null ? carry.exact : !!first.exact) : ((snap && snap.exact != null) ? snap.exact : !!first.exact);
+    const headerDest = (snap && snap.dest != null) ? snap.dest : (first.destination || '');
+    const headerExact = (snap && snap.exact != null) ? snap.exact : !!first.exact;
     const destCell = `<td><input type="text" class="form-input tint-dest tint-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>`;
     const fillBtn = `<button type="button" class="btn btn--secondary btn--sm tint-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap;margin-left:auto">${i18n.t('file.fillAll')}</button>`;
     const exactToggle = `<label class="toggle${groupHas2x ? '' : ' is-disabled'}" style="flex:0 0 auto">
@@ -337,7 +331,7 @@
     const exactCell = `<td><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">${exactToggle}${fillBtn}</div></td>`;
     const rows = [
       `<tr class="tint-row tint-seq-group${expanded ? ' tint-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
-        <td style="cursor:pointer"><span style="display:flex;align-items:center;gap:6px;width:100%"><span class="file-thumb file-seq-resrc" data-group-resrc="${escapeHtml(gid)}" data-path="${escapeHtml(first.source || '')}" title="${escapeHtml(i18n.t('file.resrcGroupTitle'))}" style="display:inline-flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0">${thumbHtmlFor(first.source || '', label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
+        <td><span style="display:flex;align-items:center;gap:6px;width:100%"><span class="file-thumb file-seq-resrc" data-group-resrc="${escapeHtml(gid)}" data-path="${escapeHtml(first.source || '')}" title="${escapeHtml(i18n.t('file.resrcGroupTitle'))}" style="display:inline-flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0">${thumbHtmlFor(first.source || '', label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
         ${destCell}
         ${exactCell}
       </tr>`,
@@ -1415,12 +1409,13 @@
       }
     }
     applyTints(arr);
-    // Re-anchor to a valid row, then re-render. preset-editor may have rebuilt
+    // Re-render FIRST, then re-anchor to a valid row AFTER render so the row
+    // exists when setSelected auto-highlights it. preset-editor may have rebuilt
     // #tab-tint since opSel was created, so look up the live node.
     const len = arr.length;
     const anchor = opSel ? opSel.getAnchor() : 0;
-    opSel.setSelected(new Set(), len ? Math.min(anchor, len - 1) : 0);
     render(document.getElementById('tab-tint'));
+    opSel.setSelected(new Set(), len ? Math.min(anchor, len - 1) : 0);
   }
 
   // Move the rows at `fromIndices` to land at `toIndex` (original-array index,
@@ -1428,11 +1423,12 @@
   function applyReorderOps(fromIndices, toIndex) {
     const { arr, insertAt, count } = OpTable.reorderArray(cur(), fromIndices, toIndex);
     applyTints(arr);
-    // Select the moved block at its new contiguous home [insertAt, insertAt+count).
+    render(document.getElementById('tab-tint'));
+    // Select the moved block AFTER render so the rows exist when setSelected
+    // auto-highlights them.
     const sel = new Set();
     for (let i = 0; i < count; i++) sel.add(insertAt + i);
     if (opSel) opSel.setSelected(sel, insertAt);
-    render(document.getElementById('tab-tint'));
   }
 
   // ── Del key: delete selected tint rows with confirmation ──
@@ -1566,61 +1562,159 @@
           tints.push(defaultOp(relPath));
         }
         applyTints(tints);
-        // Select the newly-added row (anchor it for preview).
-        opSel.setSelected(new Set(), tints.length - 1);
         render(container);
+        // Select the newly-added row AFTER render (so the row exists in the DOM
+        // when setSelected auto-highlights it). Anchor it for preview.
+        opSel.setSelected(new Set(), tints.length - 1);
       } finally { fileDialogOpen = false; unblockUI(); }
     });
 
     // ── Bind row selection (unified) ── delegated to OpTable.
-    // Click thumbnail image/icon to change source path. SourcePicker owns trigger
-    // detection + dialog + path normalization; onPick does tint's data write/sync/render.
-    container.querySelectorAll('.file-thumb[data-path]:not(.file-seq-resrc)').forEach(thumb => {
-      SourcePicker.attach(thumb, {
-        getSkinPath: () => skinPath(),
-        onPick: (chosen) => {
-          if (!skinName()) return;
-          const idx = parseInt(thumb.closest('[data-idx]')?.dataset.idx, 10);
-          if (Number.isNaN(idx)) return;
-          const arr = cur();
-          if (!arr[idx]) return;
-          arr[idx] = { ...arr[idx], source: chosen };
-          // Sync source to other selected rows.
-          const srcSet = opSel ? opSel.getSelected() : new Set();
-          if (srcSet.size > 1 && srcSet.has(idx)) {
-            for (const i of srcSet) { if (i !== idx && arr[i]) { arr[i] = { ...arr[i], source: chosen }; } }
-          }
-          applyTints(arr);
-          // Only delete the old source's thumb if no other row still uses it.
-          const oldSrc = thumb.dataset.path;
-          const stillUsed = arr.some(t => t.source === oldSrc);
-          if (!stillUsed) { thumbCache.delete(oldSrc); sourceImgCache.delete(oldSrc); }
-          // Save selection before render (which clears it), restore after — mirrors
-          // file-copy so changing a source doesn't drop the multi-selection.
-          const savedSel = opSel ? [...opSel.getSelected()] : [];
-          const savedAnchor = opSel ? opSel.getAnchor() : -1;
-          render(document.getElementById('tab-tint'));
-          if (opSel && savedSel.length > 1) opSel.setSelected(new Set(savedSel), savedAnchor);
-        },
-      });
-    });
+    // ── Re-source: ordinary rows AND group headers share ONE path ──
+    // A target is the UNIFIED model { removeIdxs, insertAt, value }:
+    //   • ordinary row → removeIdxs=[i], insertAt=i, value = that row's tint config
+    //   • group header → removeIdxs=all member idxs, insertAt=first member,
+    //                     value = the header's CURRENT dest/exact + stage temp
+    // The main loop treats every target identically; only BUILDING differs.
+    // `chosen` comes from the caller (pickAndReSource) so the dialog opens once.
+    function collectTargets(arr, clickedRow) {
+      const selSet = opSel ? opSel.getSelected() : new Set();
+      const targets = [];
+      const claimedIdx = new Set();
+      const seenHeader = new Set();
+      // value shape: { base, dest, exact, params }. base = the op to clone for
+      // the source swap; dest/exact/params override base's fields.
+      const rowValue = (op) => ({ base: op, dest: op.destination, exact: !!op.exact, params: null });
+      const headerValue = (headerRow, firstOp) => {
+        const destInput = headerRow.querySelector('.tint-seq-dest[data-group-header="1"], [data-group-header="1"].tint-seq-dest');
+        const exactInput = headerRow.querySelector('.tint-seq-exact-toggle[data-group-header="1"], [data-group-header="1"].tint-seq-exact-toggle');
+        const sk = headerRow.dataset.seqKey;
+        const params = sk ? (headerTempParams.get(sk) || firstMemberParams(sk)) : null;
+        return {
+          base: firstOp,
+          dest: destInput ? destInput.value : (firstOp ? (firstOp.destination || '') : ''),
+          exact: exactInput ? !!exactInput.checked : (firstOp ? !!firstOp.exact : false),
+          params,
+        };
+      };
+      const addRow = (i) => {
+        if (Number.isNaN(i) || i < 0 || i >= arr.length || claimedIdx.has(i)) return;
+        claimedIdx.add(i);
+        const op = arr[i]; if (!op) return;
+        targets.push({ removeIdxs: [i], insertAt: i, value: rowValue(op) });
+      };
+      const addGroup = (headerRow) => {
+        if (!headerRow || seenHeader.has(headerRow.dataset.gid)) return;
+        seenHeader.add(headerRow.dataset.gid);
+        const idxs = groupMemberIdx(headerRow);
+        if (!idxs || !idxs.length) return;
+        idxs.forEach(i => claimedIdx.add(i));
+        targets.push({ removeIdxs: idxs, insertAt: idxs[0], value: headerValue(headerRow, arr[idxs[0]]) });
+      };
+      const consider = (v) => {
+        const tr = container.querySelector(`tr[data-idx="${v}"]`);
+        if (!tr) return;
+        if (tr.classList.contains('tint-seq-group')) addGroup(tr);
+        else if (tr.dataset.groupParent) {
+          // A selected MEMBER row resolves back to its group header (selecting a
+          // group adds member idxs to the selection); add the WHOLE group so
+          // every selected group is re-sourced, not just the clicked one.
+          const gid = tr.dataset.groupParent;
+          const header = container.querySelector(`.tint-seq-group[data-gid="${gid}"]`);
+          if (header) addGroup(header);
+        }
+        else addRow(parseInt(v, 10));
+      };
+      // Re-source scope: clicked row IN selection → re-source every selected
+      // target (multi); OUTSIDE selection → re-source ONLY the clicked row and
+      // discard the old selection. Clicking the thumbnail img doesn't change the
+      // selection (img is in OpTable's interactiveSelector), so we read the
+      // pre-click selection and decide scope here.
+      const clickedIdxNum = parseInt(clickedRow.dataset.idx, 10);
+      const clickedInSelection = clickedRow.classList.contains('tint-seq-group')
+        ? groupMemberIdx(clickedRow).some(i => selSet.has(i))
+        : (!Number.isNaN(clickedIdxNum) && selSet.has(clickedIdxNum));
+      if (selSet.size > 0 && clickedInSelection) [...selSet].forEach(consider);
+      else if (clickedRow.classList.contains('tint-seq-group')) addGroup(clickedRow);
+      else addRow(clickedIdxNum);
+      return targets;
+    }
 
-    // Group-level re-source (shared): click a group header's thumbnail →
-    // multi-pick new sources → replace the group's members → carry header temp
-    // (incl. tint/crop params).
-    OpTable.createGroupResrc({
-      container,
-      getOps: () => cur(),
-      applyOps: (arr) => { applyTints(arr); render(document.getElementById('tab-tint')); },
-      memberIdx: (row) => groupMemberIdx(row),
-      makeOp: (src) => ({ source: src }),
-      seqKeyPrefix: 'tint',
-      carryStore: _carryHeaderTemp,
-      skinPath: () => skinPath(),
-      captureExtra: (groupRow) => {
-        const oldSeqKey = groupRow.dataset.seqKey;
-        return { params: oldSeqKey ? (headerTempParams.get(oldSeqKey) || null) : null };
-      },
+    function syncReSource(chosen, clickedRow) {
+      if (!skinName() || !clickedRow || !chosen || !chosen.length) return;
+      const arr = cur();
+      const targets = collectTargets(arr, clickedRow);
+      if (!targets.length) return;
+
+      // Unified builder: clone value.base, swap source, overlay dest/exact/params.
+      const makeOps = (v) => chosen.map(src => {
+        const base = v.base ? { ...v.base } : {};
+        delete base._groupId;
+        base.source = src;
+        if (v.dest != null) base.destination = v.dest;
+        if (v.exact != null) base.exact = !!v.exact;
+        if (v.params) Object.assign(base, v.params);
+        return base;
+      });
+
+      const oldSrcs = new Set();
+      const replacements = [];
+      for (const t of targets) {
+        for (const i of t.removeIdxs) { if (arr[i]) oldSrcs.add(arr[i].source); }
+        const newOps = makeOps(t.value);
+        t.removeIdxs.forEach((i, k) => replacements.push({ idx: i, newOps: k === 0 ? newOps : [] }));
+      }
+      const next = OpTable.replaceOpsAt(arr, replacements);
+
+      const ordered = [...targets].sort((a, b) => a.insertAt - b.insertAt);
+      const newSel = new Set();
+      let offset = 0;
+      for (const t of ordered) {
+        for (let k = 0; k < chosen.length; k++) newSel.add(t.insertAt + offset + k);
+        offset += chosen.length - t.removeIdxs.length;
+      }
+
+      applyTints(next);
+      for (const s of oldSrcs) {
+        if (!next.some(t => t.source === s)) { thumbCache.delete(s); sourceImgCache.delete(s); }
+      }
+      render(document.getElementById('tab-tint'));
+      if (opSel) opSel.setSelected(newSel, ordered[0].insertAt);
+    }
+
+    // Open the file dialog ONCE, then hand the chosen paths to syncReSource.
+    async function pickAndReSource(clickedRow) {
+      if (!skinName() || !clickedRow) return;
+      const arr = cur();
+      let currentSource = '';
+      if (clickedRow.classList.contains('tint-seq-group')) {
+        const idxs = groupMemberIdx(clickedRow);
+        const op = idxs && idxs.length ? arr[idxs[0]] : null;
+        currentSource = op ? (op.source || '') : '';
+      } else {
+        const idx = parseInt(clickedRow.dataset.idx, 10);
+        const op = !Number.isNaN(idx) ? arr[idx] : null;
+        currentSource = op ? (op.source || '') : '';
+      }
+      const chosen = await window.SourcePicker.pickMulti({ getSkinPath: () => skinPath(), currentSource });
+      syncReSource(chosen, clickedRow);
+    }
+
+    // Bind ordinary-row AND group-header thumbnails to pickAndReSource (one
+    // dialog → syncReSource). Ordinary rows skip sub-rows (resrc disabled).
+    const bindResrc = (thumb, getRow) => {
+      thumb.addEventListener('click', (e) => {
+        if (!e.target.matches('img, .file-thumb__icon')) return;
+        pickAndReSource(getRow());
+      });
+    };
+    container.querySelectorAll('.file-thumb[data-path]:not(.file-seq-resrc)').forEach(thumb => {
+      const row = thumb.closest('[data-idx]');
+      if (row && row.dataset.groupParent) return;   // sub-row: resrc disabled
+      bindResrc(thumb, () => row);
+    });
+    container.querySelectorAll('.file-seq-resrc[data-group-resrc]').forEach(thumb => {
+      bindResrc(thumb, () => thumb.closest('.tint-seq-group'));
     });
 
     container.querySelectorAll('.tint-row').forEach(row => {
@@ -2106,5 +2200,18 @@
     return JSON.parse(JSON.stringify(out));
   }
 
-  window.TintEditor = { init, render, layoutColumns, deleteSelected, getSelectedActions, hasSelection: () => !!(opSel && opSel.getSelected().size > 0), clearSelection: () => opSel && opSel.clearSelection(), invalidateCache: () => { thumbCache.clear(); sourceImgCache.clear(); } };
+  // Select every row touched by a paste (appended + overwrite-replaced), called
+  // by PresetEditor.pasteActions after render. idx are positions within the
+  // single tints array (which is also the flat row layout).
+  function selectAdded({ idx }) {
+    if (!opSel) return;
+    const arr = cur();
+    const ns = new Set();
+    let anchor = -1;
+    for (const i of (idx || [])) { if (i >= 0 && i < arr.length) { ns.add(i); if (anchor < 0) anchor = i; } }
+    if (anchor < 0) return;
+    opSel.setSelected(ns, anchor);
+  }
+
+  window.TintEditor = { init, render, layoutColumns, deleteSelected, getSelectedActions, selectAdded, hasSelection: () => !!(opSel && opSel.getSelected().size > 0), clearSelection: () => opSel && opSel.clearSelection(), invalidateCache: () => { thumbCache.clear(); sourceImgCache.clear(); } };
 })();

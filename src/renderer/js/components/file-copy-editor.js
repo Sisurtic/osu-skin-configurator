@@ -11,9 +11,6 @@
   // Snapshot of FOLDED header destinations taken at render start, so rebuilds
   // don't wipe an in-flight header edit. Keyed by seq group key.
   let _headerTempSnapshot = {};
-  // When a group is re-sourced, the old header's destination/exact is carried
-  // to the NEW group by seqKey. Consumed once by renderGroup.
-  let _carryHeaderTemp = {};
 
   // The view-model used for the current render (source order, left to right).
   // All data-idx consumers index into THIS, not a fresh buildFileOps().
@@ -196,11 +193,12 @@
           const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
           const { arr, insertAt, count } = OpTable.reorderArray(ops, fromIndices, toIndex);
           applyFileOps(arr);
-          // Select the moved block at its new contiguous home.
+          // Select the moved block at its new contiguous home. Render FIRST so
+          // the rows exist when setSelected auto-highlights them.
+          render(document.getElementById('tab-files'));
           const ns = new Set();
           for (let i = 0; i < count; i++) ns.add(insertAt + i);
           sel.setSelected(ns, insertAt);
-          render(document.getElementById('tab-files'));
         },
       });
     } else {
@@ -277,6 +275,7 @@
 
         // Only allow files inside the skin folder; store as skin-relative path.
         const copies = getCopies ? [...getCopies()] : [];
+        const copiesBefore = copies.length;
         for (const absPath of result.data) {
           let relPath = '';
           if (skPath && absPath.toLowerCase().startsWith(skPath.toLowerCase())) {
@@ -290,6 +289,12 @@
         }
         setCopies(copies);
         render(container);
+        // Select the newly added copy rows (flat array: copies region, tail).
+        if (sel) {
+          const ns = new Set();
+          for (let k = 0; k < copies.length - copiesBefore; k++) ns.add(copiesBefore + k);
+          if (ns.size) sel.setSelected(ns, copiesBefore);
+        }
       } finally {
         fileDialogOpen = false;
         unblockUI();
@@ -313,6 +318,7 @@
         const filePaths = result.data;
         const skPath = await skinPath();
         const deletes = getDeletes ? [...getDeletes()] : [];
+        const deletesBefore = deletes.length;
         for (const filePath of filePaths) {
           let relPath = '';
           if (skPath && filePath.toLowerCase().startsWith(skPath.toLowerCase())) {
@@ -326,6 +332,14 @@
         }
         setDeletes(deletes);
         render(container);
+        // Select the newly added delete rows (flat array: deletes region, tail,
+        // offset by the full copies region length).
+        if (sel) {
+          const copiesTotal = (getCopies ? getCopies() : []).length;
+          const ns = new Set();
+          for (let k = 0; k < deletes.length - deletesBefore; k++) ns.add(copiesTotal + deletesBefore + k);
+          if (ns.size) sel.setSelected(ns, copiesTotal + deletesBefore);
+        }
       } finally {
         fileDialogOpen = false;
         unblockUI();
@@ -620,47 +634,162 @@
 
     loadThumbnails();
 
-    // ── Click thumbnail/icon to change source path ──
-    // SourcePicker owns trigger detection (img/icon only) + the file dialog +
-    // path normalization; onPick does the editor-specific data write/sync/render.
-    container.querySelectorAll('.file-thumb[data-path]:not(.file-seq-resrc)').forEach(thumb => {
-      SourcePicker.attach(thumb, {
-        getSkinPath: () => skinPath(),
-        onPick: (chosen) => {
-          if (!skinName()) return;
-          const idx = parseInt(thumb.closest('[data-idx]')?.dataset.idx, 10);
-          if (Number.isNaN(idx)) return;
-          const op = currentFileOps[idx];
-          if (!op) return;
-          if (op._type === 'copy') op.source = chosen;
-          else op.path = chosen;
-          const field = op._type === 'copy' ? 'source' : 'path';
-          // source/path has no group-header control, so sync targets data rows only.
-          syncField(thumb.closest('[data-idx]') || thumb, field, chosen);
-          // Only delete the old source's thumb if no other op still uses it.
-          const oldPath = thumb.dataset.path;
-          const stillUsed = currentFileOps.some(o => (o._type === 'copy' ? o.source : o.path) === oldPath);
-          if (!stillUsed) thumbCache.delete(oldPath);
-          // Save selection before rerender (which clears it).
-          const savedSel = sel ? [...sel.getSelected()] : [];
-          const savedAnchor = sel ? sel.getAnchor() : -1;
-          rerenderTable(container);
-          if (sel && savedSel.length > 1) sel.setSelected(new Set(savedSel), savedAnchor);
-        },
-      });
-    });
+    // ── Re-source: ordinary rows AND group headers share ONE path ──
+    // Clicking any thumbnail (ordinary row or group header) re-sources every
+    // SELECTED target: each ordinary row becomes the chosen file group (keeping
+    // its own dest/exact); each selected GROUP is replaced wholesale (members
+    // removed, chosen files inserted at the header, inheriting the header's
+    // current dest/exact). Single-select behaves the same — the clicked row is
+    // the only target. Group-member SUB-rows are never bound (changing one frame
+    // orphans it; use the group header).
+    //
+    // A target is the UNIFIED model { removeIdxs, insertAt, value }:
+    //   • ordinary row → removeIdxs=[i], insertAt=i, value = that row's dest/exact
+    //   • group header → removeIdxs=all member idxs, insertAt=first member,
+    //                     value = the header's CURRENT dest/exact (input box DOM)
+    // The main loop treats every target identically (no row/group branch); only
+    // BUILDING a target differs. `chosen` comes from pickAndReSource so the file
+    // dialog opens exactly once.
+    function collectTargets(ops, clickedRow) {
+      const selSet = sel ? sel.getSelected() : new Set();
+      const targets = [];
+      const claimedIdx = new Set();   // idxs already claimed (by a group or row)
+      const seenHeader = new Set();
+      const rowValue = (op) => ({ dest: op.destination || '', exact: !!op.exact, isCopy: op._type === 'copy' });
+      const headerValue = (headerRow, firstOp) => {
+        const destInput = headerRow.querySelector('.file-seq-dest[data-group-header="1"], [data-group-header="1"].file-seq-dest');
+        const exactInput = headerRow.querySelector('.file-seq-exact-toggle[data-group-header="1"], [data-group-header="1"].file-seq-exact-toggle');
+        return {
+          dest: destInput ? destInput.value : (firstOp ? (firstOp.destination || '') : ''),
+          exact: exactInput ? !!exactInput.checked : (firstOp ? !!firstOp.exact : false),
+          isCopy: true,   // group headers are copy groups (delete groups have no resrc)
+        };
+      };
+      const addRow = (i) => {
+        if (Number.isNaN(i) || i < 0 || i >= ops.length || claimedIdx.has(i)) return;
+        claimedIdx.add(i);
+        const op = ops[i]; if (!op) return;
+        targets.push({ removeIdxs: [i], insertAt: i, value: rowValue(op) });
+      };
+      const addGroup = (headerRow) => {
+        if (!headerRow || seenHeader.has(headerRow.dataset.gid)) return;
+        seenHeader.add(headerRow.dataset.gid);
+        const idxs = groupMemberIdx(headerRow);
+        if (!idxs || !idxs.length) return;
+        idxs.forEach(i => claimedIdx.add(i));
+        targets.push({ removeIdxs: idxs, insertAt: idxs[0], value: headerValue(headerRow, ops[idxs[0]]) });
+      };
+      const consider = (v) => {
+        const tr = container.querySelector(`tr[data-idx="${v}"]`);
+        if (!tr) return;
+        if (tr.classList.contains('file-seq-group')) addGroup(tr);
+        else if (tr.dataset.groupParent) {
+          // A selected MEMBER row: selecting a group adds the member idxs to the
+          // selection (the header is a virtual row), so resolve the member back
+          // to its group header and add the WHOLE group. Without this, only the
+          // clicked group would be re-sourced.
+          const gid = tr.dataset.groupParent;
+          const header = container.querySelector(`.file-seq-group[data-gid="${gid}"]`);
+          if (header) addGroup(header);
+        }
+        else addRow(parseInt(v, 10));
+      };
+      // Re-source scope: if the clicked row is IN the current selection, re-source
+      // EVERY selected target (multi re-source). If it's OUTSIDE the selection,
+      // re-source ONLY the clicked row (single re-source) — the old selection is
+      // discarded. (Clicking the thumbnail img doesn't change the selection — img
+      // is in OpTable's interactiveSelector — so we read the pre-click selection
+      // and decide scope here.)
+      const clickedIdxNum = parseInt(clickedRow.dataset.idx, 10);
+      const clickedInSelection = clickedRow.classList.contains('file-seq-group')
+        ? groupMemberIdx(clickedRow).some(i => selSet.has(i))
+        : (!Number.isNaN(clickedIdxNum) && selSet.has(clickedIdxNum));
+      if (selSet.size > 0 && clickedInSelection) [...selSet].forEach(consider);
+      else addFromClicked();
+      function addFromClicked() {
+        if (clickedRow.classList.contains('file-seq-group')) addGroup(clickedRow);
+        else addRow(clickedIdxNum);
+      }
+      return targets;
+    }
 
-    // Group-level re-source (shared): click a group header's thumbnail →
-    // multi-pick new sources → replace the group's members → carry header temp.
-    OpTable.createGroupResrc({
-      container,
-      getOps: () => currentFileOps ? [...currentFileOps] : buildFileOps(),
-      applyOps: (arr) => { applyFileOps(arr); rerenderTable(container); },
-      memberIdx: groupMemberIdx,
-      makeOp: (src) => ({ _type: 'copy', source: src, destination: '', exact: false }),
-      seqKeyPrefix: 'copy',
-      carryStore: _carryHeaderTemp,
-      skinPath: () => skinPath(),
+    function syncReSource(chosen, clickedRow) {
+      if (!skinName() || !clickedRow || !chosen || !chosen.length) return;
+      const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+      const targets = collectTargets(ops, clickedRow);
+      if (!targets.length) return;
+
+      // Unified new-op builder: every target has a `value` of the same shape.
+      const makeOps = (v) => chosen.map(src => v.isCopy
+        ? { _type: 'copy', source: src, destination: v.dest || '', exact: !!v.exact }
+        : { _type: 'delete', path: src, exact: !!v.exact });
+
+      // Build replacements: for each target, removeIdxs[0] inserts the new ops,
+      // the rest insert nothing (pure removal). replaceOpsAt splices tail-first.
+      const oldPaths = new Set();
+      const replacements = [];
+      for (const t of targets) {
+        for (const i of t.removeIdxs) { const op = ops[i]; if (op) oldPaths.add(op._type === 'copy' ? op.source : op.path); }
+        const newOps = makeOps(t.value);
+        t.removeIdxs.forEach((i, k) => replacements.push({ idx: i, newOps: k === 0 ? newOps : [] }));
+      }
+      const next = OpTable.replaceOpsAt(ops, replacements);
+
+      // New selection = every inserted row. Targets ascending; each removes
+      // removeIdxs.length and inserts chosen.length, so accumulate net shift.
+      const ordered = [...targets].sort((a, b) => a.insertAt - b.insertAt);
+      const newSel = new Set();
+      let offset = 0;
+      for (const t of ordered) {
+        for (let k = 0; k < chosen.length; k++) newSel.add(t.insertAt + offset + k);
+        offset += chosen.length - t.removeIdxs.length;
+      }
+
+      applyFileOps(next);
+      for (const p of oldPaths) {
+        const stillUsed = next.some(o => (o._type === 'copy' ? o.source : o.path) === p);
+        if (!stillUsed) thumbCache.delete(p);
+      }
+      rerenderTable(container);
+      if (sel) sel.setSelected(newSel, ordered[0].insertAt);
+    }
+
+    // Open the file dialog ONCE (here), then hand the chosen paths to syncReSource.
+    // currentSource = the clicked row's own source (dialog opens in its folder).
+    async function pickAndReSource(clickedRow) {
+      if (!skinName() || !clickedRow) return;
+      const ops = currentFileOps ? [...currentFileOps] : buildFileOps();
+      const idx = parseInt(clickedRow.dataset.idx, 10);
+      let currentSource = '';
+      if (clickedRow.classList.contains('file-seq-group')) {
+        const idxs = groupMemberIdx(clickedRow);
+        const op = idxs && idxs.length ? ops[idxs[0]] : null;
+        currentSource = op ? (op.source || '') : '';
+      } else if (!Number.isNaN(idx)) {
+        const op = ops[idx];
+        currentSource = op ? (op._type === 'copy' ? op.source : op.path) : '';
+      }
+      const chosen = await window.SourcePicker.pickMulti({ getSkinPath: () => skinPath(), currentSource });
+      syncReSource(chosen, clickedRow);
+    }
+
+    // Bind ordinary-row AND group-header thumbnails to pickAndReSource (one
+    // dialog → syncReSource). Ordinary rows skip sub-rows (group members: resrc
+    // disabled). The img/icon gate matches the trigger rule (only a click on the
+    // thumbnail image/icon starts a re-source, not the label/whitespace).
+    const bindResrc = (thumb, getRow) => {
+      thumb.addEventListener('click', (e) => {
+        if (!e.target.matches('img, .file-thumb__icon')) return;
+        pickAndReSource(getRow());
+      });
+    };
+    container.querySelectorAll('.file-thumb[data-path]:not(.file-seq-resrc)').forEach(thumb => {
+      const row = thumb.closest('[data-idx]');
+      if (row && row.dataset.groupParent) return;   // sub-row: resrc disabled
+      bindResrc(thumb, () => row);
+    });
+    container.querySelectorAll('.file-seq-resrc[data-group-resrc]').forEach(thumb => {
+      bindResrc(thumb, () => thumb.closest('.file-seq-group'));
     });
 
     // ── Delete zone drop handler ── delegated to OpTable
@@ -879,21 +1008,13 @@
       const ghAttr = `data-group-header="1" data-group="${escapeHtml(g.key)}"`;
       const rangeAttr = `data-range="${g.range[0]}-${g.range[1]}"`;
       const gidAttr = `data-gid="${escapeHtml(gid)}"`;
-      // Header keeps the first member's FULL destination by default, BUT if a
-      // previous render had a value in this FOLDED header's input (the user
-      // edited it while folded), reuse that snapshot so re-rendering (e.g.
-      // after a fill) doesn't wipe the in-flight header edit. Expanded headers
-      // mirror the first member.
-      // Carry (re-source) takes priority, then folded snapshot, then first member.
-      const carry = isCopy ? _carryHeaderTemp[g.key] : null;
-      if (carry) delete _carryHeaderTemp[g.key]; // consume once
+      // Header dest/exact: folded snapshot (uncommitted folded edit) if set,
+      // else the first member's value. Re-source bakes the old header's values
+      // into the new rows' own data (collectTargets reads the header input box),
+      // so first-member display is correct with no carryStore.
       let headerDest = isCopy ? (first.destination || '') : '';
       let headerExact = isCopy ? !!first.exact : false;
-      if (carry) {
-        headerDest = carry.dest || '';
-        if (carry.exact != null) headerExact = carry.exact;
-      }
-      if (isCopy && !carry && !expandedSeqGroups.has(gid) && _headerTempSnapshot[gid] != null) {
+      if (isCopy && !expandedSeqGroups.has(gid) && _headerTempSnapshot[gid] != null) {
         headerDest = _headerTempSnapshot[gid];
       }
       const destCell = isCopy
@@ -914,7 +1035,7 @@
       const rows = [
         `<tr class="file-op-row file-seq-group${expanded ? ' file-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
           <td><span class="tag ${tagCls}" style="cursor:pointer">${i18n.t(tagKey)}</span></td>
-          <td style="cursor:pointer"><span style="display:flex;align-items:center;gap:6px;width:100%">${isCopy ? `<span class="file-thumb file-seq-resrc" data-group-resrc="${escapeHtml(gid)}" data-path="${escapeHtml(first.source || '')}" title="${escapeHtml(i18n.t('file.resrcGroupTitle'))}" style="display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0">${thumbHtmlFor(first.source || '', label)}</span>` : `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0">${escapeHtml(label)}</span>`}<span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
+          <td><span style="display:flex;align-items:center;gap:6px;width:100%">${isCopy ? `<span class="file-thumb file-seq-resrc" data-group-resrc="${escapeHtml(gid)}" data-path="${escapeHtml(first.source || '')}" title="${escapeHtml(i18n.t('file.resrcGroupTitle'))}" style="display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0">${thumbHtmlFor(first.source || '', label)}</span>` : `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0">${escapeHtml(label)}</span>`}<span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
           ${destCell}
           ${exactCell}
         </tr>`,
@@ -1017,5 +1138,20 @@
     return JSON.parse(JSON.stringify({ fileCopies, fileDeletes }));
   }
 
-  window.FileCopyEditor = { init, render, layoutColumns, getSelectedActions, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection(), invalidateCache: () => thumbCache.clear() };
+  // Select every row touched by a paste (appended + overwrite-replaced), called
+  // by PresetEditor.pasteActions after render. copyIdx/deleteIdx are positions
+  // WITHIN the copies/deletes arrays; the flat view is copies-then-deletes, so
+  // copy idx maps 1:1 and delete idx is offset by the copies region length.
+  function selectAdded({ copyIdx, deleteIdx }) {
+    if (!sel) return;
+    const copiesTotal = (getCopies ? getCopies() : []).length;
+    const ns = new Set();
+    let anchor = -1;
+    for (const i of (copyIdx || [])) { if (i >= 0 && i < copiesTotal) { ns.add(i); if (anchor < 0) anchor = i; } }
+    for (const i of (deleteIdx || [])) { const f = copiesTotal + i; ns.add(f); if (anchor < 0) anchor = f; }
+    if (anchor < 0) return;
+    sel.setSelected(ns, anchor);
+  }
+
+  window.FileCopyEditor = { init, render, layoutColumns, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection(), invalidateCache: () => thumbCache.clear() };
 })();

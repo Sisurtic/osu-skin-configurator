@@ -1247,6 +1247,12 @@
 
     const result = { skinIni: [...editData.actions.skinIni], fileCopies: [...editData.actions.fileCopies], fileDeletes: [...editData.actions.fileDeletes], fileTints: [...editData.actions.fileTints] };
     let added = 0;
+    // Per-category INDICES (within that category's own array) touched by this
+    // paste — fresh-append tail + overwrite in-place + conflict-append tail.
+    // Passed to the editor's selectAdded so it selects EXACTLY the pasted rows
+    // by position, not by key (key-matching would also hit the source rows when
+    // an appended row shares a key with an existing one).
+    const touchedIdx = { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] };
 
     for (const cat of categories) {
       const target = result[cat.name];
@@ -1256,7 +1262,7 @@
       const conflicts = cbEntries.filter(e => targetKeys.has(cat.key(e)));
 
       // Always append non-conflicting entries.
-      for (const e of fresh) { target.push(e); added++; }
+      for (const e of fresh) { target.push(e); added++; touchedIdx[cat.name].push(target.length - 1); }
 
       if (conflicts.length === 0) continue;
 
@@ -1282,11 +1288,11 @@
         const cbByKey = new Map(conflicts.map(e => [cat.key(e), e]));
         for (let i = 0; i < target.length; i++) {
           const k = cat.key(target[i]);
-          if (cbByKey.has(k)) target[i] = cbByKey.get(k);
+          if (cbByKey.has(k)) { target[i] = cbByKey.get(k); touchedIdx[cat.name].push(i); }
         }
         added += conflicts.length;
       } else if (choice === 'append') {
-        for (const e of conflicts) { target.push(e); added++; }
+        for (const e of conflicts) { target.push(e); added++; touchedIdx[cat.name].push(target.length - 1); }
       }
       // 'skip' or dialog dismissed → drop conflicting clipboard entries.
     }
@@ -1297,6 +1303,20 @@
     setFileTints(result.fileTints);
     state.set('presetDirty', true);
     render();
+    // Select every row touched by this paste (appended AND overwrite-replaced)
+    // by POSITION, not key — the editor maps each category's indices to its own
+    // flat row layout. Position-based selection can't accidentally include the
+    // source row an appended copy shares a key with.
+    const activeTab = viewEl.querySelector('.tab--active')?.dataset.tab;
+    if (activeTab === 'files' && window.FileCopyEditor && typeof window.FileCopyEditor.selectAdded === 'function') {
+      window.FileCopyEditor.selectAdded({
+        copyIdx: touchedIdx.fileCopies, deleteIdx: touchedIdx.fileDeletes,
+      });
+    } else if (activeTab === 'tint' && window.TintEditor && typeof window.TintEditor.selectAdded === 'function') {
+      window.TintEditor.selectAdded({ idx: touchedIdx.fileTints });
+    } else if (activeTab === 'ini' && window.IniEditor && typeof window.IniEditor.selectAdded === 'function') {
+      window.IniEditor.selectAdded({ idx: touchedIdx.skinIni });
+    }
     Toast.success(i18n.t('preset.actionsPasted', { count: added }));
   }
 

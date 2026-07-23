@@ -339,6 +339,17 @@ select.form-input {
   opacity: 0.85;
   box-shadow: 0 0 0 2px var(--accent);
 }
+/* Group-member sub-rows (tr[data-group-parent]) can't be re-sourced
+   individually — swapping one frame orphans it from its sequence (use the
+   group header instead). pointer-events:none on their thumbnail img/icon
+   does two things at once: (1) the click passes THROUGH to the <tr>, so
+   row selection still works (otherwise img is in OpTable's interactiveSelector
+   and would block selection), and (2) no hover highlight, so it doesn't read
+   as a click-to-resrc target. Standalone rows and group headers are untouched. */
+tr[data-group-parent] .file-thumb img,
+tr[data-group-parent] .file-thumb__icon {
+  pointer-events: none;
+}
 /* Group-header thumbnail name: truncate (ellipsis) inside its flex parent so
    the cut point sits just left of the (N) counter, not under it. */
 .file-seq-resrc .file-thumb__name {
@@ -1449,7 +1460,7 @@ select.form-input {
 
 /* ── Editor row selection & drag ── */
 .row--selected {
-  background: rgba(102, 204, 136, 0.12) !important;
+  background: var(--accent-bg) !important;
   outline: 1px solid var(--accent-dim);
 }
 .row--selected input,
@@ -1642,8 +1653,10 @@ select.form-input {
   border-bottom: 1px solid var(--border-light);
 }
 
-/* ── File-ops sequence-group header (mirrors INI collapsed-group) ── */
-.file-seq-group {
+/* ── Sequence-group header (file-copy + tint): click-to-select affordance,
+   mirroring INI collapsed-group. ── */
+.file-seq-group,
+.tint-seq-group {
   cursor: pointer;
 }
 .file-seq-group--expanded {
@@ -2124,9 +2137,6 @@ select.form-input {
 #tab-tint .stage:not(.stage--active) .form-input,
 #tab-tint .stage:not(.stage--active) .crop-tile-dir {
   color: var(--text-muted);
-}
-#tab-tint .tint-row--selected td {
-  background: var(--accent-bg);
 }
 #tab-tint .tint-color-swatch {
   transition: transform 0.15s;

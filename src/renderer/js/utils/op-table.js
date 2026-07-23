@@ -83,6 +83,7 @@
     }
 
     function highlightAll() {
+      if (!A.container) return;   // not bound yet (init) — skip safely
       root().querySelectorAll(A.rowSelector).forEach(row => {
         const members = A.rowMembers(row);
         let sel;
@@ -325,7 +326,16 @@
       setContainer: (c) => { A.container = c; },
       getSelected: () => selectedIndices,
       getAnchor: () => anchorIndex,
-      setSelected: (set, anchor) => { selectedIndices = new Set(set); if (anchor != null) anchorIndex = anchor; },
+      // setSelected keeps DOM highlight in sync automatically (mirrors
+      // clearSelection) — no caller needs to remember a follow-up highlightAll().
+      // fireChange() is intentionally NOT called here: existing callers' side
+      // effects (e.g. tint preview) are driven by click/manual paths, and
+      // auto-firing on every programmatic set would re-trigger them.
+      setSelected: (set, anchor) => {
+        selectedIndices = new Set(set);
+        if (anchor != null) anchorIndex = anchor;
+        highlightAll();
+      },
       // direct field access for editors that read selection during their own handlers
       get state() { return { selectedIndices, anchorIndex, lastClickedRow }; },
     };
@@ -634,54 +644,31 @@
     return { htmlFor, load };
   }
 
-  // Shared group-level re-source: bind a click handler on each group-header
-  // thumbnail (`.file-seq-resrc[data-group-resrc]`) so clicking it multi-picks
-  // new sources, removes the old group members, and inserts fresh ops in place.
-  // render re-groups; the old header temp (destination/exact + extra) is carried
-  // to the rebuilt header by seqKey. adapter:
-  //   getOps(): current op array (flat)
-  //   applyOps(arr): write + re-render
-  //   memberIdx(groupRow): [idx,...] of the group's members
-  //   makeOp(src): build a fresh op from a chosen source
-  //   seqKeyPrefix: e.g. 'copy' / 'tint' (combined with '|'+base)
-  //   carryStore: object used as a map (set carryStore[key] = {dest, exact, extra})
-  //   skinPath(): async abs skin path
-  //   container: the table container
-  //   captureExtra(groupRow): optional {params} to carry beyond dest/exact
-  function createGroupResrc(adapter) {
-    const { container, getOps, applyOps, memberIdx, makeOp, seqKeyPrefix, carryStore, skinPath, captureExtra } = adapter;
-    if (!container) return;
-    container.querySelectorAll('.file-seq-resrc[data-group-resrc]').forEach(thumb => {
-      thumb.addEventListener('click', async (e) => {
-        if (!e.target.matches('img, .file-thumb__icon')) return;
-        const groupRow = thumb.closest('.tint-seq-group, .file-seq-group');
-        const idxs = memberIdx(groupRow);
-        if (!idxs || idxs.length < 1) return;
-        const ops = [...(getOps() || [])];
-        const firstOp = ops[idxs[0]];
-        const oldDestInput = groupRow.querySelector('[data-group-header="1"].file-seq-dest, .file-seq-dest[data-group-header="1"]');
-        const oldExactInput = groupRow.querySelector('[data-group-header="1"].file-seq-exact-toggle, .file-seq-exact-toggle[data-group-header="1"]');
-        const carryDest = oldDestInput ? oldDestInput.value : '';
-        const carryExact = oldExactInput ? !!oldExactInput.checked : null;
-        const extra = captureExtra ? captureExtra(groupRow) : null;
-        const chosen = await window.SourcePicker.pickMulti({
-          getSkinPath: () => skinPath(),
-          currentSource: firstOp && (firstOp.source != null ? firstOp.source : ''),
-        });
-        if (!chosen || !chosen.length) return;
-        const insertAt = idxs[0];
-        const newOps = chosen.map(src => makeOp(src));
-        const rmSet = new Set(idxs);
-        const kept = ops.filter((_, i) => !rmSet.has(i));
-        kept.splice(insertAt, 0, ...newOps);
-        const f = parseFrame(newOps[0].source);
-        if (f) {
-          carryStore[seqKeyPrefix + '|' + f.base] = { dest: carryDest, exact: carryExact, extra };
-        }
-        applyOps(kept);
-      });
-    });
+  // Shared replace-at: splice one or more rows out of `ops` and insert fresh
+  // ops in their place. `replacements` is a list of { idx, newOps } where idx
+  // is the ORIGINAL-array position of the row to remove and newOps is the
+  // already-constructed list of ops to insert there (the caller builds them —
+  // applying per-editor inheritance — before this runs).
+  //
+  // Multiple replacements (multi-select re-source: several independent rows
+  // each replaced by its own file group) are applied from the LAST idx
+  // backwards, so an earlier replacement can't shift a later idx. The result
+  // preserves the relative order of untouched rows and keeps each replacement
+  // block at its original row position. Returns a NEW array (does not mutate).
+  function replaceOpsAt(ops, replacements) {
+    if (!Array.isArray(ops)) return [...(ops || [])];
+    if (!replacements || !replacements.length) return [...ops];
+    // De-dup + sort by idx descending so we splice from the tail inward.
+    const sorted = [...new Set(replacements.map(r => r.idx))].sort((a, b) => b - a);
+    const out = [...ops];
+    for (const idx of sorted) {
+      const r = replacements.find(x => x.idx === idx);
+      if (!r || !Array.isArray(r.newOps)) continue;
+      if (idx < 0 || idx > out.length) continue;
+      out.splice(idx, 1, ...r.newOps);
+    }
+    return out;
   }
 
-  window.OpTable = { create, createGroupSync, createThumbLoader, escapeHtml, pathBasename, appendSrcExt, reorderArray, parseFrame, isFrame, seqKey, SEQ_NOHYPHEN, assignSeqGroupIds, pruneExpanded, createGroupResrc };
+  window.OpTable = { create, createGroupSync, createThumbLoader, escapeHtml, pathBasename, appendSrcExt, reorderArray, parseFrame, isFrame, seqKey, SEQ_NOHYPHEN, assignSeqGroupIds, pruneExpanded, replaceOpsAt };
 })();
