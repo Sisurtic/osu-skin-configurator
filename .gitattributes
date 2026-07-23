@@ -1,0 +1,21 @@
+# Normalize line endings to LF for all text files.
+# Overrides core.autocrlf so tools that rewrite files (e.g. the sync-version
+# pre-commit hook) can't reintroduce CRLF noise into the working tree — the
+# repo and working copy both stay LF.
+* text=auto eol=lf
+
+# Binary assets — never touch line endings.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.apng binary
+*.bmp binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
