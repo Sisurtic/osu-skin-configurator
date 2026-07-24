@@ -389,12 +389,13 @@
         </div>`)}
       ${stageBlock('percy', cropOn, i18n.t('edit.stagePercy'), `
         ${field(i18n.t('edit.cropA') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-a"${dis(cropOn)} value="${t.cropA || 0}">`, i18n.t('edit.cropAHint'))}
-        ${field(i18n.t('edit.cropB') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-b"${dis(cropOn)} value="${t.cropB || 0}">`)}
-        ${field(i18n.t('edit.cropC') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-c"${dis(cropOn)} value="${t.cropC || 32768}">`)}
+        ${field(i18n.t('edit.cropD') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-d"${dis(cropOn)} value="${t.cropD || 0}">`, i18n.t('edit.cropDHint'))}
+        ${field(i18n.t('edit.cropB') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-b"${dis(cropOn)} value="${t.cropB || 0}">`, i18n.t('edit.cropBHint'))}
+        ${field(i18n.t('edit.cropC') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-c"${dis(cropOn)} value="${t.cropC || 32768}">`, i18n.t('edit.cropCHint'))}
         ${field(i18n.t('edit.cropTile'), `<div style="display:flex;align-items:center;gap:6px;width:100%;min-height:32px"><label class="toggle crop-tile-toggle${cropOn ? '' : ' is-disabled'}"><input type="checkbox" class="crop-tile"${dis(cropOn)} ${t.cropTile ? 'checked' : ''}><span class="toggle__slider"></span></label><button type="button" class="crop-tile-dir${tileDirCls}"${dis(cropOn)} title="${escapeHtml(tileDirTitle)}">${tileDirIcon}</button></div>`)}
         <div class="stage__sep"></div>
-        ${field(i18n.t('edit.darkenD') + ' (px)', `<input type="number" min="0" step="1" class="form-input darken-d"${dis(cropOn)} value="${t.darkenD || 0}">`)}
-        ${field(i18n.t('edit.darkenOpacity') + ' (%)', `<input type="number" min="0" max="100" step="1" class="form-input darken-opacity"${dis(cropOn)} value="${t.darkenOpacity || 0}">`)}
+        ${field(i18n.t('edit.darkenD') + ' (px)', `<input type="number" min="0" step="1" class="form-input darken-d"${dis(cropOn)} value="${t.darkenD || 0}">`, i18n.t('edit.darkenDHint'))}
+        ${field(i18n.t('edit.darkenOpacity') + ' (%)', `<input type="number" min="0" max="100" step="1" class="form-input darken-opacity"${dis(cropOn)} value="${t.darkenOpacity || 0}">`, i18n.t('edit.darkenOpacityHint'))}
       `)}`;
   }
 
@@ -429,10 +430,11 @@
 
   // One hue per guide kind, so each line+label reads as a distinct color band.
   const GUIDE_COLORS = {
-    blank:  '#4aa3ff', // blue   — 留白
-    top:    '#36d399', // green  — 面尾
-    ext:    '#c084fc', // purple — 面身
-    darken: '#fb923c', // orange — 暗化偏移
+    blank:   '#4aa3ff', // blue   — 留白
+    top:     '#36d399', // green  — 面尾
+    ext:     '#c084fc', // purple — 面身
+    stretch: '#f472b6', // pink   — 拉伸高度
+    darken:  '#fb923c', // orange — 暗化偏移
   };
 
   // A horizontal guide line at `topPct`% of the canvas height, tinted `color`.
@@ -463,19 +465,33 @@
   //   留白     at blank              (blank's bottom = split point)
   //   面尾     at blank + tailH      (tail's bottom)
   //   暗化偏移 at 面尾 + shift        (offset from the 面尾 line)
-  function buildGuide(t, total) {
+  function buildGuide(t, total, srcH) {
     const tailH = Math.min(Math.max(0, Math.round(+t.cropA || 0)), total);
     const blank = Math.max(0, Math.round(+t.cropB || 0));
     const tailBottom = Math.min(total, blank + tailH);
     const darkening = isDarkening(t);
     const shift = darkening ? Math.min(total - tailBottom, Math.max(0, Math.round(+t.darkenD || 0))) : 0;
+    // cropD (b) is the SOURCE height of the stretched middle. The output layout:
+    //   [0, tailBottom)            1:1 tail
+    //   [tailBottom, pinOutTop)    STRETCHED middle (b source rows → stretched)
+    //   [pinOutTop, total)         1:1 bottom (botSrc source rows)
+    // pinOutTop = total - botSrc, botSrc = srcH - tailH - b (clamped).
+    const sh = srcH != null ? srcH : tailH;
+    const bodySrcH = Math.max(0, sh - tailH);
+    const b = Math.min(Math.max(0, Math.round(+t.cropD || 0)), bodySrcH);
+    const botSrc = Math.max(0, sh - tailH - b);
+    const pinOutTop = Math.max(tailBottom, total - botSrc);
     const lines = [
       { pct: (blank / total) * 100, label: i18n.t('edit.guideBlank') + ' ' + blank, color: GUIDE_COLORS.blank, above: false, bottom: false },
       { pct: (tailBottom / total) * 100, label: i18n.t('edit.guideTop') + ' ' + tailH, color: GUIDE_COLORS.top, above: false, bottom: false },
-      { pct: 0, label: i18n.t('edit.guideExt') + ' ' + (total - tailBottom), color: GUIDE_COLORS.ext, above: true, bottom: true },
+      { pct: 0, label: i18n.t('edit.guideExt') + ' ' + total, color: GUIDE_COLORS.ext, above: true, bottom: true },
     ];
+    if (b > 0) {
+      // 拉伸 line at pinOutTop: above is the stretched middle, below is 1:1 bottom.
+      lines.push({ pct: (pinOutTop / total) * 100, label: i18n.t('edit.guideStretch') + ' ' + b, color: GUIDE_COLORS.stretch, above: false, bottom: false });
+    }
     if (darkening) {
-      lines.push({ pct: ((tailBottom + shift) / total) * 100, label: i18n.t('edit.darkenD') + ' ' + shift, color: GUIDE_COLORS.darken, above: false, bottom: false });
+      lines.push({ pct: ((tailBottom + shift) / total) * 100, label: i18n.t('edit.guideDarken') + ' ' + shift, color: GUIDE_COLORS.darken, above: false, bottom: false });
     }
     const guide = document.createElement('div');
     guide.className = 'tint-guide';
@@ -499,16 +515,16 @@
     wraps.forEach(w => { w.style.marginTop = ''; });
     // Force a reflow so the rects reflect the reset positions.
     void guide.offsetWidth;
-    const aboveFlags = [
-      false, false, true, // 留白, 面尾, 面身(bottom-anchored)
-    ];
-    if (isDarkening(t)) aboveFlags.push(false);
     // Build entries: measure the LABEL (it has real height; the wrap is 0-height
     // since the label is position:absolute), but move the WRAP (which is anchored
-    // to the line) so the label follows.
+    // to the line) so the label follows. Read each label's above/below state
+    // directly from its class instead of hardcoding the line order — the set of
+    // guide lines varies (cropD / darken are conditional), so a positional guess
+    // would drift out of sync with the actual DOM.
     const entries = [];
     for (let i = 0; i < wraps.length; i++) {
-      entries.push({ wrap: wraps[i], label: labels[i], above: !!aboveFlags[i] });
+      const above = labels[i].classList.contains('tint-guide__label--above');
+      entries.push({ wrap: wraps[i], label: labels[i], above });
     }
     // Top-anchored labels, ordered by natural top.
     const casc = entries.filter(e => !e.above)
@@ -642,7 +658,7 @@
   // every drawImage so the result can be painted at a smaller backing resolution
   // (full-fit mode downsamples the whole output; width-fit keeps ds=1 = crisp).
   // Source sampling stays at full source resolution in every case.
-  function cropViewportCanvas(ctx, src, tailH, blank, total, tile, tileDir,
+  function cropViewportCanvas(ctx, src, tailH, blank, total, tile, tileDir, stretchH,
                               darkenOn, shift, darkenAlpha, visTop, visH, ds) {
     if (ds == null) ds = 1;
     const w = src.width, h = src.height;
@@ -722,17 +738,46 @@
             }
           }
         } else {
-          // STRETCH: source [tailSrcH, srcH) → output [bodyOutTop, bodyOutBot)
-          // linearly. Map the visible sub-range back into the source.
-          const drawTop = Math.max(visTop, bodyOutTop);
-          const drawBot = Math.min(visBot, bodyOutBot);
-          if (drawBot > drawTop) {
-            const outSpan = bodyOutBot - bodyOutTop;
-            const srcFromTop = (drawTop - bodyOutTop) * (bodySrcH / outSpan);
-            const srcFromBot = (drawBot - bodyOutTop) * (bodySrcH / outSpan);
-            baseCtx.drawImage(src,
-              0, tailSrcH + srcFromTop, w, srcFromBot - srcFromTop,
-              0, (drawTop - visTop) * ds, dw, (drawBot - drawTop) * ds);
+          // Three-segment model (mirrors cropCanvas):
+          //   src [0, tailSrcH)       → out [0, bodyOutTop)      1:1  (面尾, drawn above)
+          //   src [tailSrcH, midBot) → out [bodyOutTop, pinOutTop) STRETCHED (middle b)
+          //   src [midBot, h)         → out [pinOutTop, total)   1:1  (bottom, anchored)
+          // b = cropD is the SOURCE height of the stretched middle; the output gap
+          // is implicit. Each segment is mapped & clipped against the viewport.
+          const b = Math.min(Math.max(0, stretchH), bodySrcH); // middle source height
+          const midBot = tailSrcH + b;                         // middle source bottom
+          const botSrc = Math.max(0, h - midBot);              // bottom source span (1:1)
+          const pinOutTop = bodyOutBot - botSrc;               // bottom output start
+          const stretchOutH = Math.max(0, pinOutTop - bodyOutTop);
+          // (a) stretched middle region. When b=0 the gap is filled by copying the
+          // tail's last source row across the whole gap (no blank region).
+          if (stretchOutH > 0) {
+            const drawTop = Math.max(visTop, bodyOutTop);
+            const drawBot = Math.min(visBot, pinOutTop);
+            if (drawBot > drawTop) {
+              if (b > 0) {
+                const srcFromTop = (drawTop - bodyOutTop) * (b / stretchOutH);
+                const srcFromBot = (drawBot - bodyOutTop) * (b / stretchOutH);
+                baseCtx.drawImage(src,
+                  0, tailSrcH + srcFromTop, w, srcFromBot - srcFromTop,
+                  0, (drawTop - visTop) * ds, dw, (drawBot - drawTop) * ds);
+              } else {
+                const tailLastRow = Math.max(0, tailSrcH - 1);
+                baseCtx.drawImage(src,
+                  0, tailLastRow, w, 1,
+                  0, (drawTop - visTop) * ds, dw, (drawBot - drawTop) * ds);
+              }
+            }
+          }
+          // (b) 1:1 bottom region, anchored to the output bottom.
+          if (botSrc > 0 && pinOutTop < bodyOutBot) {
+            const drawTop = Math.max(visTop, pinOutTop);
+            const drawBot = Math.min(visBot, bodyOutBot);
+            if (drawBot > drawTop) {
+              baseCtx.drawImage(src,
+                0, midBot + (drawTop - pinOutTop), w, drawBot - drawTop,
+                0, (drawTop - visTop) * ds, dw, (drawBot - drawTop) * ds);
+            }
           }
         }
       }
@@ -755,7 +800,7 @@
         opScratch.height = Math.max(1, Math.round(visH * ds));
         const opCtx = opScratch.getContext('2d');
         // Recursive call with darken OFF paints only the crop slice [opVisTop, +visH).
-        cropViewportCanvas(opCtx, src, tailH, blank, total, tile, tileDir,
+        cropViewportCanvas(opCtx, src, tailH, blank, total, tile, tileDir, stretchH,
                            false, 0, 0, opVisTop, visH, ds);
         ctx.drawImage(opScratch, 0, 0);
       }
@@ -826,7 +871,7 @@
     const ctx = shown.getContext('2d');
     ctx.clearRect(0, 0, bw, bh);
     cropViewportCanvas(ctx, srcCanvas,
-      +t.cropA || 0, +t.cropB || 0, total, !!t.cropTile, t.cropTileDir,
+      +t.cropA || 0, +t.cropB || 0, total, !!t.cropTile, t.cropTileDir, +t.cropD || 0,
       isDarkening(t), +t.darkenD || 0, Math.max(0, Math.min(1, (+t.darkenOpacity || 0) / 100)),
       visTop, visH, ds);
     return visH;
@@ -938,7 +983,7 @@
     canvas.width = outW; canvas.height = srcH;
     canvas.getContext('2d').drawImage(img, 0, 0);
     if (t.tintEnabled) canvas = tintCanvas(canvas, t.color, t.mode);
-    if (cropOn) canvas = cropCanvas(canvas, +t.cropA || 0, +t.cropB || 0, +t.cropC || 32768, !!t.cropTile, t.cropTileDir);
+    if (cropOn) canvas = cropCanvas(canvas, +t.cropA || 0, +t.cropB || 0, +t.cropC || 32768, !!t.cropTile, t.cropTileDir, +t.cropD || 0);
     if (darkenOn) canvas = darkenCanvas(canvas, +t.darkenD || 0, +t.darkenOpacity || 0);
     if (shown.width !== canvas.width || shown.height !== canvas.height) {
       shown.width = canvas.width; shown.height = canvas.height;
@@ -997,7 +1042,7 @@
             const stage = previewEl.querySelector('.tint-preview__stage');
             if (stage) {
               const guide = stage.querySelector('.tint-guide');
-              if (guide) guide.replaceWith(buildGuide(t, total));
+              if (guide) guide.replaceWith(buildGuide(t, total, img.naturalHeight));
               layoutVirtualStage(stage, liveCanvas._vpSrc, total);
               paintViewport(liveCanvas, liveCanvas._vpSrc, t, total);
               relayoutGuideIndent(stage, t, total);
@@ -1011,16 +1056,24 @@
               const guide = stage.querySelector('.tint-guide');
               const total = outH || 1;
               if (guide) {
-                const fresh = buildGuide(t, total);
+                const fresh = buildGuide(t, total, img.naturalHeight);
                 guide.replaceWith(fresh);
               }
               relayoutGuideIndent(stage, t, total);
             }
           }
+          // drawProcessed clears canvas maxHeight/maxWidth (and other fit styles)
+          // on every repaint; re-apply the fit so a full-fit preview stays fit
+          // instead of snapping back to width-fit while dragging values.
+          applyPreviewFit(liveCanvas, previewEl);
           return;
         }
       }
       // Full rebuild of the preview DOM.
+      // Preserve the scroll position across the rebuild: innerHTML='' drops it.
+      // (previewFullFit is a closure var and survives, so only scrollTop needs
+      // saving. Width-fit is the only mode with a meaningful scroll offset.)
+      const savedScroll = previewEl.scrollTop;
       // Release the previous canvas's GL renderer (if any) before dropping it.
       const prevCanvas = previewEl.querySelector('.tint-preview__canvas');
       if (prevCanvas && prevCanvas._glRenderer) { try { prevCanvas._glRenderer.destroy(); } catch (_) {} }
@@ -1044,7 +1097,7 @@
         const total = Math.max(1, Math.round(+t.cropC || 32768));
         previewEl.style.overflow = previewFullFit ? 'hidden' : 'auto';
         stage.appendChild(shown);
-        const guide = buildGuide(t, total);
+        const guide = buildGuide(t, total, img.naturalHeight);
         stage.appendChild(guide);
         wrap.appendChild(stage);
         previewEl.appendChild(wrap);
@@ -1062,6 +1115,9 @@
             layoutVirtualStage(stage, shown._vpSrc, total);
             paintViewport(shown, shown._vpSrc, t, total);
             relayoutGuideIndent(stage, t, total);
+            // Re-restore scrollTop once layout has fully settled (the spacer
+            // height set this frame defines the scrollable range).
+            if (!previewFullFit && savedScroll > 0) previewEl.scrollTop = savedScroll;
           }
         });
       } else {
@@ -1072,7 +1128,7 @@
         // Percy LN guide lines: mark blank / top / extended-bottom heights.
         if (t.cropEnabled) {
           const total = outH || 1;
-          const guide = buildGuide(t, total);
+          const guide = buildGuide(t, total, img.naturalHeight);
           stage.appendChild(guide);
         }
         wrap.appendChild(stage);
@@ -1085,6 +1141,12 @@
           relayoutGuideIndent(stage, t, total);
         }
       }
+      // Restore the scroll position now that the new DOM is attached. Force a
+      // reflow first so the scrollable range (spacer height, in virtual mode) is
+      // current — setting scrollTop before layout settles is silently dropped.
+      // The virtual path re-restores in its rAF once the spacer is final.
+      void previewEl.offsetHeight;
+      if (!previewFullFit && savedScroll > 0) previewEl.scrollTop = savedScroll;
       if (fadeOnChange) {
         previewEl.classList.remove(FADE);
         void previewEl.offsetWidth;
@@ -1209,7 +1271,7 @@
     return out;
   }
 
-  function cropCanvas(src, tailH, blank, outH, tile, tileDir) {
+  function cropCanvas(src, tailH, blank, outH, tile, tileDir, stretchH) {
     const w = src.width, h = src.height;
     const tailSrcH = Math.min(Math.max(0, Math.round(tailH)), h);
     const bodySrcH = h - tailSrcH;
@@ -1234,7 +1296,35 @@
             while (y < total) { ctx.drawImage(src, 0, tailSrcH, w, bodySrcH, 0, y, w, bodySrcH); y += bodySrcH; }
           }
         } else {
-          ctx.drawImage(src, 0, tailSrcH, w, bodySrcH, 0, y0, w, remain);
+          // Three-segment model. The source is split into TOP (面尾, height a),
+          // MIDDLE (拉伸源, height b = cropD), BOTTOM (面身底部, the rest); the
+          // output mirrors TOP and BOTTOM 1:1 (top-aligned / bottom-aligned) and
+          // STRETCHES the middle to fill the gap between them:
+          //   src [0, tailSrcH)              → out [0, y0)            1:1  (面尾, drawn above)
+          //   src [tailSrcH, midBot)        → out [y0, pinOutTop)    STRETCHED (middle b)
+          //   src [midBot, h)                → out [pinOutTop, total) 1:1  (bottom, anchored)
+          // where midBot = tailSrcH + b and pinOutTop = total - (h - midBot).
+          // b is the SOURCE height of the stretched middle (NOT the output gap);
+          // the gap is implicit (total - srcH + b). When b=0 the middle is empty,
+          // so the gap is filled by copying the tail's LAST source row (面尾底行)
+          // stretched across the whole gap — no blank region is left.
+          const b = Math.min(Math.max(0, stretchH), bodySrcH); // middle source height
+          const midBot = tailSrcH + b;                         // middle source bottom
+          const botSrc = Math.max(0, h - midBot);              // bottom source span (1:1)
+          const pinOutTop = total - botSrc;                    // bottom output start
+          const stretchOutH = Math.max(0, pinOutTop - y0);     // stretched output span
+          if (stretchOutH > 0) {
+            if (b > 0) {
+              ctx.drawImage(src, 0, tailSrcH, w, b, 0, y0, w, stretchOutH);
+            } else {
+              // b=0: copy the tail's bottom source row across the gap.
+              const tailLastRow = Math.max(0, tailSrcH - 1);
+              ctx.drawImage(src, 0, tailLastRow, w, 1, 0, y0, w, stretchOutH);
+            }
+          }
+          if (botSrc > 0) {
+            ctx.drawImage(src, 0, midBot, w, botSrc, 0, pinOutTop, w, botSrc);
+          }
         }
       }
     }
@@ -1366,7 +1456,7 @@
       if (t && isFrame(t) && seqKeyOf(t) === gk) {
         return {
           tintEnabled: !!t.tintEnabled, color: t.color || '255,255,255,255', mode: t.mode || 'multiply',
-          cropEnabled: !!t.cropEnabled, cropA: t.cropA, cropB: t.cropB, cropC: t.cropC,
+          cropEnabled: !!t.cropEnabled, cropA: t.cropA, cropB: t.cropB, cropC: t.cropC, cropD: t.cropD,
           cropTile: !!t.cropTile, cropTileDir: t.cropTileDir,
           darkenEnabled: !!t.darkenEnabled, darkenD: t.darkenD, darkenOpacity: t.darkenOpacity,
         };
@@ -1448,33 +1538,45 @@
     applyDeleteOps(sorted);
     Toast.info(i18n.t('tint.deleted', { n: sorted.length }));
   }
-  // Enforce: tailH (cropA) + blank (cropB) + darkenD ≤ outH (cropC).
+  // Enforce: tailH (cropA) + blank (cropB) + darkenD ≤ outH (cropC), and the
+  // stretch region [tail bottom, tail bottom + cropD) stays within outH.
+  // cropD is measured from the tail bottom (blank + tailH) downward — the same
+  // anchor as darkenD — so each is clamped to (outH - blank - tailH) on its own
+  // (they may overlap: darken is an over-composite, not a layout slot).
   // When a field grows past the available room, clamp THAT field so the sum
   // stays within outH. outH itself is clamped to be ≥ the sum when it shrinks.
-  function normalizeOp(op, changedKey) {
+  function normalizeOp(op, changedKey, srcH) {
     if (!op.cropEnabled) return op;
     const outH = Math.max(0, Math.floor(+op.cropC || 0));
     const tailH = Math.max(0, Math.floor(+op.cropA || 0));
-    const blank = Math.max(0, Math.floor(+op.cropB || 0));
-    const darkenD = Math.max(0, Math.floor(+op.darkenD || 0));
-    // others = sum of the two values NOT being changed.
-    let others;
-    if (changedKey === 'cropA') others = blank + darkenD;
-    else if (changedKey === 'cropB') others = tailH + darkenD;
-    else if (changedKey === 'darkenD') others = tailH + blank;
-    else others = tailH + blank + darkenD; // cropC or toggle: keep all as-is
-
-    if (changedKey === 'cropC') {
-      // outH can't be smaller than the sum of the other three.
-      if (outH < others) op.cropC = others;
-    } else {
-      // Clamp the changed value so (changed + others) ≤ outH.
-      const maxVal = Math.max(0, outH - others);
-      if (changedKey === 'cropA') op.cropA = Math.min(tailH, maxVal);
-      else if (changedKey === 'cropB') op.cropB = Math.min(blank, maxVal);
-      else if (changedKey === 'darkenD') op.darkenD = Math.min(darkenD, maxVal);
+    // 切割高度 (cropA) + 拉伸高度 (cropD) must not exceed the source height:
+    // both come from the source (tail top + stretched middle), so a+b ≤ srcH.
+    const srcCap = (srcH != null && srcH > 0) ? srcH : Infinity;
+    // 留白高度 (cropB) and 投影距离 (darkenD) are NOT clamped to outH — they are
+    // allowed to push content below the canvas (off the bottom). Only cropA/cropC/
+    // cropD are constrained.
+    if (changedKey === 'cropA') {
+      // cropA ≤ outH (tail must fit the canvas) AND cropA + cropD ≤ srcH.
+      const cap = Math.min(outH, srcCap - Math.max(0, Math.floor(+op.cropD || 0)));
+      op.cropA = Math.min(tailH, Math.max(0, cap));
+    } else if (changedKey === 'cropD') {
+      // cropD ≤ outH - cropA (fits the canvas) AND cropA + cropD ≤ srcH.
+      const cap = Math.min(Math.max(0, outH - tailH), srcCap - tailH);
+      op.cropD = Math.min(Math.max(0, Math.floor(+op.cropD || 0)), Math.max(0, cap));
+    } else if (changedKey === 'cropC') {
+      // outH can't be smaller than the tail (cropA); cropB/darkenD may overflow.
+      if (outH < tailH) op.cropC = tailH;
     }
+    // cropB / darkenD: no clamp (kept as entered, ≥0 via readVal).
     return op;
+  }
+
+  // The cached natural height of a tint op's source image (sync; null if not yet
+  // loaded). Used by normalizeOp to enforce cropA + cropD ≤ source height.
+  function srcHeightOf(op) {
+    if (!op || !op.source) return null;
+    const img = sourceImgCache.get(op.source);
+    return (img && img.naturalHeight) ? img.naturalHeight : null;
   }
 
   // Apply a partial-update (object) to every edit target, with the
@@ -1485,7 +1587,11 @@
     const gk = wholeGroupSeqKey();
     if (gk) {
       const base = headerTempParams.get(gk) || firstMemberParams(gk);
-      const next = normalizeOp({ ...base, ...partial }, changedKey);
+      // Whole-group: clamp against the first member's source height (the stage
+      // template). Members may differ, but the stage shows one set of values.
+      const firstMember = cur().find(t => t && isFrame(t) && seqKeyOf(t) === gk);
+      const srcH = firstMember ? srcHeightOf(firstMember) : null;
+      const next = normalizeOp({ ...base, ...partial }, changedKey, srcH);
       headerTempParams.set(gk, next);
       refreshStagesLite();
       return;
@@ -1493,7 +1599,7 @@
     const arr = cur();
     for (const i of editTargets()) {
       arr[i] = { ...arr[i], ...partial };
-      arr[i] = normalizeOp(arr[i], changedKey);
+      arr[i] = normalizeOp(arr[i], changedKey, srcHeightOf(arr[i]));
     }
     applyTints(arr);
   }
@@ -1917,13 +2023,13 @@
         const tpl = temp || arr[memberIdx[0]] || {};
         const params = {
           tintEnabled: !!tpl.tintEnabled, color: tpl.color || '255,255,255,255', mode: tpl.mode || 'multiply',
-          cropEnabled: !!tpl.cropEnabled, cropA: tpl.cropA, cropB: tpl.cropB, cropC: tpl.cropC,
+          cropEnabled: !!tpl.cropEnabled, cropA: tpl.cropA, cropB: tpl.cropB, cropC: tpl.cropC, cropD: tpl.cropD,
           cropTile: !!tpl.cropTile, cropTileDir: tpl.cropTileDir,
           darkenEnabled: !!tpl.darkenEnabled, darkenD: tpl.darkenD, darkenOpacity: tpl.darkenOpacity,
         };
         for (const k of memberIdx) {
           arr[k] = { ...arr[k], destination: dest, exact, ...params };
-          arr[k] = normalizeOp(arr[k], null);
+          arr[k] = normalizeOp(arr[k], null, srcHeightOf(arr[k]));
         }
         if (seqKey) headerTempParams.delete(seqKey); // temp consumed
         applyTints(arr);
@@ -2100,6 +2206,7 @@
     });
     // Crop inputs.
     bindNumber(stages, '.crop-a', 'cropA');
+    bindNumber(stages, '.crop-d', 'cropD');
     bindNumber(stages, '.crop-b', 'cropB');
     bindNumber(stages, '.crop-c', 'cropC');
     const tileCb = stages.querySelector('.crop-tile');
@@ -2163,7 +2270,7 @@
     return {
       source: relPath, color: '255,255,255,255', mode: 'multiply', destination: '',
       tintEnabled: false,
-      cropEnabled: false, cropA: 0, cropB: 0, cropC: 32768, cropTile: false, cropTileDir: 'down',
+      cropEnabled: false, cropA: 0, cropB: 0, cropC: 32768, cropD: 0, cropTile: false, cropTileDir: 'down',
       darkenEnabled: false, darkenD: 0, darkenOpacity: 0,
       exact: false,
     };
@@ -2188,7 +2295,7 @@
         out.push({
           source: t.source, destination: t.destination, color: t.color, mode: t.mode,
           tintEnabled: !!t.tintEnabled,
-          cropEnabled: !!t.cropEnabled, cropA: t.cropA, cropB: t.cropB, cropC: t.cropC,
+          cropEnabled: !!t.cropEnabled, cropA: t.cropA, cropB: t.cropB, cropC: t.cropC, cropD: t.cropD,
           cropTile: !!t.cropTile, cropTileDir: t.cropTileDir,
           darkenEnabled: !!t.darkenEnabled, darkenD: t.darkenD, darkenOpacity: t.darkenOpacity,
           exact: !!t.exact,

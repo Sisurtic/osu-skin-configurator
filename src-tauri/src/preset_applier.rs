@@ -252,6 +252,7 @@ struct TintOp {
     crop_a: f64,
     crop_b: f64,
     crop_c: f64,
+    crop_d: f64,
     crop_tile: bool,
     crop_tile_dir: String,
     #[allow(dead_code)] // kept for deserializing older presets; darken is now derived
@@ -330,6 +331,18 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
         let y0 = blank + tail_h; // body starts at this output row
         let tile = op.crop_tile;
         let tile_up = op.crop_tile_dir == "up";
+        // Three-segment model. The source is split into TOP (面尾, height tail_h),
+        // MIDDLE (拉伸源, height b = cropD), BOTTOM (the rest). The output places
+        // TOP 1:1 at the top, BOTTOM 1:1 anchored to the output bottom, and
+        // STRETCHES the middle to fill the gap between them. cropD is the SOURCE
+        // height of the stretched middle (NOT the output gap); the gap is implicit.
+        // When cropD==0 the middle is empty and the whole 面身 is 1:1 anchored to
+        // the bottom.
+        let b = (op.crop_d.round().max(0.0) as u64).min(body_src_h as u64) as usize; // middle src h
+        let mid_bot = tail_h + b;                       // middle source bottom
+        let bot_src = (h as usize).saturating_sub(mid_bot); // bottom source span (1:1)
+        let pin_out_top = out_h.saturating_sub(bot_src);    // bottom output start
+        let stretch_out = pin_out_top.saturating_sub(y0);   // stretched output span
 
         // Fill each output row in parallel: tail (1:1) or body (stretch/tile).
         out_buf.par_chunks_mut(stride).enumerate().for_each(|(oy, orow)| {
@@ -352,9 +365,18 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
                         tail_h + (into % body_src_h)
                     }
                 } else {
-                    // Stretch (nearest): map output row into the body source range.
-                    let remain = out_h - y0;
-                    tail_h + into * body_src_h / remain
+                    // Three-segment fill: stretched middle [y0, pin_out_top),
+                    // 1:1 bottom [pin_out_top, out_h).
+                    if oy >= pin_out_top && bot_src > 0 {
+                        // 1:1 bottom: anchored to source/source-bottom.
+                        mid_bot + (oy - pin_out_top)
+                    } else if b > 0 && stretch_out > 0 {
+                        // Stretched middle: map output row into the middle source [tail_h, mid_bot).
+                        tail_h + into * b / stretch_out
+                    } else {
+                        // b=0 gap fill: copy the tail's last source row across the gap.
+                        tail_h.saturating_sub(1)
+                    }
                 };
                 let sy = sy.min(h as usize - 1);
                 &src_buf[sy * stride .. sy * stride + stride]
@@ -417,9 +439,10 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
     // because darken shifts content down by `shift` rows and would otherwise
     // re-fill a row cleared at crop time. osu! draws the LN body up to but not
     // including the very last row; this keeps the body exactly at cropC height.
-    // Only applies when crop is enabled (Percy LN body); without crop the image
-    // is a regular tint and should not lose its bottom row.
-    if op.crop_enabled {
+    // Only applies when crop is enabled AND the output height is at the max LN
+    // body height (≥ 32768): smaller outputs are regular cropped images that
+    // should keep their bottom row.
+    if op.crop_enabled && op.crop_c >= 32768.0 {
         let (cw, ch) = rgba.dimensions();
         if ch > 0 {
             let stride = (cw as usize) * 4;
@@ -586,6 +609,7 @@ fn apply_one_set(
             crop_a: tint.get("cropA").and_then(|v| v.as_f64()).unwrap_or(0.0),
             crop_b: tint.get("cropB").and_then(|v| v.as_f64()).unwrap_or(0.0),
             crop_c: tint.get("cropC").and_then(|v| v.as_f64()).unwrap_or(32768.0),
+            crop_d: tint.get("cropD").and_then(|v| v.as_f64()).unwrap_or(0.0),
             crop_tile: tint.get("cropTile").and_then(|v| v.as_bool()).unwrap_or(false),
             crop_tile_dir: tint.get("cropTileDir").and_then(|v| v.as_str()).unwrap_or("down").to_string(),
             darken_enabled: tint.get("darkenEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
