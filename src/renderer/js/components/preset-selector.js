@@ -592,9 +592,6 @@
       });
     });
 
-    // (Removed) Global keyup that started recording on Ctrl release — recording now
-    // starts immediately on right-click / Ctrl+right-click.
-
     // Keep the current preview while the cursor is over the preview panel
     const previewPanel = document.getElementById('preset-preview-panel');
     if (previewPanel) {
@@ -681,9 +678,6 @@
         for (const [rk, set] of curDisabled) _activationDisabledByRow.set(rk, set);
         _activationDisabledSingles.clear();
         for (const [rk, set] of curSingles) _activationDisabledSingles.set(rk, set);
-        // Note: rows that unlocked fall out of actRes.lockedRows; they stay stale
-        // in the flat maps until the next full render clears + recomputes all
-        // groups. That re-render fires right after this click (state.set below).
 
         // Derive activePresets.
         const deriveRows = collectTableRows(g, groups, expanded, 0, null);
@@ -1316,11 +1310,7 @@
 
   // ── Preview panel ──
 
-  // ── Global-shortcut recorder (right-click to collect, release Ctrl to record) ──
-
-  // keyToAccelerator (KeyboardEvent → accelerator-grammar string) now lives in
-  // the shared Shortcuts module (shortcuts.js) and is reused by the shortcuts
-  // dialog's global-shortcut recorder.
+  // ── Global-shortcut recorder (right-click to collect) ──
 
   function showShortcutRecorder() {
     let rec = document.getElementById('shortcut-recorder');

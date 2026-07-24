@@ -40,6 +40,9 @@ const api = {
   applyGroup: (skinName, groupId, presetIds) => window.tauriAPI.applyGroup(skinName, groupId, presetIds),
   flattenGroupSubgroups: (skinName, groupId) => window.tauriAPI.flattenGroupSubgroups(skinName, groupId),
   setTableState: (skinName, expanded, rowSelection, activations) => window.tauriAPI.setTableState(skinName, expanded, rowSelection, activations),
+  // After duplicating a table group subtree, clone its expanded/rowSelection/
+  // activations buckets under the new root gids, remapping old→new ids.
+  cloneTableStateForGroups: (skinName, srcRootGids, dstRootGids, gidMap, pidMap) => window.tauriAPI.cloneTableStateForGroups(skinName, srcRootGids, dstRootGids, gidMap, pidMap),
 
   // --- images / files ---
   getPreviewDataUrl: (imagePath) => window.tauriAPI.getPreviewDataUrl(imagePath),

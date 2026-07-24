@@ -1,5 +1,5 @@
 // osu! Skin Configurator — Tauri v2 main library.
-// Wires up plugins, the 31 #[tauri::command]s, single-instance, .osp argv
+// Wires up plugins, the #[tauri::command]s, single-instance, .osp argv
 // handling, and lifecycle (global shortcut init/cleanup, file association).
 
 mod config_store;
@@ -286,6 +286,40 @@ fn groups_flatten_subgroups(app: AppHandle, skin_name: String, group_id: i64) ->
 fn set_table_state(app: AppHandle, skin_name: String, expanded: Value, row_selection: Value, activations: Value) -> Value {
     let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
     match preset_manager::set_table_state(&sp, &expanded, &row_selection, &activations) {
+        Ok(_) => wrap_ok(json!(true)),
+        Err(e) => wrap_err(&e),
+    }
+}
+
+// Parse a { "oldId": newId } JSON object (keys/values numeric, possibly stringified)
+// into HashMap<i64,i64>. Used by clone_table_state_for_groups to carry the
+// duplicateSubtree old→new id mapping across the IPC boundary.
+fn parse_id_map(v: &Value) -> Result<std::collections::HashMap<i64, i64>, String> {
+    let obj = v.as_object().ok_or_else(|| "id map must be an object".to_string())?;
+    let mut map = std::collections::HashMap::new();
+    for (k, val) in obj {
+        let old = k.parse::<i64>().map_err(|_| format!("bad id map key: {}", k))?;
+        let new = val.as_i64()
+            .or_else(|| val.as_str().and_then(|s| s.parse::<i64>().ok()))
+            .ok_or_else(|| format!("bad id map value for key: {}", k))?;
+        map.insert(old, new);
+    }
+    Ok(map)
+}
+
+#[tauri::command]
+fn clone_table_state_for_groups(
+    app: AppHandle,
+    skin_name: String,
+    src_root_gids: Vec<i64>,
+    dst_root_gids: Vec<i64>,
+    gid_map: Value,
+    pid_map: Value,
+) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    let gid_map = match parse_id_map(&gid_map) { Ok(m) => m, Err(e) => return wrap_err(&e) };
+    let pid_map = match parse_id_map(&pid_map) { Ok(m) => m, Err(e) => return wrap_err(&e) };
+    match preset_manager::clone_table_state_for_groups(&sp, &src_root_gids, &dst_root_gids, &gid_map, &pid_map) {
         Ok(_) => wrap_ok(json!(true)),
         Err(e) => wrap_err(&e),
     }
@@ -706,7 +740,7 @@ pub fn run() {
             osu_auto_detect, osu_get_path, osu_get_last_skin, osu_set_last_skin, osu_set_path,
             skins_scan, skins_read_ini, skins_get_path,
             presets_scan, presets_load, presets_save, presets_delete, presets_delete_multiple, presets_apply, presets_apply_multiple,
-            groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_set_collapsed_batch, groups_delete_recursive, groups_set_shortcut, groups_set_description, groups_set_preview, groups_set_actions, groups_apply, groups_flatten_subgroups, set_table_state,
+            groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_set_collapsed_batch, groups_delete_recursive, groups_set_shortcut, groups_set_description, groups_set_preview, groups_set_actions, groups_apply, groups_flatten_subgroups, set_table_state, clone_table_state_for_groups,
             image_get_preview,
             shortcuts_load, shortcuts_save,
             global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_bind_batch, global_shortcuts_reload,

@@ -1001,8 +1001,6 @@
     await api.setGroupsCollapsedBatch(skin, ids, target);
   }
 
-  // ── Group rename ──
-
   // ── Bottom actions ──
 
   function buildBottomActions() {
@@ -1257,6 +1255,13 @@
       : (Selection.presetIds().length === 0 && selGid != null ? [selGid] : []);
     let groupOk = 0, presetCopied = 0;
     let lastNewId = null;
+    // old→new id maps built as the subtree is duplicated, used afterward to
+    // clone the source's table-state buckets (expanded/rowSelection/activations)
+    // under the fresh group/preset ids. Only the group-subtree path populates
+    // these; standalone-preset duplication owns no table state.
+    const gidMap = {}; // { oldGroupId: newGroupId }
+    const pidMap = {}; // { oldPresetId: newPresetId }
+    const clonePairs = []; // [{ src, dst }] table-root groups to clone state for
 
     if (groupIdsToDup.length > 0) {
       const groups = state.get('groups') || [];
@@ -1269,8 +1274,13 @@
           if (!src) continue;
           const parent = groups.find(g => g.children && g.children.some(c => c.type === "group" && c.id === gid));
           const parentId = parent ? parent.id : null;
-          const newRootId = await duplicateSubtree(src, parentId, groups, skin, true);
-          if (newRootId != null) { groupOk++; lastNewId = { kind: "group", id: newRootId }; }
+          const newRootId = await duplicateSubtree(src, parentId, groups, skin, true, gidMap, pidMap);
+          if (newRootId != null) {
+            groupOk++; lastNewId = { kind: "group", id: newRootId };
+            // A table-type root owns expanded/rowSelection/activations buckets —
+            // clone them (translated) to the new root after the subtree is built.
+            if (src.type === 'table') clonePairs.push({ src: gid, dst: newRootId });
+          }
         }
       } catch (err) {
         Toast.error(i18n.t('group.duplicateFailed', { msg: (err && (err.message || String(err))) || i18n.t('app.unknownError') }));
@@ -1303,6 +1313,19 @@
     const hadWork = groupIdsToDup.length > 0 || Selection.presetIds().length > 0;
     Selection.clear();
     if (!hadWork) return;
+    // Clone table-state for any duplicated table groups (reads/writes config.osp
+    // directly, so do it BEFORE refreshSkinData reloads everything from disk).
+    if (clonePairs.length > 0) {
+      try {
+        await api.cloneTableStateForGroups(
+          skin,
+          clonePairs.map(p => p.src),
+          clonePairs.map(p => p.dst),
+          gidMap,
+          pidMap,
+        );
+      } catch { /* non-fatal: tables just won't carry over */ }
+    }
     await refreshSkinData(skin);
     // Focus the last duplicated item.
     if (lastNewId) {
@@ -1331,11 +1354,13 @@
   // Deep-copy a group subtree into destParentId. Returns the new group id, or
   // null on failure. `isRoot` controls whether the copy-suffix is appended to
   // the name (only the duplicated root gets it; descendants keep their names).
-  async function duplicateSubtree(srcGroup, destParentId, allGroups, skin, isRoot) {
+  async function duplicateSubtree(srcGroup, destParentId, allGroups, skin, isRoot, gidMap, pidMap) {
     const newName = (srcGroup.name || '') + (isRoot ? i18n.t('preset.copySuffix') : '');
     const addResult = await api.addGroup(skin, newName, destParentId, srcGroup.type || '');
     if (!addResult || !addResult.success) return null;
     const newGid = addResult.data;
+    // Record old→new so table-state buckets can be remapped to the copy later.
+    gidMap[srcGroup.id] = newGid;
 
     // Copy own properties (description, preview, actions).
     if (srcGroup.description) {
@@ -1356,17 +1381,17 @@
     // Recurse into children in original order.
     for (const c of (srcGroup.children || [])) {
       if (c.type === 'preset') {
-        await duplicatePresetIntoGroup(c.id, newGid, skin);
+        await duplicatePresetIntoGroup(c.id, newGid, skin, pidMap);
       } else if (c.type === 'group') {
         const childSrc = allGroups.find(g => g.id === c.id);
-        if (childSrc) await duplicateSubtree(childSrc, newGid, allGroups, skin, false);
+        if (childSrc) await duplicateSubtree(childSrc, newGid, allGroups, skin, false, gidMap, pidMap);
       }
     }
     return newGid;
   }
 
   // Duplicate a preset and move the fresh copy into destGroupId.
-  async function duplicatePresetIntoGroup(srcPresetId, destGroupId, skin) {
+  async function duplicatePresetIntoGroup(srcPresetId, destGroupId, skin, pidMap) {
     const r = await api.loadPreset(skin, srcPresetId);
     if (!r.success || !r.data) return;
     const data = { ...r.data };
@@ -1377,6 +1402,8 @@
     if (saveResult && saveResult.success && saveResult.data != null) {
       // savePreset returns the new preset id directly (not an object).
       await api.movePresetGroup(skin, saveResult.data, destGroupId);
+      // Record old→new so table-state preset-id values can be remapped.
+      if (pidMap) pidMap[srcPresetId] = saveResult.data;
     }
   }
 

@@ -305,12 +305,12 @@ pub fn compact_ids(cfg: &mut Config) {
             c.id = *group_id_map.get(&c.id).unwrap_or(&c.id);
         }
     }
-    // remap persisted table-group UI state. These maps are keyed by group/preset
-    // id, so an id compaction would otherwise leave them pointing at stale or
-    // wrong nodes (an expanded table group silently un-expanding, or a row
-    // selection landing on a different preset). Keys are JSON-string ids; inner
-    // values are ids too (presetId in tableRowSelection; childGids in
-    // tableExpandedChildren). Entries whose key id no longer exists are dropped.
+    // Remap persisted table-group UI state. All three maps are keyed (and their
+    // inner values/embed paths are built) from the same preset/group id space we
+    // just renumbered — without this they'd point at stale or wrong nodes. Each
+    // remap_* drops entries whose key id is gone and inner entries whose
+    // referenced id is gone. rowKey/dstRowKey embed a gid path that is remapped
+    // segment-by-segment (see remap_row_key_path).
     cfg.table_expanded_children = remap_expanded(&cfg.table_expanded_children, &group_id_map);
     cfg.table_row_selection = remap_row_selection(&cfg.table_row_selection, &group_id_map, &preset_id_map);
     cfg.table_activations = remap_activations(&cfg.table_activations, &group_id_map, &preset_id_map);
@@ -327,6 +327,14 @@ fn id_as_i64(v: &Value) -> Option<i64> {
 // so we don't change the on-disk shape the renderer expects.
 fn reemit_id(old: &Value, new_id: i64) -> Value {
     if old.is_string() { Value::String(new_id.to_string()) } else { json!(new_id) }
+}
+
+// Force a Value to be a JSON object in place (replace it with {} if it isn't
+// one), so callers can safely take as_object_mut().unwrap() to insert entries.
+fn ensure_object(v: &mut Value) {
+    if !v.is_object() {
+        *v = Value::Object(serde_json::Map::new());
+    }
 }
 
 // Remap tableExpandedChildren: { "parentGid": ["childGid", ...] } — both the
@@ -347,10 +355,13 @@ fn remap_expanded(v: &Value, group_map: &HashMap<i64, i64>) -> Value {
     Value::Object(out)
 }
 
-// Remap tableRowSelection: { "gid": { "rowKey": presetId } } — the top-level
-// key is a group id; each inner value is a preset id (the rowKey is NOT an id,
-// leave it). Drops a group entry when its (old) key id is gone; drops inner
-// entries whose preset id is gone.
+// Remap tableRowSelection: { "gid": { "rowKey": presetId | "group:<gid>" } } —
+// the top-level key is a group id; each rowKey embeds a gid path
+// ("<gid>:<gid>:...:__direct__") that MUST be remapped segment-by-segment, and
+// each inner value is EITHER a preset id OR a 'group:<gid>' marker (when a
+// row's chosen option is a nested table group). Drops a group entry when its
+// (old) key id is gone; drops inner entries whose rowKey path or referenced id
+// points at a deleted node.
 fn remap_row_selection(v: &Value, group_map: &HashMap<i64, i64>, preset_map: &HashMap<i64, i64>) -> Value {
     let obj = match v.as_object() { Some(o) => o, None => return v.clone() };
     let mut out = serde_json::Map::new();
@@ -359,13 +370,15 @@ fn remap_row_selection(v: &Value, group_map: &HashMap<i64, i64>, preset_map: &Ha
         let new_gid = match group_map.get(&gid) { Some(ng) => *ng, None => continue };
         let rows_obj = match rows.as_object() { Some(o) => o, None => continue };
         let mut new_rows = serde_json::Map::new();
-        for (row_key, pid_val) in rows_obj {
-            if let Some(pid) = id_as_i64(pid_val) {
-                if let Some(np) = preset_map.get(&pid) {
-                    new_rows.insert(row_key.clone(), reemit_id(pid_val, *np));
-                }
-                // preset gone → drop the selection (don't carry a stale id).
-            }
+        for (row_key, val) in rows_obj {
+            // The rowKey is a gid PATH — remap each numeric segment (a row whose
+            // owning group got renumbered must move with it, else it dangles).
+            let new_row_key = match remap_row_key_path(row_key, group_map) { Some(p) => p, None => continue };
+            // remap_option handles BOTH preset ids (number/numeric-string) and
+            // 'group:<gid>' markers, preserving the original JSON type and
+            // returning None when the referenced id is gone (→ drop the row).
+            let new_val = match remap_option(val, group_map, preset_map) { Some(v) => v, None => continue };
+            new_rows.insert(new_row_key, new_val);
         }
         out.insert(new_gid.to_string(), Value::Object(new_rows));
     }
@@ -422,6 +435,41 @@ fn remap_option(v: &Value, group_map: &HashMap<i64, i64>, preset_map: &HashMap<i
 // dstOption is a preset id or 'group:<gid>'. Drops an edge when ANY referenced
 // id is gone (conservative). NOTE: source is keyed by option id only (a preset
 // appears in exactly one table group, so srcRowKey is redundant and omitted).
+// Translate ONE activations bucket's inner map ({ srcOptionKey: [targets] }),
+// remapping the srcOptionKey, each target's dstRowKey path, and dstOption.
+// Returns the translated inner object, or None if every source dropped out.
+// Shared by whole-table remap_activations and clone_table_state_for_groups.
+fn translate_activation_inner(src_obj: &serde_json::Map<String, Value>, group_map: &HashMap<i64, i64>, preset_map: &HashMap<i64, i64>) -> Option<serde_json::Map<String, Value>> {
+    let mut new_src_obj = serde_json::Map::new();
+    for (src_key, targets) in src_obj {
+        // Re-key the source option: preset id → remapped preset id;
+        // 'group:<gid>' → remapped gid.
+        let new_src_key = if let Some(rest) = src_key.strip_prefix("group:") {
+            match rest.parse::<i64>() { Ok(gid) => match group_map.get(&gid) {
+                Some(ng) => format!("group:{}", ng), None => continue,
+            }, Err(_) => continue }
+        } else {
+            match src_key.parse::<i64>() { Ok(pid) => match preset_map.get(&pid) {
+                Some(np) => np.to_string(), None => continue,
+            }, Err(_) => src_key.clone() }
+        };
+        let targets_arr = match targets.as_array() { Some(a) => a, None => continue };
+        let mut new_targets: Vec<Value> = Vec::new();
+        for t in targets_arr {
+            let to = match t.as_object() { Some(o) => o, None => continue };
+            let dst_row = match to.get("dstRowKey").and_then(|v| v.as_str()) { Some(s) => s, None => continue };
+            let new_dst_row = match remap_row_key_path(dst_row, group_map) { Some(p) => p, None => continue };
+            let new_dst_opt = match to.get("dstOption").and_then(|v| remap_option(v, group_map, preset_map)) { Some(v) => v, None => continue };
+            // Preserve effect ('select' default, 'disable') — it carries no id.
+            let effect = to.get("effect").cloned().unwrap_or(json!("select"));
+            new_targets.push(json!({ "dstRowKey": new_dst_row, "dstOption": new_dst_opt, "effect": effect }));
+        }
+        if new_targets.is_empty() { continue; } // all targets gone → drop this source
+        new_src_obj.insert(new_src_key, Value::Array(new_targets));
+    }
+    if new_src_obj.is_empty() { None } else { Some(new_src_obj) }
+}
+
 fn remap_activations(v: &Value, group_map: &HashMap<i64, i64>, preset_map: &HashMap<i64, i64>) -> Value {
     let obj = match v.as_object() { Some(o) => o, None => return v.clone() };
     let mut out = serde_json::Map::new();
@@ -429,37 +477,104 @@ fn remap_activations(v: &Value, group_map: &HashMap<i64, i64>, preset_map: &Hash
         let src_gid = match k.parse::<i64>() { Ok(id) => id, Err(_) => continue };
         let new_src_gid = match group_map.get(&src_gid) { Some(ng) => *ng, None => continue };
         let src_obj = match by_src.as_object() { Some(o) => o, None => continue };
-        let mut new_src_obj = serde_json::Map::new();
-        for (src_key, targets) in src_obj {
-            // Re-key the source option: preset id → remapped preset id;
-            // 'group:<gid>' → remapped gid.
-            let new_src_key = if let Some(rest) = src_key.strip_prefix("group:") {
-                match rest.parse::<i64>() { Ok(gid) => match group_map.get(&gid) {
-                    Some(ng) => format!("group:{}", ng), None => continue,
-                }, Err(_) => continue }
-            } else {
-                match src_key.parse::<i64>() { Ok(pid) => match preset_map.get(&pid) {
-                    Some(np) => np.to_string(), None => continue,
-                }, Err(_) => src_key.clone() }
-            };
-            let targets_arr = match targets.as_array() { Some(a) => a, None => continue };
-            let mut new_targets: Vec<Value> = Vec::new();
-            for t in targets_arr {
-                let to = match t.as_object() { Some(o) => o, None => continue };
-                let dst_row = match to.get("dstRowKey").and_then(|v| v.as_str()) { Some(s) => s, None => continue };
-                let new_dst_row = match remap_row_key_path(dst_row, group_map) { Some(p) => p, None => continue };
-                let new_dst_opt = match to.get("dstOption").and_then(|v| remap_option(v, group_map, preset_map)) { Some(v) => v, None => continue };
-                // Preserve effect ('select' default, 'disable') — it carries no id.
-                let effect = to.get("effect").cloned().unwrap_or(json!("select"));
-                new_targets.push(json!({ "dstRowKey": new_dst_row, "dstOption": new_dst_opt, "effect": effect }));
-            }
-            if new_targets.is_empty() { continue; } // all targets gone → drop this source
-            new_src_obj.insert(new_src_key, Value::Array(new_targets));
-        }
-        if new_src_obj.is_empty() { continue; } // all sources gone → drop bucket
-        out.insert(new_src_gid.to_string(), Value::Object(new_src_obj));
+        match translate_activation_inner(src_obj, group_map, preset_map) {
+            Some(new_src_obj) => out.insert(new_src_gid.to_string(), Value::Object(new_src_obj)),
+            None => continue, // all sources gone → drop bucket
+        };
     }
     Value::Object(out)
+}
+
+// After duplicating a table-group subtree (renderer `duplicateSubtree`), copy
+// each source root's three table-state buckets under the new root gids,
+// translating every embedded id via gid_map/pid_map. Source buckets are left
+// INTACT — this is a copy, not a remap (do NOT run whole-table remap_* here, or
+// the source's own key — which IS in the map — would relocate onto the dest).
+pub fn clone_table_state_for_groups(
+    skin_path: &str,
+    src_root_gids: &[i64],
+    dst_root_gids: &[i64],
+    gid_map: &HashMap<i64, i64>,
+    pid_map: &HashMap<i64, i64>,
+) -> Result<(), String> {
+    let mut cfg = load_config(skin_path);
+    clone_table_state_for_groups_cfg(&mut cfg, src_root_gids, dst_root_gids, gid_map, pid_map)?;
+    save_config(skin_path, &cfg)
+}
+
+// In-memory core of clone_table_state_for_groups. Operates directly on a Config
+// so it can be unit-tested without touching the filesystem.
+fn clone_table_state_for_groups_cfg(
+    cfg: &mut Config,
+    src_root_gids: &[i64],
+    dst_root_gids: &[i64],
+    gid_map: &HashMap<i64, i64>,
+    pid_map: &HashMap<i64, i64>,
+) -> Result<(), String> {
+    if src_root_gids.len() != dst_root_gids.len() {
+        return Err("src/dst root gid length mismatch".to_string());
+    }
+
+    // ── expanded: copy every source-subtree parent's entry to its remapped key.
+    if let Some(obj) = cfg.table_expanded_children.as_object().cloned() {
+        let mut expanded = obj.clone();
+        for (k, arr) in &obj {
+            let parent = match k.parse::<i64>() { Ok(id) => id, Err(_) => continue };
+            let new_parent = match gid_map.get(&parent) { Some(np) => *np, None => continue };
+            let children = match arr.as_array() { Some(a) => a, None => continue };
+            let new_kids: Vec<Value> = children.iter().filter_map(|c| {
+                id_as_i64(c).and_then(|cid| gid_map.get(&cid).map(|nc| reemit_id(c, *nc)))
+            }).collect();
+            if new_kids.is_empty() { continue; }
+            // Merge: a fresh dst key won't exist; if it does, append dedup'd.
+            let existing = expanded.entry(new_parent.to_string())
+                .or_insert_with(|| Value::Array(Vec::new()));
+            if let Some(arr) = existing.as_array_mut() {
+                for kid in new_kids {
+                    if !arr.iter().any(|x| id_as_i64(x) == id_as_i64(&kid)) { arr.push(kid); }
+                }
+            }
+        }
+        cfg.table_expanded_children = Value::Object(expanded);
+    }
+
+    // src_root → dst_root pairs for the table-root-keyed tables.
+    for (src_root, dst_root) in src_root_gids.iter().zip(dst_root_gids.iter()) {
+        // ── rowSelection: { gid: { rowKey: presetId|'group:gid' } }
+        if let Some(rows) = cfg.table_row_selection.get(src_root.to_string()).cloned() {
+            let rows_obj = match rows.as_object().cloned() { Some(o) => o, None => continue };
+            let mut new_rows = serde_json::Map::new();
+            for (row_key, pid_val) in &rows_obj {
+                let new_row_key = match remap_row_key_path(row_key, gid_map) { Some(p) => p, None => continue };
+                let new_val = match remap_option(pid_val, gid_map, pid_map) { Some(v) => v, None => continue };
+                new_rows.insert(new_row_key, new_val);
+            }
+            if !new_rows.is_empty() {
+                ensure_object(&mut cfg.table_row_selection);
+                let bucket = cfg.table_row_selection.as_object_mut().unwrap();
+                let entry = bucket.entry(dst_root.to_string())
+                    .or_insert_with(|| Value::Object(serde_json::Map::new()));
+                if let Some(o) = entry.as_object_mut() {
+                    for (k, v) in new_rows { o.insert(k, v); }
+                }
+            }
+        }
+
+        // ── activations: { srcGid: { srcOptionKey: [{dstRowKey,dstOption,effect}] } }
+        if let Some(by_src) = cfg.table_activations.get(src_root.to_string()).cloned() {
+            let src_obj = match by_src.as_object() { Some(o) => o, None => continue };
+            if let Some(new_inner) = translate_activation_inner(src_obj, gid_map, pid_map) {
+                ensure_object(&mut cfg.table_activations);
+                let bucket = cfg.table_activations.as_object_mut().unwrap();
+                let entry = bucket.entry(dst_root.to_string())
+                    .or_insert_with(|| Value::Object(serde_json::Map::new()));
+                if let Some(o) = entry.as_object_mut() {
+                    for (k, v) in new_inner { o.insert(k, v); }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn scan_skin(skin_path: &str) -> Value {
@@ -969,6 +1084,50 @@ mod compact_tests {
     }
 
     #[test]
+    fn compact_preserves_new_group_activations_when_old_deleted() {
+        // User scenario: old table group gid=10 has activations; a NEW group
+        // gid=11 was created and given its own activations; then the OLD group's
+        // contents are deleted, triggering compact_ids. The new group's
+        // activations must survive (re-keyed 11→1), NOT be wiped.
+        //
+        // New group 11's activation references its OWN row (rowKey "11:__direct__")
+        // and a preset id 100 that belongs to the new group.
+        let mut c = Config {
+            next_preset_id: 101,
+            next_group_id: 12,
+            root_children: vec![],
+            groups: vec![
+                Group { id: 11, name: "new".into(), collapsed: false, children: vec![], kind: "table".into(), shortcut: None, description: None, preview_path: None, preview_kind: None, preview_frames: None, preview_fps: None, actions: None },
+            ],
+            presets: vec![json!({ "id": 100 })],
+            table_expanded_children: json!({}),
+            table_row_selection: json!({
+                "11": { "11:__direct__": 100 }
+            }),
+            table_activations: json!({
+                "11": {
+                    "100": [
+                        { "dstRowKey": "11:__direct__", "dstOption": 100, "effect": "select" }
+                    ]
+                }
+            }),
+        };
+        compact_ids(&mut c);
+        // After compaction: only group 11 remains → renumbered to 1; preset 100 → 1.
+        // The new group's rowSelection + activations must be re-keyed and intact.
+        assert_eq!(c.table_row_selection, json!({
+            "1": { "1:__direct__": 1 }
+        }));
+        assert_eq!(c.table_activations, json!({
+            "1": {
+                "1": [
+                    { "dstRowKey": "1:__direct__", "dstOption": 1, "effect": "select" }
+                ]
+            }
+        }));
+    }
+
+    #[test]
     fn remap_expanded_rekeys_and_drops_dead() {
         // group map: old 10→1, 20→2 (30 deleted, not in map). Child ids here are
         // NUMBERS (one renderer code path); parent keys are always strings.
@@ -1007,6 +1166,45 @@ mod compact_tests {
         let v = json!({ "10": { "row0": "100" } });
         let out = remap_row_selection(&v, &gm, &pm);
         assert_eq!(out, json!({ "1": { "row0": "1" } }));
+    }
+
+    #[test]
+    fn remap_row_selection_remaps_group_option_values() {
+        // A row whose chosen option is a NESTED TABLE GROUP stores its value as
+        // 'group:<gid>'. Before the fix, remap_row_selection only handled numeric
+        // preset ids and silently DROPPED these rows on id compaction. group map
+        // 10→1 (parent), 20→2 (the chosen child table group); preset map 100→1.
+        let gm = gmap(&[(10, 1), (20, 2)]);
+        let pm: HashMap<i64, i64> = [(100, 1)].iter().copied().collect();
+        let v = json!({
+            "10": {
+                "10:__direct__": 100,            // preset option → remap via preset_map
+                "10:20:__direct__": "group:20"   // nested table-group option → remap via group_map
+            }
+        });
+        let out = remap_row_selection(&v, &gm, &pm);
+        // Both rows survive: rowKey gid-path remapped (10:→1:, 10:20:→1:2:),
+        // preset id remapped, AND the group: marker remapped.
+        assert_eq!(out, json!({
+            "1": {
+                "1:__direct__": 1,
+                "1:2:__direct__": "group:2"
+            }
+        }));
+    }
+
+    #[test]
+    fn remap_row_selection_drops_group_option_when_child_gone() {
+        // The chosen child table group (gid 20) was deleted → not in group_map.
+        // That row's rowKey "10:20:__direct__" embeds the gone gid 20, so the
+        // whole row is dropped (remap_row_key_path returns None on a dead segment).
+        let gm = gmap(&[(10, 1)]);
+        let pm: HashMap<i64, i64> = [(100, 1)].iter().copied().collect();
+        let v = json!({ "10": { "10:__direct__": 100, "10:20:__direct__": "group:20" } });
+        let out = remap_row_selection(&v, &gm, &pm);
+        // The preset row survives (rowKey 10:__direct__ → 1:__direct__); the
+        // group-option row is dropped (its rowKey embeds the dead gid 20).
+        assert_eq!(out, json!({ "1": { "1:__direct__": 1 } }));
     }
 
     #[test]
@@ -1055,5 +1253,101 @@ mod compact_tests {
         assert_eq!(remap_row_key_path("10:20:", &m), Some("1:2:".to_string()));
         assert_eq!(remap_row_key_path("10:__direct__", &m), Some("1:__direct__".to_string()));
         assert_eq!(remap_row_key_path("10:30:", &m), None); // 30 gone → whole path invalid
+    }
+
+    // Build a Config with the three table-state tables preset (for clone tests).
+    fn cfg_with_tables(exp: Value, sel: Value, act: Value) -> Config {
+        Config {
+            next_preset_id: 1,
+            next_group_id: 1,
+            root_children: vec![],
+            groups: vec![],
+            presets: vec![],
+            table_expanded_children: exp,
+            table_row_selection: sel,
+            table_activations: act,
+        }
+    }
+
+    #[test]
+    fn clone_table_state_copies_and_leaves_source_intact() {
+        // Source table group gid=10 with a nested expanded child gid=20; presets
+        // 100/200. Duplicated to fresh ids: groups 10→1, 20→2; presets 100→1, 200→2.
+        // gid_map covers BOTH the root (10) and the nested child (20) so expanded
+        // entries for either parent get cloned.
+        let gm = gmap(&[(10, 1), (20, 2)]);
+        let pm: HashMap<i64, i64> = [(100, 1), (200, 2)].iter().copied().collect();
+
+        // expanded: parent 10 has child 20 expanded (nested table group).
+        // rowSelection: gid 10 → row "10:__direct__" chose preset 100;
+        //               row "10:20:__direct__" chose 'group:20'.
+        // activations: gid 10 → srcOption "100" targets dstRowKey "10:20:__direct__"
+        //              with dstOption 'group:20' (select), and a disable target.
+        let mut c = cfg_with_tables(
+            json!({ "10": [20] }),
+            json!({
+                "10": {
+                    "10:__direct__": 100,
+                    "10:20:__direct__": "group:20"
+                }
+            }),
+            json!({
+                "10": {
+                    "100": [
+                        { "dstRowKey": "10:20:__direct__", "dstOption": "group:20", "effect": "select" },
+                        { "dstRowKey": "10:__direct__", "dstOption": 200, "effect": "disable" }
+                    ]
+                }
+            }),
+        );
+
+        clone_table_state_for_groups_cfg(&mut c, &[10], &[1], &gm, &pm).unwrap();
+
+        // ── SOURCE unchanged (this is a copy, not a remap) ──
+        assert_eq!(c.table_expanded_children.get("10"), Some(&json!([20])));
+        assert_eq!(c.table_row_selection.get("10").cloned().unwrap(),
+            json!({ "10:__direct__": 100, "10:20:__direct__": "group:20" }));
+        assert!(c.table_activations.get("10").is_some());
+
+        // ── DESTINATION: expanded parent 10→1, child 20→2 ──
+        assert_eq!(c.table_expanded_children.get("1"), Some(&json!([2])));
+
+        // ── DESTINATION rowSelection: gid 1; rowKeys + values remapped ──
+        assert_eq!(c.table_row_selection.get("1").cloned().unwrap(),
+            json!({
+                "1:__direct__": 1,            // 100→1
+                "1:2:__direct__": "group:2"   // path 10:20→1:2, value group:20→group:2
+            }));
+
+        // ── DESTINATION activations: gid 1; srcOption 100→1; paths+options remapped ──
+        assert_eq!(c.table_activations.get("1").cloned().unwrap(),
+            json!({
+                "1": [
+                    { "dstRowKey": "1:2:__direct__", "dstOption": "group:2", "effect": "select" },
+                    { "dstRowKey": "1:__direct__", "dstOption": 2, "effect": "disable" }
+                ]
+            }));
+    }
+
+    #[test]
+    fn clone_table_state_skips_unrelated_buckets() {
+        // group 30 is NOT in the map (not part of the duplicated subtree) — its
+        // buckets must be left alone, and nothing cloned under it.
+        let gm = gmap(&[(10, 1)]);
+        let pm: HashMap<i64, i64> = [(100, 1)].iter().copied().collect();
+        let mut c = cfg_with_tables(
+            json!({ "10": [], "30": [40] }),
+            json!({ "10": { "10:__direct__": 100 }, "30": { "30:__direct__": 999 } }),
+            json!({}),
+        );
+        clone_table_state_for_groups_cfg(&mut c, &[10], &[1], &gm, &pm).unwrap();
+        // group 30 untouched; no stray "30"-derived clone; "1" got the copied row.
+        assert_eq!(c.table_expanded_children.get("30"), Some(&json!([40])));
+        assert_eq!(c.table_row_selection.get("30").cloned().unwrap(),
+            json!({ "30:__direct__": 999 }));
+        assert!(c.table_row_selection.get("1").is_some());
+        // "10" expanded had an EMPTY child array → new_kids empty → nothing cloned
+        // under "1" for expanded (empty array omitted), source "10" still [].
+        assert_eq!(c.table_expanded_children.get("10"), Some(&json!([])));
     }
 }

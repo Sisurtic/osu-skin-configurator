@@ -429,8 +429,6 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
         }
     }
 
-    // Encode PNG with zune-png (much faster than `image`'s deflate for large
-    // outputs). Falls back to `image`'s encoder if zune-png fails.
     let (w, h) = rgba.dimensions();
     let raw = rgba.as_raw();
     // Encode PNG with the `image` crate (flate2 deflate, Fast compression).
@@ -711,7 +709,7 @@ pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
 /// tree is a tree, not a graph). INI edits are deduped by section+maniaKeys+key.
 pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) -> Result<Value, String> {
     let cfg = crate::preset_manager::load_config(skin_path);
-    let g = cfg.groups.iter().find(|g| g.id == group_id)
+    let _ = cfg.groups.iter().find(|g| g.id == group_id)
         .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
 
     let mut all_ini: Vec<Value> = Vec::new();
@@ -876,7 +874,6 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
     collect_units(group_id, root_prefix, &by_id, &cfg, &cfg.table_expanded_children, root_sel,
         &mut applied_presets, &mut applied_groups,
         &mut all_ini, &mut all_copies, &mut all_deletes, &mut all_tints, &mut warnings, &push_actions);
-    let _ = g; // (group already used via by_id lookup above)
 
     // Dedup INI edits (same as apply_multiple_presets).
     let mut merged_map: IndexMap<String, Value> = IndexMap::new();

@@ -60,6 +60,9 @@
     applyGroup: (skinName, groupId, presetIds) => call('groups_apply', { skinName, groupId, presetIds: presetIds ?? null }),
     flattenGroupSubgroups: (skinName, groupId) => call('groups_flatten_subgroups', { skinName, groupId }),
     setTableState: (skinName, expanded, rowSelection, activations) => call('set_table_state', { skinName, expanded, rowSelection, activations }),
+    // gidMap/pidMap are plain { oldId: newId } objects; srcRootGids/dstRootGids
+    // are parallel arrays identifying each duplicated table group's old/new root.
+    cloneTableStateForGroups: (skinName, srcRootGids, dstRootGids, gidMap, pidMap) => call('clone_table_state_for_groups', { skinName, srcRootGids, dstRootGids, gidMap, pidMap }),
 
     // --- images ---
     getPreviewDataUrl: (imagePath) => call('image_get_preview', { imagePath }),
