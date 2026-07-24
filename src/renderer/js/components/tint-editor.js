@@ -4,7 +4,7 @@
 // Each stage is toggled by a clickable header (green underline when enabled).
 // Preview is computed client-side on a <canvas>; apply runs the same pipeline in Rust.
 // Selection + drag-to-delete is delegated to the shared OpTable module (`opSel`).
-// Dual anchor: opSel.anchorIndex drives the preview; opSel.selectedIndices drives
+// opSel.anchorIndex drives the preview; opSel.selectedIndices drives
 // multi-select / batch edits (empty set = single, just the anchor).
 (function () {
   let getTints, setTints, skinName, presetId, skinPath;
@@ -1541,7 +1541,6 @@
   }
 
   function bindHandlers() {
-    // Add image
     const btnAdd = container.querySelector('#btn-add-tint-image');
     if (btnAdd) btnAdd.addEventListener('click', async () => {
       if (!skinName()) { Toast.warning(i18n.t('file.selectSkinFirst')); return; }
@@ -1569,7 +1568,6 @@
       } finally { fileDialogOpen = false; unblockUI(); }
     });
 
-    // ── Bind row selection (unified) ── delegated to OpTable.
     // ── Re-source: ordinary rows AND group headers share ONE path ──
     // A target is the UNIFIED model { removeIdxs, insertAt, value }:
     //   • ordinary row → removeIdxs=[i], insertAt=i, value = that row's tint config
@@ -1934,7 +1932,6 @@
       });
     });
 
-    // ── Delete zone drop handler ── delegated to OpTable.
     // The delete + shared-source cache eviction lives in applyDeleteOps (the
     // adapter callback), so it also serves the new Del-key deleteSelected.
     opSel.bindDeleteZone(container.querySelector('#tint-delete-zone'));

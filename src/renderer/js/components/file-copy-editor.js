@@ -259,7 +259,6 @@
       </div>
     `;
 
-    // Add copy file button
     const btnAddFile = container.querySelector('#btn-add-file');
     if (btnAddFile) btnAddFile.addEventListener('click', async () => {
       if (!skinName()) { Toast.warning(i18n.t('file.selectSkinFirst')); return; }
@@ -301,7 +300,6 @@
       }
     });
 
-    // Add delete file button
     const btnAddDelete = container.querySelector('#btn-add-delete');
     if (btnAddDelete) btnAddDelete.addEventListener('click', async () => {
       if (!skinName()) { Toast.warning(i18n.t('file.selectSkinFirst')); return; }
@@ -346,20 +344,14 @@
       }
     });
 
-    // ── Bind row selection (unified) ── delegated to OpTable
     container.querySelectorAll('.file-op-row').forEach(row => {
       sel.bindRow(row);
     });
 
-    // Destination handlers — resolve the row via the SORTED view-model
-    // (data-idx indexes currentFileOps, which is sorted when a sort is active).
-    //
-    // Split into two phases (mirrors the color-value box):
-    //  • 'input' (per keystroke): strip quotes and commit the RAW value to the op, so
-    //    saving without blurring still captures what the user typed. NO path conversion
-    //    and NO input.value rewrite here — that would reset the caret mid-typing.
-    //  • 'change' / Enter (blur or commit): run the conversion — absolute path inside the
-    //    skin → relative; outside the skin → toast + clear — and rewrite the displayed text.
+    // Destination 'change' handler (blur/Enter): convert an absolute path — inside
+    // the skin → relative; outside the skin → toast + clear — and rewrite the
+    // displayed text. (Group-header rows also bind 'input' for a local-only temp
+    // value; see the group-header block below.)
     // ── Multi-select sync (shared skeleton via OpTable.createGroupSync) ──
     // If member index `i` belongs to a FOLDED sequence group, return that group's
     // header element; otherwise null. (A group is folded when its key is NOT in
@@ -793,7 +785,6 @@
       bindResrc(thumb, () => thumb.closest('.file-seq-group'));
     });
 
-    // ── Delete zone drop handler ── delegated to OpTable
     sel.bindDeleteZone(container.querySelector('#file-delete-zone'));
 
     // Measure + apply column widths. If the tab is active but layoutColumns

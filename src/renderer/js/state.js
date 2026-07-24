@@ -61,6 +61,6 @@ state.set('currentView', 'welcome');
 state.set('activePresets', {});    // { [groupId: number]: presetId[] }
 state.set('activeTableGroups', {}); // { [gid]: true } table groups selected as self-apply units
 state.set('tableExpandedChildren', {}); // { [parentGid]: Set<childGid> } expanded nested table groups
-state.set('tableRowSelection', {});     // { [gid]: { [rowKey]: presetId } }
+state.set('tableRowSelection', {});     // { [gid]: { [rowKey]: presetId | 'group:<id>' } }
 state.set('appMode', 'use');
 state.set('presetDirty', false);

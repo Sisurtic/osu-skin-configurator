@@ -529,7 +529,6 @@
     const presets = state.get('presets') || [];
     const presetMap = new Map(presets.map(p => [p.id, p]));
 
-    // Resolve an option's display label from its optionKey, using a FRESH row
     // Full ancestry path label for a target: walks the dstRowKey's gid segments
     // (each is a sub-table-group on the path down) and joins each level's row
     // label, then the option name. Uses a fresh row snapshot (post-move safe).

@@ -28,12 +28,11 @@
 //   state (getter) -> { selectedIndices, anchorIndex, lastClickedRow }
 //
 // Shift-range anchor: FIRST member index of a group header (matches the file
-// editor's rowAnchorIndex). This produces selection sets identical to the ini
-// editor's former LAST-anchor rule, because perColumn/sequence group members
-// occupy CONSECUTIVE indices: a group-header endpoint selects the whole group
-// (via the endpoint-group rule) and the numeric span covers the rest either
-// way. Verified on the tricky cases (header as anchor, middle-group, collapsed
-// members).
+// editor's rowAnchorIndex). FIRST vs LAST yields identical selection sets here
+// because perColumn/sequence group members occupy CONSECUTIVE indices: a
+// group-header endpoint selects the whole group (via the endpoint-group rule)
+// and the numeric span covers the rest either way. Verified on the tricky
+// cases (header as anchor, middle-group, collapsed members).
 
 (function () {
   function create(adapter) {

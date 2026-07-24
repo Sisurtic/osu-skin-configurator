@@ -1552,7 +1552,6 @@
     const _info = document.getElementById('info-overlay');
     const isModal = !!document.querySelector('.modal-overlay') || (_rec && _rec.style.display !== 'none') || (_info && !_info.hidden);
 
-    // Escape clears the current selection (single or multi) in edit mode.
     // Escape clears the current selection (single or multi) in edit mode — but
     // ONLY when the keydown's target was NOT a focusable element (so a focused
     // input/button keeps its own Escape behavior: the dedicated blur handler at

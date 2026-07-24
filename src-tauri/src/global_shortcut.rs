@@ -89,7 +89,6 @@ pub fn convert_accelerator(acc: &str) -> Option<String> {
 
 pub fn reload(app: &AppHandle, skin_path: Option<String>) {
     let gs = app.global_shortcut();
-    // unregister all
     let _ = gs.unregister_all();
     let state = app.state::<State>();
     *state.skin_path.lock().unwrap() = skin_path.clone();
@@ -121,7 +120,6 @@ pub fn reload(app: &AppHandle, skin_path: Option<String>) {
         }
     }
 
-    // register each
     for (acc, ids) in &map {
         match acc.parse::<Shortcut>() {
             Ok(shortcut) => {
@@ -131,7 +129,6 @@ pub fn reload(app: &AppHandle, skin_path: Option<String>) {
                     on_trigger(app, &acc_owned);
                 });
                 if res.is_ok() {
-                    // store after successful registration
                     let st = app.state::<State>();
                     st.bindings.lock().unwrap().insert(acc.clone(), ids.clone());
                 }

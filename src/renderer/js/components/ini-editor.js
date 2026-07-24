@@ -337,7 +337,6 @@
       renderDropdown(filterFields(keyInput.value));
     }, { passive: false });
 
-    // Add button
     container.querySelector('#btn-add-ini').addEventListener('click', () => {
       // Save selection state before render() destroys it
       const secSelect = container.querySelector('#ini-section-select');
@@ -485,12 +484,10 @@
         if (ns.size) sel.setSelected(ns, updated.length - delFiltered.length);
       }
     });
-    // ── Bind row selection (unified) ── delegated to OpTable
     container.querySelectorAll('.ini-edit-row').forEach(row => {
       sel.bindRow(row);
     });
 
-    // ── Delete zone drop handler ── delegated to OpTable
     sel.bindDeleteZone(container.querySelector('#ini-delete-zone'));
 
 
@@ -1266,7 +1263,6 @@
       return `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">${i18n.t('ini.empty')}</div>`;
     }
 
-    // Apply the active column sort — DISPLAY ONLY (sort in place, do NOT
     // Rows display in source (add) order, left to right — no column sort.
 
     // Pre-scan: group consecutive same-base-key perColumn entries for collapsing
