@@ -541,11 +541,15 @@
       // First segment is the outermost table group — use its name.
       const topG = groups.find(g => g.id === srcGid);
       if (topG && topG.name) parts.push(topG.name);
+      // acc accumulates the FULL rowKey prefix (starting at segs[0]) so rowByKey
+      // lookups match; but we skip i=0 for label-pushing since segs[0] is the
+      // outermost table group already pushed above (re-pushing would duplicate
+      // the first path segment).
       let acc = '';
       for (let i = 0; i < segs.length; i++) {
         const seg = segs[i];
-        if (i > 0) acc += ':';
-        acc += seg;
+        acc = acc ? acc + ':' + seg : seg;
+        if (i === 0) continue; // outermost table group — already pushed via topG.name
         if (seg === '__direct__') continue; // synthetic aggregate row, no label
         const rr = rowByKey.get(acc);
         if (rr && rr.label) { parts.push(rr.label); continue; }
