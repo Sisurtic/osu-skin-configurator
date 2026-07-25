@@ -574,6 +574,7 @@ fn apply_one_set(
     }
 
     // deletes
+    let mut deleted_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
     for del in file_deletes {
         let origin = del.get("origin").and_then(|v| v.as_str()).unwrap_or("");
         let del_path = del.get("path").and_then(|v| v.as_str()).unwrap_or("");
@@ -594,6 +595,14 @@ fn apply_one_set(
             if let Some(alt) = without_2x(&target) {
                 if alt.exists() { target = alt; }
             }
+        }
+        // Dedup by resolved physical path (case-insensitive: Windows FS ignores
+        // casing, and @2x fallback can collapse two path strings onto one file).
+        // Without this, a second entry for an already-deleted file would hit the
+        // `else` below and falsely warn "target does not exist".
+        let key = target.to_string_lossy().to_lowercase();
+        if !deleted_paths.insert(key) {
+            continue; // already handled by an earlier delete entry
         }
         if target.exists() {
             if std::fs::remove_file(&target).is_ok() { files_deleted += 1; }
@@ -678,12 +687,61 @@ fn apply_one_set(
     })
 }
 
+// Resolve the ancestor plain-group NAME chain (root → the group directly
+// containing `preset_id`) by DFS-ing the group forest. Returns names in
+// root→leaf order; empty if the preset lives at the root level. Used to label
+// apply-warning `origin` for presets nested in plain groups (which otherwise
+// only carry their bare preset name, since they apply via the loose-preset
+// path that has no group context). Table-group ancestry is already handled in
+// collect_units, so this only walks the tree once per loose preset.
+fn preset_group_path(cfg: &crate::preset_manager::Config, preset_id: i64) -> Vec<String> {
+    use crate::preset_manager::ChildRef;
+    let by_id: HashMap<i64, &Group> = cfg.groups.iter().map(|g| (g.id, g)).collect();
+    // DFS from each root group; return the first path whose subtree contains preset_id.
+    fn walk(
+        gid: i64,
+        by_id: &HashMap<i64, &Group>,
+        preset_id: i64,
+        trail: &mut Vec<String>,
+    ) -> bool {
+        let g = match by_id.get(&gid) { Some(g) => g, None => return false };
+        trail.push(if g.name.is_empty() { crate::i18n::t("group.unnamed", &[]) } else { g.name.clone() });
+        // Does THIS group directly contain the preset?
+        if g.children.iter().any(|c: &ChildRef| c.kind == "preset" && c.id == preset_id) {
+            return true;
+        }
+        // Otherwise recurse into child groups.
+        for c in &g.children {
+            if c.kind == "group" && walk(c.id, by_id, preset_id, trail) {
+                return true;
+            }
+        }
+        trail.pop();
+        false
+    }
+    for c in &cfg.root_children {
+        if c.kind == "group" {
+            let mut trail = Vec::new();
+            if walk(c.id, &by_id, preset_id, &mut trail) {
+                return trail;
+            }
+        }
+        // A root-level preset (kind=="preset") is not inside any group → no path.
+    }
+    Vec::new()
+}
+
 pub fn apply_preset(skin_path: &str, preset_id: i64) -> Result<Value, String> {
     let preset = crate::preset_manager::load_preset(skin_path, preset_id)
         .ok_or_else(|| crate::i18n::t("err.preset_not_found", &[("id", &preset_id.to_string())]))?;
-    let origin = preset.get("meta").and_then(|m| m.get("name")).and_then(|v| v.as_str())
+    let preset_name = preset.get("meta").and_then(|m| m.get("name")).and_then(|v| v.as_str())
         .filter(|s| !s.is_empty()).map(|s| s.to_string())
         .unwrap_or_else(|| crate::i18n::t("preset.fallback_name", &[("id", &preset_id.to_string())]));
+    // Prefix the preset name with its enclosing plain-group path (root → leaf),
+    // so a warning's origin locates the preset within the group tree.
+    let mut path = preset_group_path(&crate::preset_manager::load_config(skin_path), preset_id);
+    path.push(preset_name);
+    let origin = path.join(" / ");
     let actions = preset.get("actions").cloned().unwrap_or_else(|| json!({}));
     // Stamp the preset name onto each action so emitted warnings carry `origin`.
     let tag = |key: &str| -> Vec<Value> {
@@ -709,16 +767,21 @@ pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
     let mut all_deletes: Vec<Value> = Vec::new();
     let mut all_tints: Vec<Value> = Vec::new();
     let mut warnings: Vec<Value> = Vec::new();
+    // Load config once to resolve each preset's enclosing plain-group path.
+    let cfg = crate::preset_manager::load_config(skin_path);
 
     for id in preset_ids {
         match crate::preset_manager::load_preset(skin_path, *id) {
             Some(preset) => {
-                // Tag every action with its owning preset name (origin) so warnings
-                // can be grouped by source. Fallback to "Preset {id}" if unnamed.
-                let origin = preset.get("meta").and_then(|m| m.get("name")).and_then(|v| v.as_str())
+                // Origin = enclosing plain-group path (root → leaf) + preset name,
+                // so a warning locates the preset within the group tree.
+                let preset_name = preset.get("meta").and_then(|m| m.get("name")).and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| crate::i18n::t("preset.fallback_name", &[("id", &id.to_string())]));
+                let mut path = preset_group_path(&cfg, *id);
+                path.push(preset_name);
+                let origin = path.join(" / ");
                 let actions = preset.get("actions").cloned().unwrap_or_else(|| json!({}));
                 // Helper: clone each action and stamp `origin` onto it.
                 let tag = |target: &mut Vec<Value>, key: &str| {
@@ -924,11 +987,19 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
                         if applied_presets.insert(id) {
                             match cfg.presets.iter().find(|p| p.get("id").and_then(|v| v.as_i64()) == Some(id)) {
                                 Some(preset) => {
-                                    // Descendant preset — origin is the full group path + preset name.
+                                    // Descendant preset — origin is the preset's full
+                                    // group ancestry (root → the group directly containing
+                                    // it, resolved via DFS over the whole tree so EVERY
+                                    // enclosing group is included — including plain
+                                    // "row" sub-groups and groups outside this table group)
+                                    // + the preset name. We DFS the tree by preset id
+                                    // rather than parsing row_key, because row_key only
+                                    // encodes the table-group-internal id chain and drops
+                                    // intermediate plain-group layers.
                                     let preset_name = preset.get("meta").and_then(|m| m.get("name")).and_then(|v| v.as_str())
                                         .filter(|s| !s.is_empty()).map(|s| s.to_string())
                                         .unwrap_or_else(|| crate::i18n::t("preset.fallback_name", &[("id", &id.to_string())]));
-                                    let mut path = ancestor_names.clone();
+                                    let mut path = preset_group_path(cfg, id);
                                     path.push(preset_name);
                                     let preset_origin = join_path(path);
                                     if let Some(a) = preset.get("actions") {
