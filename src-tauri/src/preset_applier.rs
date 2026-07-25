@@ -687,13 +687,13 @@ fn apply_one_set(
     })
 }
 
-// Resolve the ancestor plain-group NAME chain (root → the group directly
+// Resolve the full ancestor group NAME chain (root → the group directly
 // containing `preset_id`) by DFS-ing the group forest. Returns names in
 // root→leaf order; empty if the preset lives at the root level. Used to label
-// apply-warning `origin` for presets nested in plain groups (which otherwise
-// only carry their bare preset name, since they apply via the loose-preset
-// path that has no group context). Table-group ancestry is already handled in
-// collect_units, so this only walks the tree once per loose preset.
+// apply-warning `origin` for every apply path (apply_preset,
+// apply_multiple_presets, collect_units), so a warning always shows the
+// preset's complete location in the group tree regardless of how deep or
+// through how many plain/table groups it is nested.
 fn preset_group_path(cfg: &crate::preset_manager::Config, preset_id: i64) -> Vec<String> {
     use crate::preset_manager::ChildRef;
     let by_id: HashMap<i64, &Group> = cfg.groups.iter().map(|g| (g.id, g)).collect();

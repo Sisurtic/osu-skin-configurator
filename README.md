@@ -50,7 +50,7 @@ Get `osu-skin-configurator.exe` from [Releases](https://github.com/Sisurtic/osu-
 
 ### Changelog
 
-See the [GitHub Releases](https://github.com/Sisurtic/osu-skin-configurator/releases) for release notes and post-release fixes (checkbox-group apply rework, unified drag/drop rewrite, multi-select `selection.js` module, mixed preset+group selection, copy/paste actions, sequence-frame grouping, editor empty-state, ESC to deselect).
+See the [GitHub Releases](https://github.com/Sisurtic/osu-skin-configurator/releases) for release notes and post-release fixes (checkbox-group apply rework, unified drag/drop rewrite, multi-select `selection.js` module, mixed preset+group selection, copy/paste actions, sequence-frame grouping, editor empty-state, ESC to deselect, apply-warning details dialog grouped by source, delete-action dedup, full group path in warning origins).
 
 ### Prerequisites
 
