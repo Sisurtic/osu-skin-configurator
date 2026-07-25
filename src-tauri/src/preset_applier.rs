@@ -472,16 +472,19 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
 // when the @2x source is missing and not exact-match, and compute the final
 // source filename to drive destination suffixing. Returns None (after pushing a
 // warning) when the op should be skipped — invalid path or missing source.
+// `origin` labels the owning preset/group so the emitted warning can be grouped
+// by source in the warnings detail dialog.
 fn resolve_source(
     skin_path: &str,
     source: &str,
     dest_rel: &str,
     exact: bool,
-    warnings: &mut Vec<String>,
+    origin: &str,
+    warnings: &mut Vec<Value>,
 ) -> Option<(String, String)> {
     let source_name = Path::new(source).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     if dest_rel.contains("..") || is_absolute_js(dest_rel) {
-        warnings.push(crate::i18n::t("warn.copy_invalid_path", &[("name", &source_name)]));
+        push_warn(warnings, origin, crate::i18n::t("warn.copy_invalid_path", &[("name", &source_name)]));
         return None;
     }
     // Source is stored as a skin-relative path; resolve to absolute.
@@ -498,7 +501,7 @@ fn resolve_source(
         }
     }
     if !Path::new(&use_src).exists() {
-        warnings.push(crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
+        push_warn(warnings, origin, crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
         return None;
     }
     // Destination suffix follows the ACTUAL source used (use_src), so a fallback
@@ -506,6 +509,12 @@ fn resolve_source(
     // with SD content).
     let use_src_name = Path::new(&use_src).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| source_name.clone());
     Some((use_src, use_src_name))
+}
+
+// Push a warning tagged with its owning preset/group (`origin`), so the frontend
+// can group warnings by source in the details dialog.
+fn push_warn(warnings: &mut Vec<Value>, origin: &str, msg: String) {
+    warnings.push(json!({ "origin": origin, "msg": msg }));
 }
 
 
@@ -516,7 +525,7 @@ fn apply_one_set(
     file_deletes: &[Value],
     file_tints: &[Value],
 ) -> Value {
-    let mut warnings: Vec<String> = Vec::new();
+    let mut warnings: Vec<Value> = Vec::new();
     let mut skin_ini_changes = 0i64;
     let mut files_copied = 0i64;
     let mut files_deleted = 0i64;
@@ -535,11 +544,12 @@ fn apply_one_set(
 
     // copies
     for copy in file_copies {
+        let origin = copy.get("origin").and_then(|v| v.as_str()).unwrap_or("");
         let source = copy.get("source").and_then(|v| v.as_str()).unwrap_or("");
         let dest_rel = copy.get("destination").and_then(|v| v.as_str()).unwrap_or("");
         let exact = copy.get("exact").and_then(|v| v.as_bool()).unwrap_or(false);
         let source_name = Path::new(source).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        let (use_src, use_src_name) = match resolve_source(skin_path, source, dest_rel, exact, &mut warnings) {
+        let (use_src, use_src_name) = match resolve_source(skin_path, source, dest_rel, exact, origin, &mut warnings) {
             Some(v) => v,
             None => continue,
         };
@@ -554,7 +564,7 @@ fn apply_one_set(
         };
         let dest_str = dest_path.to_string_lossy().to_string();
         if !is_within(&dest_str, skin_path) {
-            warnings.push(crate::i18n::t("warn.copy_outside_skin", &[("name", &source_name)]));
+            push_warn(&mut warnings, origin, crate::i18n::t("warn.copy_outside_skin", &[("name", &source_name)]));
             continue;
         }
         if let Some(parent) = dest_path.parent() {
@@ -565,15 +575,16 @@ fn apply_one_set(
 
     // deletes
     for del in file_deletes {
+        let origin = del.get("origin").and_then(|v| v.as_str()).unwrap_or("");
         let del_path = del.get("path").and_then(|v| v.as_str()).unwrap_or("");
         if del_path.contains("..") || is_absolute_js(del_path) {
-            warnings.push(crate::i18n::t("warn.del_invalid_path", &[("path", del_path)]));
+            push_warn(&mut warnings, origin, crate::i18n::t("warn.del_invalid_path", &[("path", del_path)]));
             continue;
         }
         let full = PathBuf::from(skin_path).join(del_path);
         let full_str = full.to_string_lossy().to_string();
         if !is_within(&full_str, skin_path) {
-            warnings.push(crate::i18n::t("warn.del_outside_skin", &[("path", del_path)]));
+            push_warn(&mut warnings, origin, crate::i18n::t("warn.del_outside_skin", &[("path", del_path)]));
             continue;
         }
         let exact = del.get("exact").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -587,17 +598,18 @@ fn apply_one_set(
         if target.exists() {
             if std::fs::remove_file(&target).is_ok() { files_deleted += 1; }
         } else {
-            warnings.push(crate::i18n::t("warn.del_missing", &[("path", del_path)]));
+            push_warn(&mut warnings, origin, crate::i18n::t("warn.del_missing", &[("path", del_path)]));
         }
     }
 
     // tints (recolor)
     for tint in file_tints {
+        let origin = tint.get("origin").and_then(|v| v.as_str()).unwrap_or("");
         let source = tint.get("source").and_then(|v| v.as_str()).unwrap_or("");
         let source_name = Path::new(source).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let dest_rel = tint.get("destination").and_then(|v| v.as_str()).unwrap_or("");
         let exact = tint.get("exact").and_then(|v| v.as_bool()).unwrap_or(false);
-        let (use_src, use_src_name) = match resolve_source(skin_path, source, dest_rel, exact, &mut warnings) {
+        let (use_src, use_src_name) = match resolve_source(skin_path, source, dest_rel, exact, origin, &mut warnings) {
             Some(v) => v,
             None => continue,
         };
@@ -645,7 +657,7 @@ fn apply_one_set(
         };
         let dest_str = dest_path.to_string_lossy().to_string();
         if !is_within(&dest_str, skin_path) {
-            warnings.push(crate::i18n::t("warn.copy_outside_skin", &[("name", &source_name)]));
+            push_warn(&mut warnings, origin, crate::i18n::t("warn.copy_outside_skin", &[("name", &source_name)]));
             continue;
         }
         if let Some(parent) = dest_path.parent() {
@@ -653,7 +665,7 @@ fn apply_one_set(
         }
         match apply_tint(&use_src, &dest_str, &op) {
             Ok(()) => files_tinted += 1,
-            Err(msg) => warnings.push(crate::i18n::t("warn.tint_failed", &[("name", &source_name), ("msg", &msg)])),
+            Err(msg) => push_warn(&mut warnings, origin, crate::i18n::t("warn.tint_failed", &[("name", &source_name), ("msg", &msg)])),
         }
     }
 
@@ -669,11 +681,25 @@ fn apply_one_set(
 pub fn apply_preset(skin_path: &str, preset_id: i64) -> Result<Value, String> {
     let preset = crate::preset_manager::load_preset(skin_path, preset_id)
         .ok_or_else(|| crate::i18n::t("err.preset_not_found", &[("id", &preset_id.to_string())]))?;
+    let origin = preset.get("meta").and_then(|m| m.get("name")).and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty()).map(|s| s.to_string())
+        .unwrap_or_else(|| crate::i18n::t("preset.fallback_name", &[("id", &preset_id.to_string())]));
     let actions = preset.get("actions").cloned().unwrap_or_else(|| json!({}));
-    let skin_ini = actions.get("skinIni").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let copies = actions.get("fileCopies").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let deletes = actions.get("fileDeletes").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let tints = actions.get("fileTints").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    // Stamp the preset name onto each action so emitted warnings carry `origin`.
+    let tag = |key: &str| -> Vec<Value> {
+        actions.get(key).and_then(|v| v.as_array()).map(|arr| {
+            arr.iter().cloned().map(|mut a| {
+                if let Some(o) = a.as_object_mut() {
+                    o.insert("origin".to_string(), Value::String(origin.clone()));
+                }
+                a
+            }).collect()
+        }).unwrap_or_default()
+    };
+    let skin_ini = tag("skinIni");
+    let copies = tag("fileCopies");
+    let deletes = tag("fileDeletes");
+    let tints = tag("fileTints");
     Ok(apply_one_set(skin_path, &skin_ini, &copies, &deletes, &tints))
 }
 
@@ -682,26 +708,35 @@ pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
     let mut all_copies: Vec<Value> = Vec::new();
     let mut all_deletes: Vec<Value> = Vec::new();
     let mut all_tints: Vec<Value> = Vec::new();
-    let mut warnings: Vec<String> = Vec::new();
+    let mut warnings: Vec<Value> = Vec::new();
 
     for id in preset_ids {
         match crate::preset_manager::load_preset(skin_path, *id) {
             Some(preset) => {
+                // Tag every action with its owning preset name (origin) so warnings
+                // can be grouped by source. Fallback to "Preset {id}" if unnamed.
+                let origin = preset.get("meta").and_then(|m| m.get("name")).and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| crate::i18n::t("preset.fallback_name", &[("id", &id.to_string())]));
                 let actions = preset.get("actions").cloned().unwrap_or_else(|| json!({}));
-                if let Some(arr) = actions.get("fileCopies").and_then(|v| v.as_array()) {
-                    all_copies.extend(arr.iter().cloned());
-                }
-                if let Some(arr) = actions.get("fileDeletes").and_then(|v| v.as_array()) {
-                    all_deletes.extend(arr.iter().cloned());
-                }
-                if let Some(arr) = actions.get("fileTints").and_then(|v| v.as_array()) {
-                    all_tints.extend(arr.iter().cloned());
-                }
-                if let Some(arr) = actions.get("skinIni").and_then(|v| v.as_array()) {
-                    all_ini.extend(arr.iter().cloned());
-                }
+                // Helper: clone each action and stamp `origin` onto it.
+                let tag = |target: &mut Vec<Value>, key: &str| {
+                    if let Some(arr) = actions.get(key).and_then(|v| v.as_array()) {
+                        for mut a in arr.iter().cloned() {
+                            if let Some(o) = a.as_object_mut() {
+                                o.insert("origin".to_string(), Value::String(origin.clone()));
+                            }
+                            target.push(a);
+                        }
+                    }
+                };
+                tag(&mut all_copies, "fileCopies");
+                tag(&mut all_deletes, "fileDeletes");
+                tag(&mut all_tints, "fileTints");
+                tag(&mut all_ini, "skinIni");
             }
-            None => warnings.push(crate::i18n::t("err.preset_not_found", &[("id", &id.to_string())])),
+            None => push_warn(&mut warnings, &id.to_string(), crate::i18n::t("err.preset_not_found", &[("id", &id.to_string())])),
         }
     }
 
@@ -717,12 +752,11 @@ pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
     let merged_ini: Vec<Value> = merged_map.values().cloned().collect();
 
     let mut result = apply_one_set(skin_path, &merged_ini, &all_copies, &all_deletes, &all_tints);
-    // prepend load warnings
+    // prepend load warnings (already Vec<Value>)
     if let Some(obj) = result.as_object_mut() {
         if let Some(w) = obj.get_mut("warnings").and_then(|v| v.as_array_mut()) {
-            let mut combined: Vec<Value> = warnings.into_iter().map(Value::from).collect();
-            combined.append(w);
-            obj.insert("warnings".to_string(), Value::Array(combined));
+            warnings.append(w);
+            obj.insert("warnings".to_string(), Value::Array(warnings));
         }
     }
     result
@@ -740,11 +774,18 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
     let mut all_copies: Vec<Value> = Vec::new();
     let mut all_deletes: Vec<Value> = Vec::new();
     let mut all_tints: Vec<Value> = Vec::new();
-    let mut warnings: Vec<String> = Vec::new();
+    let mut warnings: Vec<Value> = Vec::new();
 
-    let push_actions = |target: &mut Vec<Value>, a: &Value, key: &str| {
+    // Clone each action from `a[key]` and stamp `origin` (owning preset/group
+    // name) onto it so warnings can be grouped by source.
+    let push_actions = |target: &mut Vec<Value>, a: &Value, key: &str, origin: &str| {
         if let Some(arr) = a.get(key).and_then(|v| v.as_array()) {
-            target.extend(arr.iter().cloned());
+            for mut act in arr.iter().cloned() {
+                if let Some(o) = act.as_object_mut() {
+                    o.insert("origin".to_string(), Value::String(origin.to_string()));
+                }
+                target.push(act);
+            }
         }
     };
 
@@ -845,17 +886,34 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
         applied_presets: &mut HashSet<i64>,
         applied_groups: &mut HashSet<i64>,
         ini: &mut Vec<Value>, copies: &mut Vec<Value>, deletes: &mut Vec<Value>, tints: &mut Vec<Value>,
-        warnings: &mut Vec<String>,
-        push_actions: &impl Fn(&mut Vec<Value>, &Value, &str),
+        warnings: &mut Vec<Value>,
+        push_actions: &impl Fn(&mut Vec<Value>, &Value, &str, &str),
     ) {
         let g = match by_id.get(&gid) { Some(g) => g, None => return };
         if !applied_groups.insert(gid) { return; } // guard against cycles
-        // Group's own actions.
+        // Resolve path_prefix (colon-separated ancestor group ids, root → current
+        // group inclusive) into a "A / B / C" name chain for the origin label.
+        let ancestor_names: Vec<String> = path_prefix.split(':')
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| s.parse::<i64>().ok())
+            .filter_map(|id| by_id.get(&id))
+            .map(|grp| if grp.name.is_empty() { crate::i18n::t("group.unnamed", &[]) } else { grp.name.clone() })
+            .collect();
+        let join_path = |mut names: Vec<String>| {
+            if names.is_empty() {
+                crate::i18n::t("group.unnamed", &[])
+            } else {
+                names.dedup_by(|a, b| a == b);
+                names.join(" / ")
+            }
+        };
+        // Group's own actions — origin is the full group path (root → this group).
+        let group_origin = join_path(ancestor_names.clone());
         if let Some(ga) = &g.actions {
-            push_actions(ini, ga, "skinIni");
-            push_actions(copies, ga, "fileCopies");
-            push_actions(deletes, ga, "fileDeletes");
-            push_actions(tints, ga, "fileTints");
+            push_actions(ini, ga, "skinIni", &group_origin);
+            push_actions(copies, ga, "fileCopies", &group_origin);
+            push_actions(deletes, ga, "fileDeletes", &group_origin);
+            push_actions(tints, ga, "fileTints", &group_origin);
         }
         let rows = collect_table_rows(g, by_id, expanded, &path_prefix);
         for (row_key, _opts) in &rows {
@@ -866,14 +924,21 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
                         if applied_presets.insert(id) {
                             match cfg.presets.iter().find(|p| p.get("id").and_then(|v| v.as_i64()) == Some(id)) {
                                 Some(preset) => {
+                                    // Descendant preset — origin is the full group path + preset name.
+                                    let preset_name = preset.get("meta").and_then(|m| m.get("name")).and_then(|v| v.as_str())
+                                        .filter(|s| !s.is_empty()).map(|s| s.to_string())
+                                        .unwrap_or_else(|| crate::i18n::t("preset.fallback_name", &[("id", &id.to_string())]));
+                                    let mut path = ancestor_names.clone();
+                                    path.push(preset_name);
+                                    let preset_origin = join_path(path);
                                     if let Some(a) = preset.get("actions") {
-                                        push_actions(ini, a, "skinIni");
-                                        push_actions(copies, a, "fileCopies");
-                                        push_actions(deletes, a, "fileDeletes");
-                                        push_actions(tints, a, "fileTints");
+                                        push_actions(ini, a, "skinIni", &preset_origin);
+                                        push_actions(copies, a, "fileCopies", &preset_origin);
+                                        push_actions(deletes, a, "fileDeletes", &preset_origin);
+                                        push_actions(tints, a, "fileTints", &preset_origin);
                                     }
                                 }
-                                None => warnings.push(crate::i18n::t("err.preset_not_found", &[("id", &id.to_string())])),
+                                None => push_warn(warnings, &id.to_string(), crate::i18n::t("err.preset_not_found", &[("id", &id.to_string())])),
                             }
                         }
                     }
@@ -913,9 +978,8 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
     let mut result = apply_one_set(skin_path, &merged_ini, &all_copies, &all_deletes, &all_tints);
     if let Some(obj) = result.as_object_mut() {
         if let Some(w) = obj.get_mut("warnings").and_then(|v| v.as_array_mut()) {
-            let mut combined: Vec<Value> = warnings.into_iter().map(Value::from).collect();
-            combined.append(w);
-            obj.insert("warnings".to_string(), Value::Array(combined));
+            warnings.append(w);
+            obj.insert("warnings".to_string(), Value::Array(warnings));
         }
     }
     Ok(result)

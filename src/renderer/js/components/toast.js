@@ -4,7 +4,10 @@
   let toastId = 0;
 
   window.Toast = {
-    show(message, type = 'info', duration = 3500) {
+    // onClick: optional. When provided, a click invokes onClick() instead of
+    // the default dismiss animation (used by the apply-warning toast to open a
+    // details dialog). Omit to keep the original click-to-dismiss behavior.
+    show(message, type = 'info', duration = 3500, onClick) {
       const id = ++toastId;
       const icon = { success: '✓', error: '✕', warning: '⚠' }[type] || '';
 
@@ -13,8 +16,12 @@
       el.innerHTML = `
         <span class="toast__msg">${icon} ${message}</span>
       `;
-      // Click anywhere on the toast to dismiss it manually (parabolic toss).
-      el.addEventListener('click', () => Toast.dismiss(el, true));
+      // Default: click anywhere dismisses with a parabolic toss. With onClick,
+      // a click hands control to the caller (e.g. opens a details dialog).
+      el.addEventListener('click', () => {
+        if (onClick) onClick();
+        else Toast.dismiss(el, true);
+      });
       container.appendChild(el);
 
       if (duration > 0) {
@@ -23,10 +30,10 @@
       return id;
     },
 
-    success(msg) { return this.show(msg, 'success'); },
-    error(msg) { return this.show(msg, 'error', 6000); },
-    warning(msg) { return this.show(msg, 'warning', 4500); },
-    info(msg) { return this.show(msg, 'info'); },
+    success(msg, onClick) { return this.show(msg, 'success', 3500, onClick); },
+    error(msg, onClick) { return this.show(msg, 'error', 6000, onClick); },
+    warning(msg, onClick) { return this.show(msg, 'warning', 4500, onClick); },
+    info(msg, onClick) { return this.show(msg, 'info', 3500, onClick); },
 
     // Auto-dismiss (manual=false): simple fade-out to the right.
     // Manual dismiss (manual=true): a smooth parabolic toss computed per-frame

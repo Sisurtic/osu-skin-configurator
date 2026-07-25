@@ -97,7 +97,7 @@
         // paths outside the skin) the backend reports alongside the success.
         const warns = d.warnings || [];
         if (warns.length > 0) {
-          Toast.warning(i18n.t('apply.appliedWithWarnings', { n: warns.length, first: warns[0] }));
+          Toast.warning(i18n.t('apply.appliedWithWarnings', { n: warns.length }), () => ApplyDialog.showWarningsDialog(warns));
         }
       } else {
         Toast.error(i18n.t('apply.applyFailed', { msg: result.error || i18n.t('app.unknownError') }));
@@ -352,7 +352,7 @@
         // paths outside the skin) the backend reports alongside the success.
         const warns = d.warnings || [];
         if (warns.length > 0) {
-          Toast.warning(i18n.t('apply.appliedWithWarnings', { n: warns.length, first: warns[0] }));
+          Toast.warning(i18n.t('apply.appliedWithWarnings', { n: warns.length }), () => ApplyDialog.showWarningsDialog(warns));
         }
         // "Apply without saving" applied the SAVED state; reload it into the
         // editor so the editor matches (discards the unsaved edits).
@@ -419,5 +419,55 @@
     });
   }
 
-  window.ApplyDialog = { showMulti, showConfirmDialog };
+  /**
+   * Show the full list of apply warnings, grouped by their owning preset/group
+   * (the `origin` tag the backend stamps on each warning). Reached by clicking
+   * the apply-warning toast. Mirrors showConfirmDialog's self-contained overlay
+   * + local keydown pattern.
+   */
+  function showWarningsDialog(warnings) {
+    if (document.querySelector('.modal-overlay')) return;
+    // Group warnings by origin, preserving first-seen order. Each warning may be
+    // {origin, msg} (new shape) or a bare string (fallback) — normalize both.
+    const groups = new Map();
+    for (const w of (warnings || [])) {
+      const isObj = w && typeof w === 'object';
+      const origin = (isObj && w.origin) ? String(w.origin) : '';
+      const msg = isObj ? ((w.msg != null ? String(w.msg) : '')) : String(w);
+      const key = origin || i18n.t('apply.unnamed');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(msg);
+    }
+    const sections = [...groups.entries()].map(([origin, msgs]) => `
+      <div style="margin-bottom:12px">
+        <div style="font-weight:600;margin-bottom:4px;padding-bottom:2px;border-bottom:1px solid var(--border)">${escapeHtml(origin)}</div>
+        <div style="white-space:pre-line;line-height:1.7">${msgs.map(m => `• ${escapeHtml(m)}`).join('\n')}</div>
+      </div>`).join('');
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.id = 'warnings-dialog';
+    overlay.innerHTML = `
+      <div class="modal">
+        <div class="modal__title">${i18n.t('apply.warningsDialogTitle')}</div>
+        <div class="modal__body">
+          ${sections}
+        </div>
+        <div class="modal__actions">
+          <button class="btn btn--primary btn--sm" data-action="close">${i18n.t('dialog.close')}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const done = () => {
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+    };
+    overlay.querySelector('[data-action="close"]').addEventListener('click', done);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) done(); });
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(); } };
+    document.addEventListener('keydown', onKey);
+  }
+
+  window.ApplyDialog = { showMulti, showConfirmDialog, showWarningsDialog };
 })();
