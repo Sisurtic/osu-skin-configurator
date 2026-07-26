@@ -740,7 +740,9 @@ tr[data-group-parent] .file-thumb__icon {
   height: 22px;
   display: inline-block;
 }
-.toggle.is-disabled { opacity: 0.4; pointer-events: none; }
+.toggle.is-disabled { opacity: 0.5; pointer-events: none; }
+.toggle.is-disabled .toggle__slider { background: var(--bg-tertiary); border-color: var(--border-light); }
+.toggle.is-disabled .toggle__slider::before { background: var(--border-light); }
 .toggle input {
   opacity: 0;
   width: 0;

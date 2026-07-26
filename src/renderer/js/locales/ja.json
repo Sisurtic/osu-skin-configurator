@@ -269,7 +269,8 @@
     "centerRatio": "アスペクト比",
     "pickFileTitle": "ファイルを選択",
     "columnSuffix": "(列{n})",
-    "deleteRowsConfirm": "選択した {n} 個の INI 操作を削除しますか?"
+    "deleteRowsConfirm": "選択した {n} 個の INI 操作を削除しますか?",
+    "synced": "{n} 個のフィールドを同期しました"
   },
   "file": {
     "heading": "ファイル移動",
@@ -297,7 +298,8 @@
     "deleteRowsConfirm": "選択した {n} 個のファイル操作を削除しますか?",
     "outsideSkin": "スキンフォルダ内のファイルのみ選択できます",
     "destOutsideSkin": "このパスはスキンフォルダの外です！",
-    "colDestTitle": "対象パスのファイル名を指定可能\n末尾 / でフォルダ名、それ以外はファイル名\nファイル名がない場合は元の名前"
+    "colDestTitle": "対象パスのファイル名を指定可能\n末尾 / でフォルダ名、それ以外はファイル名\nファイル名がない場合は元の名前",
+    "synced": "{n} 個の操作を同期しました"
   },
   "preview": {
     "heading": "プレビュー画像",
@@ -546,7 +548,8 @@
     "deleted": "{n} 個の画像操作を削除しました",
     "filled": "{n} 個のメンバーに適用しました",
     "deleteRowsConfirm": "選択した {n} 個の画像操作を削除しますか?",
-    "colDestTitle": "対象パスのファイル名を指定可能\n末尾 / でフォルダ名、それ以外はファイル名\nファイル名がない場合は元の名前"
+    "colDestTitle": "対象パスのファイル名を指定可能\n末尾 / でフォルダ名、それ以外はファイル名\nファイル名がない場合は元の名前",
+    "synced": "{n} 個の操作を同期しました"
   },
   "edit": {
     "stageTint": "色替え",

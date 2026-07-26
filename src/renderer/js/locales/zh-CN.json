@@ -269,7 +269,8 @@
     "centerRatio": "宽高比",
     "pickFileTitle": "选择文件",
     "columnSuffix": "(列{n})",
-    "deleteRowsConfirm": "确定要删除选中的 {n} 个 INI 操作吗？"
+    "deleteRowsConfirm": "确定要删除选中的 {n} 个 INI 操作吗？",
+    "synced": "已同步 {n} 个字段"
   },
   "file": {
     "heading": "文件移动",
@@ -297,7 +298,8 @@
     "deleteRowsConfirm": "确定要删除选中的 {n} 个文件操作吗？",
     "outsideSkin": "只能选择皮肤文件夹内的文件",
     "destOutsideSkin": "该路径不在皮肤内！",
-    "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名"
+    "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名",
+    "synced": "已同步 {n} 个操作"
   },
   "preview": {
     "heading": "预览图片",
@@ -350,7 +352,8 @@
     "deleted": "已删除 {n} 个图像操作",
     "filled": "已填充 {n} 个成员",
     "deleteRowsConfirm": "确定要删除选中的 {n} 个图像操作吗？",
-    "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名"
+    "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名",
+    "synced": "已同步 {n} 个操作"
   },
   "settings": {
     "pathSet": "osu! 路径已设置",

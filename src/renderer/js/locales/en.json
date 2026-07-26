@@ -269,7 +269,8 @@
     "centerRatio": "Aspect ratio",
     "pickFileTitle": "Pick a file",
     "columnSuffix": "(col {n})",
-    "deleteRowsConfirm": "Delete the {n} selected INI action(s)?"
+    "deleteRowsConfirm": "Delete the {n} selected INI action(s)?",
+    "synced": "Synced {n} field(s)"
   },
   "file": {
     "heading": "File moves",
@@ -297,7 +298,8 @@
     "deleteRowsConfirm": "Delete the {n} selected file action(s)?",
     "outsideSkin": "Only files inside the skin folder can be selected",
     "destOutsideSkin": "This path is outside the skin folder!",
-    "colDestTitle": "You may specify the target path filename\nTrailing / = folder name, otherwise a filename\nA missing filename uses the source name"
+    "colDestTitle": "You may specify the target path filename\nTrailing / = folder name, otherwise a filename\nA missing filename uses the source name",
+    "synced": "Synced {n} operation(s)"
   },
   "colorPicker": {
     "addColor": "Add the current color to presets",
@@ -336,7 +338,8 @@
     "deleted": "Deleted {n} image action(s)",
     "filled": "Filled {n} member(s)",
     "deleteRowsConfirm": "Delete the {n} selected image action(s)?",
-    "colDestTitle": "You may specify the target path filename\nTrailing / = folder name, otherwise a filename\nA missing filename uses the source name"
+    "colDestTitle": "You may specify the target path filename\nTrailing / = folder name, otherwise a filename\nA missing filename uses the source name",
+    "synced": "Synced {n} action(s)"
   },
   "preview": {
     "heading": "Preview image",

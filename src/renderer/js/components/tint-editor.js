@@ -1893,7 +1893,14 @@
         nodeTypeKey: () => '',
         skipDataNode: (idx) => { const a = cur(); return idx < 0 || idx >= a.length; },
         writeSourceData: (idx, field, val) => { const a = cur(); if (a[idx]) a[idx] = { ...a[idx], [field]: val }; },
+        // exact is disabled on non-@2x rows — skip syncing it there.
+        disableFieldFor: (idx, field) => {
+          if (field !== 'exact') return false;
+          const a = cur();
+          return !a[idx] || !has2x(a[idx]);
+        },
         writeTargetData: (idx, field, val) => { const a = cur(); if (a[idx]) a[idx] = { ...a[idx], [field]: val }; },
+        onSynced: (n) => Toast.success(i18n.t('tint.synced', { n })),
         applyToHeader: (headerEl, field, val) => {
           if (field === 'destination') {
             const el = headerEl.querySelector('.tint-seq-dest');

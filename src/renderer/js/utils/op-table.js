@@ -541,22 +541,28 @@
       // Single selection (or none): a data-source edit still wrote its own row
       // (writeSourceData) and must be committed to the store (so dirty/save
       // state updates); a header-source edit is temporary and commits nothing.
-      if (!set || set.size <= 1) { A.commit(!isHeaderSource); return; }
+      if (!set || set.size <= 1) { A.commit(!isHeaderSource); return 0; }
       const nodes = collectSyncNodes();
       let touched = false;
+      let syncCount = 1; // count the source row itself
       for (const n of nodes) {
         if (n.id === sourceId) continue;
         if (n.kind === 'header') {
           if (A.nodeTypeKey(n) !== sourceTypeKey) continue;
           A.applyToHeader(n.headerEl, field, val, color);
+          syncCount++;
         } else {
           if (A.skipDataNode(n.idx) || A.nodeTypeKey(n) !== sourceTypeKey) continue;
+          if (typeof A.disableFieldFor === 'function' && A.disableFieldFor(n.idx, field)) continue;
           A.writeTargetData(n.idx, field, val);
           A.applyToData(n.idx, field, val, color);
           touched = true;
+          syncCount++;
         }
       }
       A.commit(isHeaderSource ? touched : true);
+      if (syncCount > 1 && typeof A.onSynced === 'function') A.onSynced(syncCount);
+      return syncCount - 1; // callers expect "others synced" count
     }
     return { syncField };
   }

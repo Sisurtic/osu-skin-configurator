@@ -389,10 +389,18 @@
         const ops = currentFileOps ? currentFileOps : buildFileOps();
         if (ops[idx]) ops[idx][field] = val;
       },
+      // exact is disabled on non-@2x rows — skip syncing it there (centralized
+      // so writeTargetData/applyToData don't each repeat the check).
+      disableFieldFor: (idx, field) => {
+        if (field !== 'exact') return false;
+        const ops = currentFileOps ? currentFileOps : buildFileOps();
+        return !ops[idx] || !has2x(ops[idx]);
+      },
       writeTargetData: (idx, field, val) => {
         const ops = currentFileOps ? currentFileOps : buildFileOps();
         if (ops[idx]) ops[idx][field] = val;
       },
+      onSynced: (n) => Toast.success(i18n.t('file.synced', { n })),
       applyToHeader: (headerEl, field, val) => {
         if (field === 'destination') {
           const el = headerEl.querySelector('.file-seq-dest');
@@ -1078,7 +1086,7 @@
   // Delete rows (no source / not an image) render a bare label with no icon.
   function thumbHtmlFor(rawPath, label, isDelete) {
     if (isDelete) {
-      return `<span class="file-thumb__name" title="${escapeHtml(rawPath)}">${escapeHtml(label || '')}</span>`;
+      return `<span class="file-thumb__icon" title="${i18n.t('file.clickToChange')}">📄</span><span class="file-thumb__name" title="${escapeHtml(rawPath)}">${escapeHtml(label || '')}</span>`;
     }
     return thumbLoader.htmlFor(rawPath, label);
   }

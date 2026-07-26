@@ -589,6 +589,7 @@
       skipDataNode: (idx) => !iniEdits[idx] || iniEdits[idx]._delete,
       writeSourceData: (idx, field, val) => { if (iniEdits[idx]) iniEdits[idx].value = val; },
       writeTargetData: (idx, field, val) => { if (iniEdits[idx]) iniEdits[idx].value = val; },
+      onSynced: (n) => Toast.success(i18n.t('ini.synced', { n })),
       applyToHeader: (headerEl, field, val, color) => {
         const g = CSS.escape(headerEl.dataset.group);
         if (field === 'toggle') {

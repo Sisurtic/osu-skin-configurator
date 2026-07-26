@@ -269,7 +269,8 @@
     "centerRatio": "화면비",
     "pickFileTitle": "파일 선택",
     "columnSuffix": "(열 {n})",
-    "deleteRowsConfirm": "선택한 INI 작업 {n}개를 삭제하시겠습니까?"
+    "deleteRowsConfirm": "선택한 INI 작업 {n}개를 삭제하시겠습니까?",
+    "synced": "{n}개 필드 동기화됨"
   },
   "file": {
     "heading": "파일 이동",
@@ -297,7 +298,8 @@
     "deleteRowsConfirm": "선택한 파일 작업 {n}개를 삭제하시겠습니까?",
     "outsideSkin": "스킨 폴더 내의 파일만 선택할 수 있습니다",
     "destOutsideSkin": "이 경로는 스킨 폴더 밖입니다！",
-    "colDestTitle": "대상 경로 파일명 지정 가능\n끝에 / 면 폴더명, 아니면 파일명\n파일명이 없으면 원본 이름 사용"
+    "colDestTitle": "대상 경로 파일명 지정 가능\n끝에 / 면 폴더명, 아니면 파일명\n파일명이 없으면 원본 이름 사용",
+    "synced": "{n}개 작업 동기화됨"
   },
   "preview": {
     "heading": "미리보기 이미지",
@@ -546,7 +548,8 @@
     "deleted": "이미지 작업 {n}개 삭제됨",
     "filled": "{n}개 멤버에 채움",
     "deleteRowsConfirm": "선택한 이미지 작업 {n}개를 삭제하시겠습니까?",
-    "colDestTitle": "대상 경로 파일명 지정 가능\n끝에 / 면 폴더명, 아니면 파일명\n파일명이 없으면 원본 이름 사용"
+    "colDestTitle": "대상 경로 파일명 지정 가능\n끝에 / 면 폴더명, 아니면 파일명\n파일명이 없으면 원본 이름 사용",
+    "synced": "{n}개 작업 동기화됨"
   },
   "edit": {
     "stageTint": "색조",

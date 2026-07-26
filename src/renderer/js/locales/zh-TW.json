@@ -269,7 +269,8 @@
     "centerRatio": "寬高比",
     "pickFileTitle": "選擇檔案",
     "columnSuffix": "(列{n})",
-    "deleteRowsConfirm": "確定要刪除選中的 {n} 個 INI 操作嗎?"
+    "deleteRowsConfirm": "確定要刪除選中的 {n} 個 INI 操作嗎?",
+    "synced": "已同步 {n} 個欄位"
   },
   "file": {
     "heading": "檔案移動",
@@ -297,7 +298,8 @@
     "deleteRowsConfirm": "確定要刪除選中的 {n} 個檔案操作嗎?",
     "outsideSkin": "只能選擇皮膚資料夾內的檔案",
     "destOutsideSkin": "該路徑不在皮膚內！",
-    "colDestTitle": "允許指定目標路徑檔名\n末尾加 / 作為資料夾名，否則為檔名\n檔名不存在時使用原始檔名"
+    "colDestTitle": "允許指定目標路徑檔名\n末尾加 / 作為資料夾名，否則為檔名\n檔名不存在時使用原始檔名",
+    "synced": "已同步 {n} 個操作"
   },
   "preview": {
     "heading": "預覽圖片",
@@ -546,7 +548,8 @@
     "deleted": "已刪除 {n} 個圖像操作",
     "filled": "已填滿 {n} 個成員",
     "deleteRowsConfirm": "確定要刪除選中的 {n} 個圖像操作嗎?",
-    "colDestTitle": "允許指定目標路徑檔名\n末尾加 / 作為資料夾名，否則為檔名\n檔名不存在時使用原始檔名"
+    "colDestTitle": "允許指定目標路徑檔名\n末尾加 / 作為資料夾名，否則為檔名\n檔名不存在時使用原始檔名",
+    "synced": "已同步 {n} 個操作"
   },
   "edit": {
     "stageTint": "調色",
