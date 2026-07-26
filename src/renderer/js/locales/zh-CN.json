@@ -313,6 +313,10 @@
     "outsideSkin": "只能选择皮肤文件夹内的文件",
     "previewMissing": "预览文件缺失"
   },
+  "colorPicker": {
+    "addColor": "将当前颜色加入预设",
+    "deleteColor": "右键删除该颜色"
+  },
   "tint": {
     "heading": "图像编辑",
     "desc": "为 PNG 图片调色，或调整图像高度。",

@@ -509,6 +509,10 @@
   "warn": {
     "iniCommentLoss": "注意：套用預設到皮膚時，skin.ini 中的註解、空行和無法識別的內容會被刪除，僅保留有效的鍵值對。建議在套用前備份 skin.ini。"
   },
+  "colorPicker": {
+    "addColor": "將目前顏色加入預設",
+    "deleteColor": "右鍵刪除該顏色"
+  },
   "tint": {
     "heading": "圖像編輯",
     "desc": "為 PNG 圖片調色，或調整圖像高度。",

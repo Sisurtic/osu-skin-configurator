@@ -299,6 +299,10 @@
     "destOutsideSkin": "This path is outside the skin folder!",
     "colDestTitle": "You may specify the target path filename\nTrailing / = folder name, otherwise a filename\nA missing filename uses the source name"
   },
+  "colorPicker": {
+    "addColor": "Add the current color to presets",
+    "deleteColor": "Right-click to remove this color"
+  },
   "tint": {
     "heading": "Image edit",
     "desc": "Recolor PNG images, or adjust image height.",

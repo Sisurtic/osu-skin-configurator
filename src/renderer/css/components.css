@@ -1571,6 +1571,51 @@ tr[data-group-parent] .file-thumb__icon {
   transform: scale(1.2);
   border-color: var(--accent);
 }
+/* User-added swatches get a corner cut (top-right) filled with the popover bg,
+   marking them as removable (right-click). */
+.cp-preset-swatch--user {
+  position: relative;
+}
+.cp-preset-swatch--user::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 0; height: 0;
+  border-style: solid;
+  border-width: 0 6px 6px 0;
+  border-color: transparent var(--bg-secondary, #2a2a2a) transparent transparent;
+}
+/* "+" add-color button fills the last grid cell. The plus is drawn with two
+   pseudo-element bars (a cross) so it centers precisely without font metrics. */
+.cp-add-color {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 2px;
+  border: 2px dashed var(--border);
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.1s;
+}
+.cp-add-color::before,
+.cp-add-color::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--text-muted);
+  border-radius: 1px;
+}
+.cp-add-color::before { width: 60%; height: 2px; }   /* horizontal bar */
+.cp-add-color::after  { width: 2px; height: 60%; }   /* vertical bar */
+.cp-add-color:hover {
+  transform: scale(1.2);
+  border-color: var(--accent);
+}
+.cp-add-color:hover::before,
+.cp-add-color:hover::after {
+  background: var(--accent);
+}
 .cp-input-row {
   display: flex;
   flex-direction: column;

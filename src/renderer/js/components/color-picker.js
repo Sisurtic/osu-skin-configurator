@@ -181,6 +181,21 @@
     '#ffb3d9','#ff66b3','#e6008a','#990052',
   ];
 
+  // User-saved colors persisted to localStorage (survive restarts).
+  const USER_COLORS_KEY = 'osu-skin-configurator/user-colors';
+  function getUserColors() {
+    try { return JSON.parse(localStorage.getItem(USER_COLORS_KEY) || '[]'); }
+    catch (_) { return []; }
+  }
+  function saveUserColors(arr) {
+    try { localStorage.setItem(USER_COLORS_KEY, JSON.stringify(arr)); } catch (_) {}
+  }
+  // Tooltip text (i18n if available, else Chinese fallback). Resolved lazily at
+  // render time so it follows the active language (the IIFE may load before i18n).
+  const T = (k, fb) => (typeof window !== 'undefined' && window.i18n && window.i18n.t ? (window.i18n.t(k, {}) || fb) : fb);
+  const T_ADD = () => T('colorPicker.addColor', '将当前颜色加入预设');
+  const T_DEL = () => T('colorPicker.deleteColor', '右键删除该颜色');
+
   function attach(triggerEl, opts) {
     const type = opts.type || 'rgb';
     let current = parseColor(opts.value);
@@ -230,6 +245,8 @@
       </div>
       <div class="cp-presets">
         ${PRESETS.map(hex => `<span class="cp-preset-swatch" style="background:${hex}" data-hex="${hex}"></span>`).join('')}
+        ${getUserColors().map(hex => `<span class="cp-preset-swatch cp-preset-swatch--user" style="background:${hex}" data-hex="${hex}" title="${T_DEL()}"></span>`).join('')}
+        <button type="button" class="cp-add-color" title="${T_ADD()}"></button>
       </div>
     `;
 
@@ -600,6 +617,58 @@
         updateAllUI();
       });
     });
+    // Right-click a USER swatch to remove it from the saved set.
+    popover.querySelectorAll('.cp-preset-swatch--user').forEach(sw => {
+      sw.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        const hex = sw.dataset.hex;
+        saveUserColors(getUserColors().filter(c => c !== hex));
+        sw.remove();
+      });
+    });
+    // "+" button: save the current color as a user preset.
+    const addBtn = popover.querySelector('.cp-add-color');
+    if (addBtn) addBtn.addEventListener('click', () => {
+      const hex = colorToHex(current);
+      const arr = getUserColors();
+      if (!arr.includes(hex)) {
+        arr.push(hex);
+        saveUserColors(arr);
+        // Re-render the swatches region (cheap: rebuild innerHTML + rebind).
+        renderPresets();
+      }
+    });
+    function renderPresets() {
+      const box = popover.querySelector('.cp-presets');
+      if (!box) return;
+      box.innerHTML =
+        PRESETS.map(hex => `<span class="cp-preset-swatch" style="background:${hex}" data-hex="${hex}"></span>`).join('') +
+        getUserColors().map(hex => `<span class="cp-preset-swatch cp-preset-swatch--user" style="background:${hex}" data-hex="${hex}" title="${T_DEL()}"></span>`).join('') +
+        `<button type="button" class="cp-add-color" title="${T_ADD()}"></button>`;
+      // Rebind click + contextmenu on the fresh nodes.
+      box.querySelectorAll('.cp-preset-swatch').forEach(sw => {
+        sw.addEventListener('click', () => {
+          const c = parseColor(sw.dataset.hex);
+          current.r = c.r; current.g = c.g; current.b = c.b;
+          if (type === 'rgb') current.a = 255;
+          refreshHueFromCurrent();
+          updateAllUI();
+        });
+      });
+      box.querySelectorAll('.cp-preset-swatch--user').forEach(sw => {
+        sw.addEventListener('contextmenu', e => {
+          e.preventDefault();
+          saveUserColors(getUserColors().filter(c => c !== sw.dataset.hex));
+          sw.remove();
+        });
+      });
+      const nb = box.querySelector('.cp-add-color');
+      if (nb) nb.addEventListener('click', () => {
+        const hex = colorToHex(current);
+        const a = getUserColors();
+        if (!a.includes(hex)) { a.push(hex); saveUserColors(a); renderPresets(); }
+      });
+    }
 
     // Text input
     let lastValid = formatOutput(current, type);

@@ -139,10 +139,7 @@
       const it = e.target.closest('.dd-menu__item');
       if (it) commit(it.dataset.value);
     });
-    pop.addEventListener('wheel', e => {
-      e.preventDefault();
-      highlightNext(e.deltaY > 0 ? 1 : -1);
-    }, { passive: false });
+    // Wheel scrolls the menu list natively (no highlight cycling).
     function onKey(e) {
       // Let global shortcuts (Ctrl+E mode toggle, Ctrl+S save, 1-4 tab switch)
       // pass through, but close the dropdown so it doesn't linger after the
