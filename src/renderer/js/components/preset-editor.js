@@ -989,6 +989,37 @@
           rootChildren: scanResult.data.rootChildren || [],
         });
       }
+      // New preset saved under a group: expand the ancestor chain so the new
+      // preset is visible (mirrors createGroupWithSelected's auto-expand).
+      if (currentId === '__new__') {
+        const freshGroups = state.get('groups') || [];
+        // Find the group that directly contains the new preset.
+        const parent = freshGroups.find(g => g.children && g.children.some(c => c.type === 'preset' && c.id === result.data));
+        if (parent) {
+          const toExpand = [];
+          let curParent = parent.id;
+          const guard = new Set();
+          while (curParent != null && !guard.has(curParent)) {
+            guard.add(curParent);
+            const g = freshGroups.find(x => x.id === curParent);
+            if (!g) break;
+            if (g.collapsed) toExpand.push(curParent);
+            const ancestor = freshGroups.find(x => x.children && x.children.some(c => c.type === 'group' && c.id === curParent));
+            curParent = ancestor ? ancestor.id : null;
+          }
+          if (toExpand.length) {
+            await api.setGroupsCollapsedBatch(sk, toExpand, false);
+            const rescan = await api.scanPresets(sk);
+            if (rescan.success) {
+              state.setMultiple({
+                presets: rescan.data.presets,
+                groups: rescan.data.groups,
+                rootChildren: rescan.data.rootChildren || [],
+              });
+            }
+          }
+        }
+      }
       // Re-enable sub-editor writes after the render + re-scan settle.
       requestAnimationFrame(() => { _suppressSubEditorWrites = false; });
     } else {
