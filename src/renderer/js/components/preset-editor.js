@@ -47,7 +47,7 @@
   // omits defaults). darkenEnabled is derived (not stored).
   function normalizeTint(t) {
     return {
-      source: t.source || '', color: t.color || '255,255,255,255', mode: t.mode || 'multiply',
+      source: t.source || '', color: t.color || '255,255,255,255', mode: (t.mode === 'lightness' ? 'hue' : (t.mode || 'multiply')),
       destination: t.destination || '',
       tintEnabled: !!t.tintEnabled,
       cropEnabled: !!t.cropEnabled,

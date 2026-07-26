@@ -300,10 +300,57 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
                         };
                         (lerp(prf, o(prf, crf)), lerp(pgf, o(pgf, cgf)), lerp(pbf, o(pbf, cbf)))
                     }
-                    "lightness" => {
+                    // New modes work in normalized 0..1 (pixel/255, color already 0..1),
+                    // then scale back to 0..255 to match the existing arms' output range.
+                    "darken" => {
+                        let d = |p: f64, c: f64| p.min(c) * 255.0;
+                        (lerp(prf, d(prf / 255.0, crf)), lerp(pgf, d(pgf / 255.0, cgf)), lerp(pbf, d(pbf / 255.0, cbf)))
+                    }
+                    "lighten" => {
+                        let l = |p: f64, c: f64| p.max(c) * 255.0;
+                        (lerp(prf, l(prf / 255.0, crf)), lerp(pgf, l(pgf / 255.0, cgf)), lerp(pbf, l(pbf / 255.0, cbf)))
+                    }
+                    "soft-light" => {
+                        // Photoshop Soft Light (pegtop variant): if C<=0.5: 2AB + A²(1-2C); else 2A(1-B) + A²(2B-1).
+                        let sl = |a: f64, b: f64| if b <= 0.5 { 2.0 * a * b + a * a * (1.0 - 2.0 * b) } else { 2.0 * a * (1.0 - b) + a * a * (2.0 * b - 1.0) };
+                        (lerp(prf, sl(prf / 255.0, crf) * 255.0), lerp(pgf, sl(pgf / 255.0, cgf) * 255.0), lerp(pbf, sl(pbf / 255.0, cbf) * 255.0))
+                    }
+                    "hard-light" => {
+                        // Like overlay but judged by the blend color (B), not the pixel.
+                        let hl = |a: f64, b: f64| if b <= 0.5 { 2.0 * a * b } else { 1.0 - 2.0 * (1.0 - a) * (1.0 - b) };
+                        (lerp(prf, hl(prf / 255.0, crf) * 255.0), lerp(pgf, hl(pgf / 255.0, cgf) * 255.0), lerp(pbf, hl(pbf / 255.0, cbf) * 255.0))
+                    }
+                    "difference" => {
+                        (lerp(prf, (prf / 255.0 - crf).abs() * 255.0), lerp(pgf, (pgf / 255.0 - cgf).abs() * 255.0), lerp(pbf, (pbf / 255.0 - cbf).abs() * 255.0))
+                    }
+                    "exclusion" => {
+                        let ex = |a: f64, b: f64| a + b - 2.0 * a * b;
+                        (lerp(prf, ex(prf / 255.0, crf) * 255.0), lerp(pgf, ex(pgf / 255.0, cgf) * 255.0), lerp(pbf, ex(pbf / 255.0, cbf) * 255.0))
+                    }
+                    // HSL component modes: replace one/two HSL channels of the pixel
+                    // with the color's, keep the rest from the pixel.
+                    "hue" => {
                         let (ch, _, _) = rgb_to_hsl(crf, cgf, cbf);
                         let (_, ps, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
                         let (rr, rg, rb) = hsl_to_rgb(ch, ps, pl);
+                        (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
+                    }
+                    "saturation" => {
+                        let (_, cs, _) = rgb_to_hsl(crf, cgf, cbf);
+                        let (ph, _, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
+                        let (rr, rg, rb) = hsl_to_rgb(ph, cs, pl);
+                        (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
+                    }
+                    "color" => {
+                        let (ch, cs, _) = rgb_to_hsl(crf, cgf, cbf);
+                        let (_, _, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
+                        let (rr, rg, rb) = hsl_to_rgb(ch, cs, pl);
+                        (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
+                    }
+                    "luminosity" => {
+                        let (_, _, cl) = rgb_to_hsl(crf, cgf, cbf);
+                        let (ph, ps, _) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
+                        let (rr, rg, rb) = hsl_to_rgb(ph, ps, cl);
                         (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
                     }
                     _ => (lerp(prf, cr as f64), lerp(pgf, cg as f64), lerp(pbf, cb as f64)),

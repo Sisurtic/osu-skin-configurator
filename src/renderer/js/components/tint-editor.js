@@ -26,7 +26,16 @@
   const thumbCache = new Map();      // src path → dataURL (for list thumbnails)
   const sourceImgCache = new Map();  // src path → HTMLImageElement (for preview)
   const FADE = 'tint-preview--fade';
-  const MODES = ['multiply', 'lightness', 'screen', 'overlay', 'replace'];
+  // Blend modes grouped like Photoshop's mode menu. The dropdown renders each
+  // group's options separated by a disabled divider line (no group label).
+  const MODE_GROUPS = [
+    ['replace'],
+    ['darken', 'multiply'],
+    ['lighten', 'screen'],
+    ['overlay', 'soft-light', 'hard-light'],
+    ['difference', 'exclusion'],
+    ['hue', 'saturation', 'color', 'luminosity'],
+  ];
   // Above this logical output height the canvas2D backing would be too large to
   // repaint per frame (e.g. cropC=32768 → ~8M px → ~200ms/clear+drawImage). We
   // instead render only the visible viewport (sticky canvas) and keep a spacer
@@ -374,7 +383,13 @@
     const tintOn = !!t.tintEnabled;
     const cropOn = !!t.cropEnabled;
     const dis = (on) => on ? '' : 'disabled';
-    const modeOpts = MODES.map(m => `<option value="${m}" ${t.mode === m ? 'selected' : ''}>${i18n.t('tint.mode_' + m)}</option>`).join('');
+    // Mode options as a native <select> (hidden by Dropdown.enhance, which
+    // overlays the custom trigger + popover). Options read from MODE_GROUPS so
+    // the divider grouping matches the custom menu.
+    const curMode = t.mode || 'multiply';
+    const modeOpts = MODE_GROUPS.map(modes =>
+      modes.map(m => `<option value="${m}" ${m === curMode ? 'selected' : ''}>${i18n.t('tint.mode_' + m)}</option>`).join('')
+    ).join('');
     const tileDown = t.cropTileDir !== 'up'; // default: tile downward
     const tileDirIcon = tileDown ? '▼' : '▲';
     const tileDirTitle = tileDown ? i18n.t('edit.tileDownHint') : i18n.t('edit.tileUpHint');
@@ -552,7 +567,10 @@
     const t = (p[3] !== undefined ? p[3] : 255) / 255;
     return { color: [r, g, b], t };
   }
-  const TINT_MODE_IDX = { multiply: 0, screen: 1, overlay: 2, lightness: 3, replace: 4 };
+  // u_mode enum must match gl-preview.js applyTint: 0 multiply,1 screen,2 overlay,
+  // 3 soft-light,4 hard-light,5 lighten,6 darken,7 difference,8 exclusion,
+  // 9 hue,10 saturation,11 color,12 luminosity,13 replace.
+  const TINT_MODE_IDX = { multiply: 0, screen: 1, overlay: 2, 'soft-light': 3, 'hard-light': 4, lighten: 5, darken: 6, difference: 7, exclusion: 8, hue: 9, saturation: 10, color: 11, luminosity: 12, replace: 13 };
 
   // ── Viewport virtualization (crop/darken canvas2D path) ──
   // Build the TINTED source canvas (the input cropCanvas/darkenCanvas operate
@@ -1205,7 +1223,7 @@
     return img;
   }
 
-  // RGB↔HSL helpers (0..1 floats). Hue shift = keep pixel S+L, take color's H.
+  // RGB↔HSL helpers (inputs 0..255, HSL in 0..1 floats).
   function rgb2hsl(r, g, b) {
     r /= 255; g /= 255; b /= 255;
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
@@ -1229,10 +1247,17 @@
     };
     return [hue2(h + 1/3) * 255, hue2(h) * 255, hue2(h - 1/3) * 255];
   }
-  function hslHueShift(pr, pg, pb, cr, cg, cb) {
-    const [, ps, pl] = rgb2hsl(pr, pg, pb);
-    const [ch] = rgb2hsl(cr, cg, cb);
-    const [r, g, b] = hsl2rgb(ch, ps, pl);
+  // HSL component replacement: combine pixel + color channels per `which`
+  // ('hue'|'saturation'|'color'|'luminosity'). Inputs/outputs are 0..255.
+  function hslCombine(pr, pg, pb, cr, cg, cb, which) {
+    const ph = rgb2hsl(pr, pg, pb);
+    const ch = rgb2hsl(cr, cg, cb);
+    let h, s, l;
+    if (which === 'hue') { h = ch[0]; s = ph[1]; l = ph[2]; }
+    else if (which === 'saturation') { h = ph[0]; s = ch[1]; l = ph[2]; }
+    else if (which === 'color') { h = ch[0]; s = ch[1]; l = ph[2]; }
+    else { h = ph[0]; s = ph[1]; l = ch[2]; } // luminosity
+    const [r, g, b] = hsl2rgb(h, s, l);
     return [Math.round(r), Math.round(g), Math.round(b)];
   }
 
@@ -1259,9 +1284,23 @@
       else if (mode === 'overlay') {
         const o = (pp, cc) => pp < 128 ? 2 * pp * cc / 255 : 255 - 2 * (255 - pp) * (255 - cc) / 255;
         r = lerp(pr, o(pr, cr)); g = lerp(pg, o(pg, cg)); b = lerp(pb, o(pb, cb));
-      } else if (mode === 'lightness') {
-        // Hue shift: keep pixel S+L, take color's H.
-        const [nr, ng, nb] = hslHueShift(pr, pg, pb, cr, cg, cb);
+      } else if (mode === 'darken') {
+        r = lerp(pr, Math.min(pr, cr)); g = lerp(pg, Math.min(pg, cg)); b = lerp(pb, Math.min(pb, cb));
+      } else if (mode === 'lighten') {
+        r = lerp(pr, Math.max(pr, cr)); g = lerp(pg, Math.max(pg, cg)); b = lerp(pb, Math.max(pb, cb));
+      } else if (mode === 'soft-light') {
+        const sl = (a, c) => c <= 0.5 ? 2*a*c/255 + a*a/255*(1-2*c) : 2*a*(255-c)/255 + a*a/255*(2*c-1);
+        r = lerp(pr, sl(pr, cr)); g = lerp(pg, sl(pg, cg)); b = lerp(pb, sl(pb, cb));
+      } else if (mode === 'hard-light') {
+        const hl = (a, c) => c <= 127 ? 2 * a * c / 255 : 255 - 2 * (255 - a) * (255 - c) / 255;
+        r = lerp(pr, hl(pr, cr)); g = lerp(pg, hl(pg, cg)); b = lerp(pb, hl(pb, cb));
+      } else if (mode === 'difference') {
+        r = lerp(pr, Math.abs(pr - cr)); g = lerp(pg, Math.abs(pg - cg)); b = lerp(pb, Math.abs(pb - cb));
+      } else if (mode === 'exclusion') {
+        const ex = (a, c) => a + c - 2 * a * c / 255;
+        r = lerp(pr, ex(pr, cr)); g = lerp(pg, ex(pg, cg)); b = lerp(pb, ex(pb, cb));
+      } else if (mode === 'hue' || mode === 'saturation' || mode === 'color' || mode === 'luminosity') {
+        const [nr, ng, nb] = hslCombine(pr, pg, pb, cr, cg, cb, mode);
         r = lerp(pr, nr); g = lerp(pg, ng); b = lerp(pb, nb);
       } else { r = lerp(pr, cr); g = lerp(pg, cg); b = lerp(pb, cb); } // replace → solid color
       d[i] = Math.round(r); d[i + 1] = Math.round(g); d[i + 2] = Math.round(b);
@@ -2198,12 +2237,20 @@
         schedulePreview(false);  // final: full-quality recompute
       }});
     });
-    // Tint mode.
+    // Tint mode — custom dropdown (native <select> can't style dividers or
+    // control popup direction). Clicking the trigger opens a popover listing
+    // Tint mode — native <select> overlaid by the shared custom dropdown.
+    // Options come from MODE_GROUPS (so dividers land between PS categories);
+    // wheelInline mirrors native <select>'s hover-to-wheel value cycling.
     const modeSel = stages.querySelector('.tint-mode');
-    if (modeSel) modeSel.addEventListener('change', () => {
-      applyToTargets({ mode: modeSel.value });
-      schedulePreview();
-    });
+    if (modeSel) {
+      const groups = MODE_GROUPS.map(modes => modes.map(m => [m, i18n.t('tint.mode_' + m)]));
+      window.Dropdown.enhance(modeSel, { groups, wheelInline: !modeSel.disabled });
+      modeSel.addEventListener('change', () => {
+        applyToTargets({ mode: modeSel.value });
+        schedulePreview();
+      });
+    }
     // Crop inputs.
     bindNumber(stages, '.crop-a', 'cropA');
     bindNumber(stages, '.crop-d', 'cropD');

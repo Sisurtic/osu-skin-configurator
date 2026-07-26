@@ -72,6 +72,9 @@
     }
 
     // tint one rgb (0..1) per the active mode, then lerp by u_t.
+    // u_mode enum: 0 multiply,1 screen,2 overlay,3 soft-light,4 hard-light,
+    // 5 lighten,6 darken,7 difference,8 exclusion,9 hue,10 saturation,
+    // 11 color,12 luminosity,13 replace.
     vec3 applyTint(vec3 px) {
       vec3 b = px;
       if (u_mode == 0) { b = px * u_color; }                       // multiply
@@ -82,10 +85,38 @@
           px.g < 0.5 ? 2.0 * px.g * u_color.g : 1.0 - 2.0 * (1.0 - px.g) * (1.0 - u_color.g),
           px.b < 0.5 ? 2.0 * px.b * u_color.b : 1.0 - 2.0 * (1.0 - px.b) * (1.0 - u_color.b)
         );
-      } else if (u_mode == 3) {                                    // hue shift
+      } else if (u_mode == 3) {                                    // soft-light
+        b = vec3(
+          u_color.r <= 0.5 ? 2.0*px.r*u_color.r + px.r*px.r*(1.0-2.0*u_color.r) : 2.0*px.r*(1.0-u_color.r) + px.r*px.r*(2.0*u_color.r-1.0),
+          u_color.g <= 0.5 ? 2.0*px.g*u_color.g + px.g*px.g*(1.0-2.0*u_color.g) : 2.0*px.g*(1.0-u_color.g) + px.g*px.g*(2.0*u_color.g-1.0),
+          u_color.b <= 0.5 ? 2.0*px.b*u_color.b + px.b*px.b*(1.0-2.0*u_color.b) : 2.0*px.b*(1.0-u_color.b) + px.b*px.b*(2.0*u_color.b-1.0)
+        );
+      } else if (u_mode == 4) {                                    // hard-light
+        b = vec3(
+          u_color.r <= 0.5 ? 2.0*px.r*u_color.r : 1.0 - 2.0*(1.0-px.r)*(1.0-u_color.r),
+          u_color.g <= 0.5 ? 2.0*px.g*u_color.g : 1.0 - 2.0*(1.0-px.g)*(1.0-u_color.g),
+          u_color.b <= 0.5 ? 2.0*px.b*u_color.b : 1.0 - 2.0*(1.0-px.b)*(1.0-u_color.b)
+        );
+      } else if (u_mode == 5) { b = max(px, u_color); }            // lighten
+      else if (u_mode == 6) { b = min(px, u_color); }              // darken
+      else if (u_mode == 7) { b = abs(px - u_color); }             // difference
+      else if (u_mode == 8) { b = px + u_color - 2.0*px*u_color; } // exclusion
+      else if (u_mode == 9) {                                      // hue (color's H, pixel's S+L)
         vec3 ph = rgb2hsl(px);
         vec3 ch = rgb2hsl(u_color);
         b = hsl2rgb(ch.x, ph.y, ph.z);
+      } else if (u_mode == 10) {                                   // saturation (color's S, pixel's H+L)
+        vec3 ph = rgb2hsl(px);
+        vec3 ch = rgb2hsl(u_color);
+        b = hsl2rgb(ph.x, ch.y, ph.z);
+      } else if (u_mode == 11) {                                   // color (color's H+S, pixel's L)
+        vec3 ph = rgb2hsl(px);
+        vec3 ch = rgb2hsl(u_color);
+        b = hsl2rgb(ch.x, ch.y, ph.z);
+      } else if (u_mode == 12) {                                   // luminosity (color's L, pixel's H+S)
+        vec3 ph = rgb2hsl(px);
+        vec3 ch = rgb2hsl(u_color);
+        b = hsl2rgb(ph.x, ph.y, ch.z);
       } else { b = u_color; }                                      // replace
       return mix(px, b, u_t);
     }

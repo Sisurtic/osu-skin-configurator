@@ -113,7 +113,7 @@
           <div style="display:flex;margin-bottom:8px;gap:8px;align-items:center">
             <!-- Section列 -->
             <select class="form-input" id="ini-section-select" style="flex-shrink:0;min-width:100px">
-              <option value="">${i18n.t('ini.selectSection')}</option>
+              <option value="" selected>${i18n.t('ini.selectSection')}</option>
               ${INI_SECTIONS.map(s => `<option value="${s}">${s}</option>`).join('')}
             </select>
             <!-- Keys 输入：Section 与 Key 之间，带间距 -->
@@ -173,6 +173,7 @@
 
     // Section dropdown change → filter keys; show Mania keys selector if Mania
     const secSelect = container.querySelector('#ini-section-select');
+    if (secSelect) window.Dropdown.enhance(secSelect, { wheelInline: true, placeholder: i18n.t('ini.selectSection') });
     const keyInput = container.querySelector('#ini-key-input');
     const keyDropdown = container.querySelector('#ini-key-dropdown');
     const maniaKeysRow = container.querySelector('#ini-mania-keys-row');
@@ -739,6 +740,7 @@
       });
     });
     container.querySelectorAll('.ini-value-section').forEach(s => {
+      window.Dropdown.enhance(s, { wheelInline: true });
       s.addEventListener('change', () => {
         // Group-header select: FOLDED header syncs as a virtual row; EXPANDED
         // stays local. Temporary value either way.
