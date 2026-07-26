@@ -100,18 +100,17 @@
       if (it.dataset.value === current) it.classList.add('is-selected');
     });
 
-    // Position below the trigger; flip up if it would overflow the viewport.
-    const r = trigger.getBoundingClientRect();
-    const ph = pop.offsetHeight;
-    const spaceBelow = window.innerHeight - r.bottom;
-    const top = spaceBelow < ph + 8 && r.top > ph + 8
-      ? r.top + window.scrollY - ph - 2
-      : r.bottom + window.scrollY + 2;
-    pop.style.top = `${top}px`;
-    pop.style.left = `${r.left + window.scrollX}px`;
-    // Match the trigger's width so the flyout aligns with the dropdown box.
-    pop.style.width = `${r.width}px`;
-    pop.style.boxSizing = 'border-box';
+    // Anchor below the trigger, left-aligned, width-matched. Re-runs on window
+    // resize so the menu stays glued to its trigger.
+    function reposition() {
+      const r = trigger.getBoundingClientRect();
+      pop.style.top = `${r.bottom + window.scrollY + 2}px`;
+      pop.style.left = `${r.left + window.scrollX}px`;
+      pop.style.width = `${r.width}px`;
+      pop.style.boxSizing = 'border-box';
+    }
+    reposition();
+    window.addEventListener('resize', reposition);
 
     const items = () => [...pop.querySelectorAll('.dd-menu__item')];
     function setHighlight(el) { items().forEach(i => i.classList.toggle('is-hover', i === el)); }
@@ -145,6 +144,11 @@
       highlightNext(e.deltaY > 0 ? 1 : -1);
     }, { passive: false });
     function onKey(e) {
+      // Let global shortcuts (Ctrl+E mode toggle, Ctrl+S save, 1-4 tab switch)
+      // pass through, but close the dropdown so it doesn't linger after the
+      // context changes.
+      if (e.ctrlKey || e.metaKey) { closeAll(); return; }
+      if (['1','2','3','4'].includes(e.key)) { closeAll(); return; }
       if (e.key === 'ArrowDown') { e.preventDefault(); highlightNext(1); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); highlightNext(-1); }
       else if (e.key === 'Enter') {
@@ -163,6 +167,7 @@
     pop._cleanup = () => {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onAway);
+      window.removeEventListener('resize', reposition);
       trigger.classList.remove(OPEN_CLS);
     };
   }

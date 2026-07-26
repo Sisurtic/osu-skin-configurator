@@ -121,6 +121,43 @@
     return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
   }
 
+  // ── sRGB ↔ CIELab (D50) ──
+  // Standard sRGB → Lab: gamma-decode sRGB → linear RGB → XYZ (D50 adapted) → Lab.
+  function rgbToLab(r, g, b) {
+    const dec = c => { c /= 255; return c > 0.04045 ? Math.pow((c + 0.055) / 1.055, 2.4) : c / 12.92; };
+    let rl = dec(r), gl = dec(g), bl = dec(b);
+    // sRGB (D65) → XYZ (D50) via the standard Bradford-adapted matrix.
+    const x = (rl * 0.4360747 + gl * 0.3850649 + bl * 0.1430804) / 0.96422;
+    const y = (rl * 0.2225045 + gl * 0.7168786 + bl * 0.0606169) / 1.0;
+    const z = (rl * 0.0139322 + gl * 0.0971045 + bl * 0.7141733) / 0.82521;
+    const f = t => t > 0.008856 ? Math.cbrt(t) : (903.3 * t + 16) / 116;
+    const fx = f(x), fy = f(y), fz = f(z);
+    return {
+      l: Math.round(116 * fy - 16),
+      a: Math.round((fx - fy) * 500),
+      b: Math.round((fy - fz) * 200),
+    };
+  }
+  function labToRgb(l, a, b) {
+    const fy = (l + 16) / 116;
+    const fx = a / 500 + fy;
+    const fz = fy - b / 200;
+    const inv = f => {
+      const f3 = f * f * f;
+      return f3 > 0.008856 ? f3 : (116 * f - 16) / 903.3;
+    };
+    const x = inv(fx) * 0.96422, y = inv(fy) * 1.0, z = inv(fz) * 0.82521;
+    // XYZ (D50) → linear sRGB (D65) via the inverse adapted matrix.
+    const rl = x * 3.1338561 + y * -1.6168667 + z * -0.4906146;
+    const gl = x * -0.9787684 + y * 1.9161415 + z * 0.0334540;
+    const bl = x * 0.0719453 + y * -0.2289914 + z * 1.4056023;
+    const enc = c => {
+      c = Math.max(0, Math.min(1, c));
+      return c > 0.0031308 ? 1.055 * Math.pow(c, 1 / 2.4) - 0.055 : 12.92 * c;
+    };
+    return { r: Math.round(enc(rl) * 255), g: Math.round(enc(gl) * 255), b: Math.round(enc(bl) * 255) };
+  }
+
   function formatOutput(c, type) {
     return type === 'rgba'
       ? `${c.r},${c.g},${c.b},${c.a}`
@@ -149,11 +186,12 @@
     let current = parseColor(opts.value);
     if (type === 'rgb') current.a = 255;
 
-    // Create popover if not already open
+    // Toggle: if this same trigger's popover is already open, just close it
+    // (don't reopen). A different trigger closes the old one and opens new.
     if (document.querySelector('.cp-popover')) {
-      document.querySelector('.cp-popover').remove();
-      activeTrigger = null;
-      activeForward = null;
+      const sameTrigger = activeTrigger === triggerEl;
+      closeAll();
+      if (sameTrigger) return;
     }
 
     function closePopover() {
@@ -163,144 +201,116 @@
       popover.remove();
       activeTrigger = null;
       activeForward = null;
+      _activeClose = null;
       if (onMove) { document.removeEventListener('mousemove', onMove); }
       if (onUp) { document.removeEventListener('mouseup', onUp); }
       if (unlistenWin) { try { unlistenWin(); } catch (_) {} unlistenWin = null; }
+      window.removeEventListener('resize', reposition);
+      document.removeEventListener('keydown', onKeydown, true);
       if (opts.onClose) opts.onClose();
     }
+    _activeClose = closePopover; // register for module-level closeAll()
 
     const popover = document.createElement('div');
     popover.className = 'cp-popover';
+    popover.tabIndex = -1; // focusable so key events land here (1/2/3 mode switch)
     popover.innerHTML = `
       <div class="cp-palette-wrap">
-        <canvas class="cp-palette" width="200" height="150"></canvas>
+        <canvas class="cp-palette" width="120" height="120"></canvas>
         <div class="cp-palette-cursor" style="position:absolute;width:8px;height:8px;border:2px solid #fff;border-radius:50%;pointer-events:none;box-shadow:0 0 2px rgba(0,0,0,.5);transform:translate(-50%,-50%)"></div>
       </div>
-      <div class="cp-sliders">
-        <div class="cp-slider-row">
-          <span class="cp-slider-label">H</span>
-          <div class="cp-slider-track cp-hue-track">
-            <div class="cp-slider-thumb" style="position:absolute;width:12px;height:12px;border:2px solid #fff;border-radius:50%;top:-3px;box-shadow:0 0 2px rgba(0,0,0,.5);transform:translateX(-50%)"></div>
-          </div>
+      <div class="cp-input-row">
+        <div class="cp-mode-tags">
+          <button type="button" class="cp-mode-tag is-active" data-mode="hsv">HSV</button>
+          <button type="button" class="cp-mode-tag" data-mode="rgb">RGB</button>
+          <button type="button" class="cp-mode-tag" data-mode="lab">Lab</button>
+          <input type="text" class="form-input cp-hex-input" autocomplete="off" spellcheck="false">
         </div>
-        ${type === 'rgba' ? `
-        <div class="cp-slider-row">
-          <span class="cp-slider-label">A</span>
-          <div class="cp-slider-track cp-alpha-track">
-            <div class="cp-slider-thumb" style="position:absolute;width:12px;height:12px;border:2px solid #fff;border-radius:50%;top:-3px;box-shadow:0 0 2px rgba(0,0,0,.5);transform:translateX(-50%)"></div>
-          </div>
-        </div>` : ''}
+        <div class="cp-comp-sliders"></div>
       </div>
       <div class="cp-presets">
         ${PRESETS.map(hex => `<span class="cp-preset-swatch" style="background:${hex}" data-hex="${hex}"></span>`).join('')}
-      </div>
-      <div class="cp-input-row">
-        <input type="text" class="form-input cp-text-input" value="${formatOutput(current, type)}" autocomplete="off" spellcheck="false" style="flex:1;min-width:0;font-size:12px">
       </div>
     `;
 
     document.body.appendChild(popover);
 
-    // Position popover to the LEFT of the trigger button (so it doesn't cover
-    // the image preview / stage controls on the right), vertically aligned with
-    // the trigger. Clamp into the viewport; fall back to below if no room left.
-    const triggerRect = triggerEl.getBoundingClientRect();
-    const popWidth = 220;
-    const popHeight = popover.offsetHeight || 380;
-    let left = triggerRect.left - popWidth - 4;
-    let top = triggerRect.top;
-    // No room on the left → place below the trigger instead.
-    if (left < 4) left = triggerRect.right + 4;
-    if (left + popWidth > window.innerWidth - 8) left = window.innerWidth - popWidth - 8;
-    if (left < 4) left = 4;
-    if (top + popHeight > window.innerHeight - 4) top = Math.max(4, window.innerHeight - popHeight - 4);
-    if (top < 4) top = 4;
-    popover.style.left = left + 'px';
-    popover.style.top = top + 'px';
-
     // Elements
     const paletteCanvas = popover.querySelector('.cp-palette');
     const paletteCtx = paletteCanvas.getContext('2d');
     const paletteCursor = popover.querySelector('.cp-palette-cursor');
-    const hueTrack = popover.querySelector('.cp-hue-track');
-    const hueThumb = hueTrack.querySelector('.cp-slider-thumb');
-    const textInput = popover.querySelector('.cp-text-input');
-
-    let alphaTrack, alphaThumb;
-    if (type === 'rgba') {
-      alphaTrack = popover.querySelector('.cp-alpha-track');
-      alphaThumb = alphaTrack.querySelector('.cp-slider-thumb');
+    const compSliders = popover.querySelector('.cp-comp-sliders');
+    const hexInput = popover.querySelector('.cp-hex-input');
+    const modeTags = popover.querySelectorAll('.cp-mode-tag');
+    // Active color-entry mode: 'hsv' | 'rgb' | 'lab' | 'hex'.
+    let mode = 'hsv';
+    // Which channel is active (selected) within the current mode — drives the
+    // palette's two axes (the other two channels) and label highlight.
+    let activeChannel = 0;
+    // Per-mode component caches: store the last HSV/Lab representation so editing
+    // ONE channel doesn't round-trip through RGB and drift the other two (e.g.
+    // changing S must not perturb H/V). Refreshed whenever current changes via a
+    // non-slider path (palette drag, hex input, mode switch, external input).
+    let hsvCache = rgbToHsv(current.r, current.g, current.b);
+    let labCache = rgbToLab(current.r, current.g, current.b);
+    function refreshCaches() {
+      hsvCache = rgbToHsv(current.r, current.g, current.b);
+      labCache = rgbToLab(current.r, current.g, current.b);
     }
 
     let draggingPalette = false;
-    let draggingHue = false;
-    let draggingAlpha = false;
 
     const hsv = rgbToHsv(current.r, current.g, current.b);
 
-    // Hue is a stable drag-time invariant: SV drags must NOT move the H thumb.
-    // Only chromatic colors define a hue; for achromatic ones (black/white/grey) keep the last hue.
-    let hue = hsv.h;
+    // Sync point: every external mutation (palette drag, hex input, preset
+    // click, applyValue) calls this to refresh the per-mode caches. Slider edits
+    // bypass it (they set the cache directly so editing one channel doesn't
+    // round-trip-drift the others).
     function refreshHueFromCurrent() {
-      const c = rgbToHsv(current.r, current.g, current.b);
-      if (c.s > 0 && c.v > 0) hue = c.h;
+      refreshCaches();
     }
 
-    function drawPalette(hue) {
+    // Draw the palette as a 2-axis gradient: X = one channel (left=min→right=max),
+    // Y = another (top=max→bottom=min). Each pixel's color is computed by setting
+    // those two channels to the pixel's coordinates (the active channel keeps its
+    // current value) and converting back to RGB. Done via ImageData for speed.
+    function drawPalette() {
       const w = paletteCanvas.width;
       const h = paletteCanvas.height;
-      // Fill with hue
-      paletteCtx.fillStyle = `hsl(${hue}, 100%, 50%)`;
-      paletteCtx.fillRect(0, 0, w, h);
-      // White gradient (left to right)
-      const gradW = paletteCtx.createLinearGradient(0, 0, w, 0);
-      gradW.addColorStop(0, 'rgba(255,255,255,1)');
-      gradW.addColorStop(1, 'rgba(255,255,255,0)');
-      paletteCtx.fillStyle = gradW;
-      paletteCtx.fillRect(0, 0, w, h);
-      // Black gradient (top to bottom)
-      const gradB = paletteCtx.createLinearGradient(0, 0, 0, h);
-      gradB.addColorStop(0, 'rgba(0,0,0,0)');
-      gradB.addColorStop(1, 'rgba(0,0,0,1)');
-      paletteCtx.fillStyle = gradB;
-      paletteCtx.fillRect(0, 0, w, h);
+      const axes = paletteAxes();
+      const xCh = axes.x, yCh = axes.y;
+      const img = paletteCtx.createImageData(w, h);
+      const data = img.data;
+      const xRange = xCh.max - xCh.min;
+      const yRange = yCh.max - yCh.min;
+      for (let py = 0; py < h; py++) {
+        const yVal = yCh.max - (py / (h - 1)) * yRange;
+        for (let px = 0; px < w; px++) {
+          const xVal = xCh.min + (px / (w - 1)) * xRange;
+          const c = axes.at(xVal, yVal);
+          const idx = (py * w + px) * 4;
+          data[idx] = c.r; data[idx + 1] = c.g; data[idx + 2] = c.b; data[idx + 3] = 255;
+        }
+      }
+      paletteCtx.putImageData(img, 0, 0);
     }
 
-    function updatePaletteCursor(sat, val) {
+    // Position the cursor at the current color's (x,y) channel values.
+    function updatePaletteCursor() {
       const w = paletteCanvas.clientWidth;
       const h = paletteCanvas.clientHeight;
-      const x = (sat / 100) * w;
-      const y = ((100 - val) / 100) * h;
-      paletteCursor.style.left = x + 'px';
-      paletteCursor.style.top = y + 'px';
-    }
-
-    function updateHueThumb(h) {
-      const pct = h / 360;
-      const trackW = hueTrack.clientWidth;
-      hueThumb.style.left = (pct * trackW) + 'px';
-    }
-
-    function updateAlphaThumb(a) {
-      if (!alphaTrack) return;
-      const pct = a / 255;
-      alphaThumb.style.left = (pct * alphaTrack.clientWidth) + 'px';
+      const { x: xCh, y: yCh } = paletteAxes();
+      const xPct = (xCh.get() - xCh.min) / (xCh.max - xCh.min);
+      const yPct = (yCh.get() - yCh.min) / (yCh.max - yCh.min);
+      paletteCursor.style.left = (xPct * w) + 'px';
+      paletteCursor.style.top = ((1 - yPct) * h) + 'px';
     }
 
     function updateAllUI(silent) {
-      const hsv = rgbToHsv(current.r, current.g, current.b);
-      // Use the cached `hue` (not hsv.h) for the palette bg + hue thumb: when
-      // saturation is low, hsv.h is numerically unstable and would yank the
-      // hue thumb back, making the hue bar feel stuck. SV-only drags must not
-      // move the H thumb; hue drag updates the cache itself.
-      drawPalette(hue);
-      updatePaletteCursor(hsv.s, hsv.v);
-      updateHueThumb(hue);
-      if (type === 'rgba') {
-        updateAlphaThumb(current.a);
-        updateAlphaTrackBg();
-      }
-      textInput.value = formatOutput(current, type);
+      drawPalette();
+      updatePaletteCursor();
+      renderCompSliders();
+      syncHexInput();
       // Update trigger swatch
       triggerEl.style.background = type === 'rgba'
         ? `rgba(${current.r},${current.g},${current.b},${current.a/255})`
@@ -309,62 +319,251 @@
       if (!silent && opts.onChange) opts.onChange(formatOutput(current, type));
     }
 
-    function updateAlphaTrackBg() {
-      if (!alphaTrack) return;
-      alphaTrack.style.background = `linear-gradient(to right, rgba(${current.r},${current.g},${current.b},0), rgba(${current.r},${current.g},${current.b},1))`;
+    // ── Component sliders (R/G/B or H/S/V or H/S/L, + A for rgba) ──
+    // Each mode defines 3 channels: { key, label, max, get(rgb)->value,
+    // set(rgb, value)->rgb, gradient(rgb)->css }.
+    function channelsFor(m) {
+      if (m === 'hsv') {
+        const toHsv = () => rgbToHsv(current.r, current.g, current.b);
+        const fromHsv = (h, s, v) => { const o = hsvToRgb(h / 360, s / 100, v / 100); return { r: o.r, g: o.g, b: o.b }; };
+        return [
+          { key: 'h', label: 'H', max: 360, get: () => hsvCache.h, set: v => { hsvCache = { h: v, s: hsvCache.s, v: hsvCache.v }; return fromHsv(v, hsvCache.s, hsvCache.v); },
+            grad: () => 'linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)' },
+          { key: 's', label: 'S', max: 100, get: () => hsvCache.s, set: v => { hsvCache = { h: hsvCache.h, s: v, v: hsvCache.v }; return fromHsv(hsvCache.h, v, hsvCache.v); },
+            grad: () => { const a = hsvToRgb(hsvCache.h / 360, 0, hsvCache.v / 100), b = hsvToRgb(hsvCache.h / 360, 1, hsvCache.v / 100); return `linear-gradient(to right, rgb(${a.r},${a.g},${a.b}), rgb(${b.r},${b.g},${b.b}))`; } },
+          { key: 'v', label: 'V', max: 100, get: () => hsvCache.v, set: v => { hsvCache = { h: hsvCache.h, s: hsvCache.s, v }; return fromHsv(hsvCache.h, hsvCache.s, v); },
+            grad: () => { const a = hsvToRgb(hsvCache.h / 360, hsvCache.s / 100, 0), b = hsvToRgb(hsvCache.h / 360, hsvCache.s / 100, 1); return `linear-gradient(to right, rgb(${a.r},${a.g},${a.b}), rgb(${b.r},${b.g},${b.b}))`; } },
+        ];
+      }
+      if (m === 'lab') {
+        const fromLab = (l, a, b) => labToRgb(l, a, b);
+        return [
+          { key: 'l', label: 'L', min: 0, max: 100, get: () => labCache.l, set: v => { labCache = { l: v, a: labCache.a, b: labCache.b }; return fromLab(v, labCache.a, labCache.b); },
+            grad: () => { const lo = fromLab(0, labCache.a, labCache.b), hi = fromLab(100, labCache.a, labCache.b); return `linear-gradient(to right, rgb(${lo.r},${lo.g},${lo.b}), rgb(${hi.r},${hi.g},${hi.b}))`; } },
+          { key: 'a', label: 'a', min: -128, max: 127, get: () => labCache.a, set: v => { labCache = { l: labCache.l, a: v, b: labCache.b }; return fromLab(labCache.l, v, labCache.b); },
+            grad: () => { const lo = fromLab(labCache.l, -128, labCache.b), hi = fromLab(labCache.l, 127, labCache.b); return `linear-gradient(to right, rgb(${lo.r},${lo.g},${lo.b}), rgb(${hi.r},${hi.g},${hi.b}))`; } },
+          { key: 'b', label: 'b', min: -128, max: 127, get: () => labCache.b, set: v => { labCache = { l: labCache.l, a: labCache.a, b: v }; return fromLab(labCache.l, labCache.a, v); },
+            grad: () => { const lo = fromLab(labCache.l, labCache.a, -128), hi = fromLab(labCache.l, labCache.a, 127); return `linear-gradient(to right, rgb(${lo.r},${lo.g},${lo.b}), rgb(${hi.r},${hi.g},${hi.b}))`; } },
+        ];
+      }
+      // rgb
+      return [
+        { key: 'r', label: 'R', min: 0, max: 255, get: () => current.r, set: v => ({ r: v, g: current.g, b: current.b }),
+          grad: () => `linear-gradient(to right, rgb(0,${current.g},${current.b}), rgb(255,${current.g},${current.b}))` },
+        { key: 'g', label: 'G', min: 0, max: 255, get: () => current.g, set: v => ({ r: current.r, g: v, b: current.b }),
+          grad: () => `linear-gradient(to right, rgb(${current.r},0,${current.b}), rgb(${current.r},255,${current.b}))` },
+        { key: 'b', label: 'B', min: 0, max: 255, get: () => current.b, set: v => ({ r: current.r, g: current.g, b: v }),
+          grad: () => `linear-gradient(to right, rgb(${current.r},${current.g},0), rgb(${current.r},${current.g},255))` },
+      ];
     }
+
+    // The two palette axes when `activeChannel` is selected in the current mode,
+    // plus `at(xVal, yVal)` that returns the RGB for a given (x,y) WITHOUT
+    // touching current (the active channel keeps its current value). This keeps
+    // pixel drawing correct (no current pollution between axes) and fast (one
+    // conversion per pixel instead of nested sets each re-deriving HSV/Lab).
+    function paletteAxes() {
+      const ch = channelsFor(mode);
+      const cur = { r: current.r, g: current.g, b: current.b };
+      const hsv = hsvCache;
+      const lab = labCache;
+      // helpers scoped to the mode + active channel
+      if (mode === 'hsv') {
+        const h = hsv.h, s = hsv.s, v = hsv.v;
+        if (activeChannel === 0) return { x: { min: 0, max: 100, get: () => s }, y: { min: 0, max: 100, get: () => v }, at: (xv, yv) => hsvToRgb(h / 360, xv / 100, yv / 100) };
+        if (activeChannel === 1) return { x: { min: 0, max: 360, get: () => h }, y: { min: 0, max: 100, get: () => v }, at: (xv, yv) => hsvToRgb(xv / 360, s / 100, yv / 100) };
+        return { x: { min: 0, max: 360, get: () => h }, y: { min: 0, max: 100, get: () => s }, at: (xv, yv) => hsvToRgb(xv / 360, yv / 100, v / 100) };
+      }
+      if (mode === 'lab') {
+        const L = lab.l, A = lab.a, B = lab.b;
+        if (activeChannel === 0) return { x: { min: -128, max: 127, get: () => A }, y: { min: -128, max: 127, get: () => B }, at: (xv, yv) => labToRgb(L, xv, yv) };
+        if (activeChannel === 1) return { x: { min: 0, max: 100, get: () => L }, y: { min: -128, max: 127, get: () => B }, at: (xv, yv) => labToRgb(xv, A, yv) };
+        return { x: { min: 0, max: 100, get: () => L }, y: { min: -128, max: 127, get: () => A }, at: (xv, yv) => labToRgb(xv, yv, B) };
+      }
+      // rgb (default)
+      if (activeChannel === 0) return { x: { min: 0, max: 255, get: () => cur.g }, y: { min: 0, max: 255, get: () => cur.b }, at: (xv, yv) => ({ r: cur.r, g: xv, b: yv }) };
+      if (activeChannel === 1) return { x: { min: 0, max: 255, get: () => cur.r }, y: { min: 0, max: 255, get: () => cur.b }, at: (xv, yv) => ({ r: xv, g: cur.g, b: yv }) };
+      return { x: { min: 0, max: 255, get: () => cur.r }, y: { min: 0, max: 255, get: () => cur.g }, at: (xv, yv) => ({ r: xv, g: yv, b: cur.b }) };
+    }
+
+    // Build/refresh the component slider rows. Called on every current/mode change.
+    function renderCompSliders() {
+      const channels = channelsFor(mode);
+      const rows = type === 'rgba' ? [...channels, {
+        key: 'a', label: 'A', max: 255, get: () => current.a, set: v => ({ r: current.r, g: current.g, b: current.b, a: v }),
+        grad: () => `linear-gradient(to right, rgba(${current.r},${current.g},${current.b},0), rgba(${current.r},${current.g},${current.b},1))`,
+      }] : channels;
+      // Rebuild DOM only when the channel set changes (mode switch); otherwise
+      // just update positions/gradients/values in place (keeps focus).
+      const existing = compSliders.querySelectorAll('.cp-comp-row');
+      const needRebuild = existing.length !== rows.length || [...existing].some((el, i) => el.dataset.ch !== rows[i].key);
+      if (needRebuild) {
+        compSliders.innerHTML = rows.map((ch, i) => `
+          <div class="cp-comp-row" data-ch="${ch.key}" data-idx="${i}">
+            <span class="cp-comp-label" data-idx="${i}">${ch.label}</span>
+            <div class="cp-comp-track" data-idx="${i}"><div class="cp-comp-thumb"></div></div>
+            <input type="number" class="form-input cp-num-input" min="${ch.min != null ? ch.min : 0}" max="${ch.max}" step="1" data-ch="${ch.key}" data-idx="${i}">
+          </div>`).join('');
+        rows.forEach(ch => bindCompSlider(ch));
+        // Click label / focus input / mousedown track selects that channel
+        // (drives the palette's two axes + label highlight).
+        compSliders.querySelectorAll('[data-idx]').forEach(el => {
+          const ev = el.tagName === 'INPUT' ? 'focus' : 'mousedown';
+          el.addEventListener(ev, () => selectChannel(parseInt(el.dataset.idx, 10)));
+        });
+      }
+      // Update positions, gradients, number values, highlight.
+      rows.forEach((ch, i) => {
+        const row = compSliders.querySelector(`.cp-comp-row[data-ch="${ch.key}"]`);
+        if (!row) return;
+        const lo = ch.min != null ? ch.min : 0;
+        const v = Math.max(lo, Math.min(ch.max, ch.get()));
+        const pct = (v - lo) / (ch.max - lo);
+        // Thumb edges hug the track's inner walls (box-sizing: border-box;
+        // thumb is 10px wide, no border).
+        row.querySelector('.cp-comp-thumb').style.left = `calc(${pct} * (100% - 10px))`;
+        row.querySelector('.cp-comp-thumb').style.transform = 'translateY(-50%)';
+        // Thumb fill = the current color, so each slider shows what its value
+        // resolves to; a light ring separates it from same-colored track stops.
+        const curCss = type === 'rgba'
+          ? `rgba(${current.r},${current.g},${current.b},${current.a/255})`
+          : `rgb(${current.r},${current.g},${current.b})`;
+        row.querySelector('.cp-comp-thumb').style.background = curCss;
+        row.querySelector('.cp-comp-track').style.background = ch.grad();
+        const inp = row.querySelector('.cp-num-input');
+        if (inp !== document.activeElement) inp.value = Math.round(v);
+        // Highlight the active channel's label (the one whose axes drive palette).
+        const isActive = i === activeChannel && i < channelsFor(mode).length;
+        row.querySelector('.cp-comp-label').classList.toggle('is-active', isActive);
+      });
+    }
+
+    // Selecting a channel (via label/track/input focus) re-points the palette's
+    // two axes at the other two channels and highlights the label.
+    function selectChannel(idx) {
+      // Alpha is not a palette channel — never select it.
+      if (idx >= channelsFor(mode).length) return;
+      if (idx === activeChannel) return;
+      activeChannel = idx;
+      drawPalette();
+      updatePaletteCursor();
+      // Refresh label highlight only (cheap; avoids full slider rebuild).
+      compSliders.querySelectorAll('.cp-comp-label').forEach((el, i) => {
+        el.classList.toggle('is-active', i === activeChannel);
+      });
+    }
+
+    function bindCompSlider(ch) {
+      const row = compSliders.querySelector(`.cp-comp-row[data-ch="${ch.key}"]`);
+      if (!row) return;
+      const track = row.querySelector('.cp-comp-track');
+      const thumb = row.querySelector('.cp-comp-thumb');
+      const inp = row.querySelector('.cp-num-input');
+      function commit(rawVal) {
+        let v = Math.round(Number(rawVal));
+        if (isNaN(v)) return;
+        const lo = ch.min != null ? ch.min : 0;
+        v = Math.max(lo, Math.min(ch.max, v));
+        const next = ch.set(v);
+        current.r = next.r; current.g = next.g; current.b = next.b;
+        if (type === 'rgba' && next.a !== undefined) current.a = next.a;
+        // Don't refreshHueFromCurrent here: the slider's set already updated the
+        // HSV/Lab cache, and re-deriving from current would round-trip-drift the
+        // other channels.
+        updateAllUI();
+      }
+      function fromX(clientX) {
+        const r = track.getBoundingClientRect();
+        const pct = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+        const lo = ch.min != null ? ch.min : 0;
+        return lo + pct * (ch.max - lo);
+      }
+      // Register move/up on mousedown and clean up on mouseup — registering
+      // once at bind time would leave them removed after the first drag.
+      track.addEventListener('mousedown', e => {
+        // Blur any focused input so its value commits + the next Enter closes.
+        const ae = document.activeElement;
+        if (ae && ae.tagName === 'INPUT' && ae !== inp) ae.blur();
+        const onMove = ev => commit(fromX(ev.clientX));
+        const onUp = () => {
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        commit(fromX(e.clientX));
+        e.preventDefault();
+      });
+      inp.addEventListener('input', () => commit(inp.value));
+      // WebView2's number-input wheel changes the value WITHOUT firing 'input'.
+      // Treat hover-wheel as selecting this channel (palette axes follow) +
+      // focusing the input + syncing the value.
+      inp.addEventListener('wheel', () => {
+        const idx = parseInt(row.dataset.idx, 10);
+        if (idx < channelsFor(mode).length) selectChannel(idx);
+        inp.focus();
+        setTimeout(() => commit(inp.value), 0);
+      });
+    }
+
+    // Mode tags: click one to switch mode (RGB / HSB / Lab / HEX).
+    function setActiveMode(m) {
+      mode = m;
+      activeChannel = 0;
+      modeTags.forEach(t => t.classList.toggle('is-active', t.dataset.mode === m));
+      drawPalette();
+      updatePaletteCursor();
+      renderCompSliders();
+    }
+    modeTags.forEach(t => t.addEventListener('click', () => setActiveMode(t.dataset.mode)));
+
+    // HEX input: parse #RRGGBB / #RRGGBBAA; echo current as hex when not focused.
+    function syncHexInput() {
+      if (hexInput === document.activeElement) return;
+      hexInput.value = colorToHex(current);
+    }
+    hexInput.addEventListener('input', () => {
+      const c = parseColor(hexInput.value.trim());
+      current.r = c.r; current.g = c.g; current.b = c.b;
+      if (type === 'rgba' && c.a !== undefined) current.a = c.a;
+      refreshHueFromCurrent();
+      updateAllUI(true);
+      if (opts.onChange) opts.onChange(formatOutput(current, type));
+    });
 
     function setFromPalette(x, y, rect) {
       const w = rect.width;
       const h = rect.height;
-      const sat = Math.max(0, Math.min(100, (x / w) * 100));
-      const val = 100 - Math.max(0, Math.min(100, (y / h) * 100));
-      // Use the cached hue: an SV drag must NOT change hue / move the H thumb.
-      const rgb = hsvToRgb(hue / 360, sat / 100, val / 100);
-      current.r = rgb.r;
-      current.g = rgb.g;
-      current.b = rgb.b;
-      // Position cursor directly from sat/val (decoupled from the lossy RGB→HSV round-trip),
-      // so dragging to the bottom edge always yields exactly (0,0,0).
-      drawPalette(hue);
-      updatePaletteCursor(sat, val);
-      if (type === 'rgba') {
-        updateAlphaThumb(current.a);
-        updateAlphaTrackBg();
-      }
-      textInput.value = formatOutput(current, type);
+      const axes = paletteAxes();
+      const xCh = axes.x, yCh = axes.y;
+      // X: left=min→right=max; Y: top=max→bottom=min.
+      const xVal = xCh.min + Math.max(0, Math.min(1, x / w)) * (xCh.max - xCh.min);
+      const yVal = yCh.max - Math.max(0, Math.min(1, y / h)) * (yCh.max - yCh.min);
+      // Compute the resulting RGB directly (active channel keeps current value).
+      const c = axes.at(xVal, yVal);
+      current.r = Math.round(c.r); current.g = Math.round(c.g); current.b = Math.round(c.b);
+      refreshCaches();
+      drawPalette();
+      updatePaletteCursor();
+      renderCompSliders();
+      syncHexInput();
       triggerEl.style.background = type === 'rgba'
         ? `rgba(${current.r},${current.g},${current.b},${current.a/255})`
         : `rgb(${current.r},${current.g},${current.b})`;
       if (opts.onChange) opts.onChange(formatOutput(current, type));
     }
 
-    function setHueFromPos(x) {
-      const pct = Math.max(0, Math.min(1, x / hueTrack.clientWidth));
-      hue = Math.round(pct * 360); // update the cache so later SV drags keep this hue
-      const cur = rgbToHsv(current.r, current.g, current.b);
-      const rgb = hsvToRgb(hue / 360, cur.s / 100, cur.v / 100);
-      current.r = rgb.r;
-      current.g = rgb.g;
-      current.b = rgb.b;
-      updateAllUI();
-    }
-
-    function setAlphaFromPos(x) {
-      if (!alphaTrack) return;
-      const pct = Math.max(0, Math.min(1, x / alphaTrack.clientWidth));
-      current.a = Math.round(pct * 255);
-      updateAllUI();
-    }
-
     // Initial draw
-    drawPalette(hsv.h);
-    updatePaletteCursor(hsv.s, hsv.v);
-    updateHueThumb(hsv.h);
-    if (type === 'rgba') {
-      updateAlphaThumb(current.a);
-      updateAlphaTrackBg();
-    }
+    drawPalette();
+    updatePaletteCursor();
+    renderCompSliders();
+    syncHexInput();
+    // Position after content has rendered so offsetHeight is accurate (the
+    // initial reposition() that ran before append measured an empty popover).
+    reposition();
+    // Focus the popover itself (not an input) so 1/2/3 switch modes directly,
+    // and the trigger loses focus (no lingering highlight).
+    popover.focus();
 
     // Palette events
     paletteCanvas.addEventListener('mousedown', (e) => {
@@ -372,24 +571,6 @@
       const rect = paletteCanvas.getBoundingClientRect();
       setFromPalette(e.clientX - rect.left, e.clientY - rect.top, rect);
     });
-
-    // Hue slider events — bind on the track; thumb clicks bubble up to it.
-    hueTrack.addEventListener('mousedown', (e) => {
-      draggingHue = true;
-      const rect = hueTrack.getBoundingClientRect();
-      setHueFromPos(e.clientX - rect.left);
-      e.preventDefault();
-    });
-
-    // Alpha slider events
-    if (type === 'rgba') {
-      alphaTrack.addEventListener('mousedown', (e) => {
-        draggingAlpha = true;
-        const rect = alphaTrack.getBoundingClientRect();
-        setAlphaFromPos(e.clientX - rect.left);
-        e.preventDefault();
-      });
-    }
 
     // Global mouse move/up. Stored so closePopover can remove them (otherwise
     // every open leaks two document-level listeners + their closure).
@@ -402,19 +583,9 @@
           rect
         );
       }
-      if (draggingHue) {
-        const rect = hueTrack.getBoundingClientRect();
-        setHueFromPos(Math.max(0, Math.min(rect.width, e.clientX - rect.left)));
-      }
-      if (draggingAlpha) {
-        const rect = alphaTrack.getBoundingClientRect();
-        setAlphaFromPos(Math.max(0, Math.min(rect.width, e.clientX - rect.left)));
-      }
     };
     const onUp = () => {
       draggingPalette = false;
-      draggingHue = false;
-      draggingAlpha = false;
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -456,23 +627,53 @@
       if (isIncompleteBlack(value)) return; // incomplete typing — leave picker alone
       applyValue(value, true);
     };
-    textInput.addEventListener('input', () => {
-      if (isIncompleteBlack(textInput.value)) return;
-      applyValue(textInput.value, false);
-    });
-    // The popover is a self-contained unit: ANY keydown inside it should not
-    // escape to the document-level handlers (row selection, ESC-to-blur, etc.).
-    // Use capture phase to catch everything before it bubbles.
-    popover.addEventListener('keydown', (e) => {
+    // The popover is a self-contained unit: intercept keydown at the document
+    // level (capture) so it works regardless of where focus is (popover, trigger,
+    // or body). Without this, keys pressed while focus is outside the popover
+    // would reach the global shortcut handler and switch tabs/mode under the
+    // open picker.
+    const onKeydown = (e) => {
+      // Ctrl+E (toggle-mode) closes the picker and passes through so the mode
+      // can switch. Other Ctrl combos (Ctrl+S save, Ctrl+A/C/V in the hex box)
+      // pass through WITHOUT closing — they're valid within the picker.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'e') {
+        closeAll();
+        return;
+      }
+      // Let all other Ctrl/Cmd shortcuts pass through untouched.
+      if (e.ctrlKey || e.metaKey) return;
       // Let only Enter/Escape close; stop everything else from leaking out.
-      if (e.key === 'Escape' || e.key === 'Enter') {
+      if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         closePopover();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        // First Enter commits the focused input (blur → input/change fires,
+        // syncing the value); a second Enter (no input focused) closes the popover.
+        const ae = document.activeElement;
+        if (ae && ae.tagName === 'INPUT' && popover.contains(ae)) {
+          ae.blur();
+        } else {
+          closePopover();
+        }
+      } else if (e.key === '1' || e.key === '2' || e.key === '3') {
+        // 1/2/3 switch entry mode (HSV / RGB / Lab — the tag order). Only when
+        // no text input is focused, so typing digits in the hex/number boxes works.
+        const ae = document.activeElement;
+        const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
+        if (!typing) {
+          e.preventDefault();
+          e.stopPropagation();
+          const modes = ['hsv', 'rgb', 'lab'];
+          setActiveMode(modes[parseInt(e.key, 10) - 1]);
+        }
       } else {
         e.stopPropagation();
       }
-    }, true);
+    };
+    document.addEventListener('keydown', onKeydown, true);
 
     // Close on outside click
     setTimeout(() => {
@@ -484,20 +685,35 @@
       });
     }, 0);
 
-    // Close when the OS window is moved or resized — the popover's screen
-    // position would otherwise drift away from its trigger.
+    // Re-anchor the popover when the OS window moves/resizes — keep it glued to
+    // its trigger instead of drifting away (or closing, which interrupted edits).
     let unlistenWin = null;
     try {
       const T = window.__TAURI__;
       if (T && T.window) {
         const win = T.window.getCurrentWindow();
         let done = 0;
-        const finish = () => { if (done++) return; closePopover(); };
+        const finish = () => { if (done++) return; reposition(); };
         Promise.all([win.onMoved(finish), win.onResized(finish)]).then(fns => {
           unlistenWin = () => { fns.forEach(f => { try { f(); } catch (_) {} }); };
         });
       }
     } catch (_) { /* Tauri unavailable — ignore */ }
+    // Fallback: webview-level resize (covers window resize even if the Tauri
+    // window events above don't fire in this build).
+    window.addEventListener('resize', reposition);
+    function reposition() {
+      if (!popover.parentNode) return;
+      const r = triggerEl.getBoundingClientRect();
+      const pw = popover.offsetWidth, ph = popover.offsetHeight;
+      // Right edge flush with the trigger's left edge; top aligned with the
+      // trigger. Only clamp the bottom (shift up if it would overflow).
+      const left = r.left - pw - 6;
+      let top = r.top;
+      if (top + ph > window.innerHeight - 20) top = window.innerHeight - ph - 20;
+      popover.style.left = left + 'px';
+      popover.style.top = top + 'px';
+    }
   }
 
   // Currently-open popover, keyed by its trigger element. forwardInput lets an
@@ -505,6 +721,7 @@
   // open picker without re-firing onChange (avoids an echo loop back into that box).
   let activeTrigger = null;
   let activeForward = null;
+  let _activeClose = null; // bound closePopover of the currently-open popover
 
   function forwardInput(trigger, value) {
     if (trigger && trigger === activeTrigger && typeof activeForward === 'function') {
@@ -515,7 +732,6 @@
   window.ColorPicker = { attach, forwardInput, parseColor, formatOutput, closeAll };
   // Close any open popover (called by the global ESC/Enter handler).
   function closeAll() {
-    const pop = document.querySelector('.cp-popover');
-    if (pop) pop.remove();
+    if (typeof _activeClose === 'function') _activeClose();
   }
 })();

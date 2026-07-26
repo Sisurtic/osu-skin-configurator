@@ -490,6 +490,7 @@
   }
 
   state.on('selectedSkin', async (skinName) => {
+    if (window.ColorPicker) window.ColorPicker.closeAll();
     // Different skins can share the same relative image paths (e.g. cursor.png)
     // with different contents — drop all cached images so the new skin reads fresh.
     if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
@@ -538,6 +539,7 @@
   });
 
   state.on('selectedPreset', (presetId) => {
+    if (window.ColorPicker) window.ColorPicker.closeAll();
     // Only switch the view here; the preset-editor's own selectedPreset
     // listener does the render + enter animation (calling renderCurrentView
     // too would render with stale editData mid-async-load → double anim).
@@ -552,6 +554,9 @@
   });
 
   state.on('appMode', (mode) => {
+    // Context changed: dismiss any open color picker (it would otherwise linger
+    // over an editor/view it no longer applies to).
+    if (window.ColorPicker) window.ColorPicker.closeAll();
     if (mode === 'edit') {
       // Clear use-mode state to avoid stale IDs after editing
       state.set('activePresets', {});

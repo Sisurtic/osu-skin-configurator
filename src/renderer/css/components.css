@@ -1496,6 +1496,7 @@ tr[data-group-parent] .file-thumb__icon {
   padding: 10px;
   box-shadow: 0 4px 16px rgba(0,0,0,.3);
   width: 220px;
+  outline: none;
   user-select: none;
 }
 .cp-palette-wrap {
@@ -1507,7 +1508,9 @@ tr[data-group-parent] .file-thumb__icon {
 .cp-palette {
   display: block;
   width: 100%;
-  cursor: crosshair;
+  aspect-ratio: 1;
+  cursor: default;
+  image-rendering: auto;
 }
 .cp-sliders { margin-bottom: 8px; }
 .cp-slider-row {
@@ -1519,28 +1522,42 @@ tr[data-group-parent] .file-thumb__icon {
 .cp-slider-label {
   font-size: 11px;
   color: var(--text-muted);
-  width: 14px;
+  width: 12px;
   text-align: center;
+  flex-shrink: 0;
 }
-.cp-slider-track {
+.cp-slider-track, .cp-comp-track {
   flex: 1;
-  height: 8px;
-  border-radius: 4px;
+  height: 12px;
+  border-radius: 6px;
   position: relative;
   cursor: pointer;
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+}
+.cp-slider-thumb, .cp-comp-thumb {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff; /* overridden inline to the current color */
+  /* dark outer glow separates the thumb from same-colored track stops */
+  box-shadow: 0 0 0 3px var(--bg-secondary), 0 0 9px var(--bg-secondary);
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 .cp-hue-track {
   background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
 }
 .cp-alpha-track {
   background: linear-gradient(to right, transparent, #000);
-  border: 1px solid var(--border);
 }
 .cp-presets {
   display: grid;
   grid-template-columns: repeat(10, 1fr);
   gap: 3px;
-  margin-bottom: 8px;
+  margin: 8px 0 0;
 }
 .cp-preset-swatch {
   width: 100%;
@@ -1556,9 +1573,66 @@ tr[data-group-parent] .file-thumb__icon {
 }
 .cp-input-row {
   display: flex;
+  flex-direction: column;
   gap: 4px;
-  align-items: center;
+  align-items: stretch;
 }
+.cp-mode-tag {
+  background: var(--bg-tertiary, #2a2a2a);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.cp-mode-tags { display: flex; gap: 4px; align-items: center; }
+.cp-mode-tag:hover { background: var(--bg-hover, rgba(255,255,255,.08)); }
+.cp-mode-tag.is-active { border-color: var(--accent, #66cc88); color: var(--accent, #66cc88); }
+.cp-hex-input {
+  flex: 1;
+  margin-left: auto;
+  width: 0;
+  font-size: 11px !important;
+  padding: 2px 6px !important;
+  line-height: 1.4;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.cp-comp-sliders { display: flex; flex-direction: column; gap: 4px; }
+.cp-comp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cp-comp-label {
+  width: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+}
+.cp-comp-label.is-active {
+  color: var(--accent, #66cc88);
+  font-weight: 700;
+}
+/* Component sliders share the unified track/thumb look with the H/A sliders. */
+.cp-num-input {
+  width: 48px;
+  min-width: 48px;
+  padding: 2px 4px !important;
+  font-size: 11px !important;
+  text-align: center;
+  flex-shrink: 0;
+}
+/* hide number spinners (the slider is the primary input) */
+.cp-num-input::-webkit-outer-spin-button,
+.cp-num-input::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+.cp-num-input { -moz-appearance: textfield; appearance: textfield; }
 .ini-color-swatch {
   cursor: pointer;
   transition: transform 0.15s;

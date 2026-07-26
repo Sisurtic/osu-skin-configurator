@@ -227,6 +227,9 @@
         if (state.get('multiSelectActive')) return;
         // Plain groups can only use the basic tab.
         if (viewEl.querySelector('.tabs').classList.contains('tabs--disabled') && tab.dataset.tab !== 'basic') return;
+        // Switching tabs invalidates any open color picker (it belongs to the
+        // previous tab's editor).
+        if (window.ColorPicker) window.ColorPicker.closeAll();
         viewEl.querySelectorAll('.tab').forEach(t => t.classList.remove('tab--active'));
         viewEl.querySelectorAll('.tab-content').forEach(c => c.classList.remove('tab-content--active'));
         tab.classList.add('tab--active');
@@ -866,6 +869,12 @@
     const ae = document.activeElement;
     if (ae && ae.matches && ae.matches('input, textarea, select') && typeof ae.blur === 'function') {
       ae.blur();
+    }
+    // Close any open color picker popover so its text input commits + the
+    // popover doesn't linger across the post-save re-render (which would
+    // detach its trigger and leave it orphaned).
+    if (window.ColorPicker && typeof window.ColorPicker.closeAll === 'function') {
+      window.ColorPicker.closeAll();
     }
     // Unified entry: dispatch to the group save path when a group is loaded.
     if (editData.kind === 'group') return doSaveGroup();
