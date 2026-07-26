@@ -527,6 +527,9 @@
     function setActiveMode(m) {
       mode = m;
       activeChannel = 0;
+      // Re-derive HSV/Lab caches from current so the new mode's sliders reflect
+      // the latest color (caches may be stale from a previous mode's direct edits).
+      refreshCaches();
       modeTags.forEach(t => t.classList.toggle('is-active', t.dataset.mode === m));
       drawPalette();
       updatePaletteCursor();
