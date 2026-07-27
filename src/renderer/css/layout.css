@@ -13,6 +13,8 @@
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   padding: 0 0 0 12px;
+  position: relative;
+  z-index: 300; /* above toasts (z-index 200) so they don't overlap controls */
   /* No -webkit-app-region: drag here — on WebView2 it swallows clicks on child
      buttons. Window dragging uses the native `data-tauri-drag-region` attribute
      on this element (set in index.html); double-click-maximize is native too. */

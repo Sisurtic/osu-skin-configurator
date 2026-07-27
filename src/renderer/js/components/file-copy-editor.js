@@ -400,7 +400,7 @@
         const ops = currentFileOps ? currentFileOps : buildFileOps();
         if (ops[idx]) ops[idx][field] = val;
       },
-      onSynced: (n) => Toast.success(i18n.t('file.synced', { n })),
+      onSynced: (n) => Toast.success(i18n.t('editor.synced', { n })),
       applyToHeader: (headerEl, field, val) => {
         if (field === 'destination') {
           const el = headerEl.querySelector('.file-seq-dest');

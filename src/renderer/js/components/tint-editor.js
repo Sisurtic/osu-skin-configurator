@@ -1636,11 +1636,13 @@
       return;
     }
     const arr = cur();
-    for (const i of editTargets()) {
+    const targets = editTargets();
+    for (const i of targets) {
       arr[i] = { ...arr[i], ...partial };
       arr[i] = normalizeOp(arr[i], changedKey, srcHeightOf(arr[i]));
     }
     applyTints(arr);
+    if (targets.length > 1) Toast.success(i18n.t('editor.synced', { n: targets.length }));
   }
   // Apply WITHOUT constraint enforcement (for live input preview; the final
   // clamped value is committed on blur/change). Whole-group → temp params.
@@ -1900,7 +1902,7 @@
           return !a[idx] || !has2x(a[idx]);
         },
         writeTargetData: (idx, field, val) => { const a = cur(); if (a[idx]) a[idx] = { ...a[idx], [field]: val }; },
-        onSynced: (n) => Toast.success(i18n.t('tint.synced', { n })),
+        onSynced: (n) => Toast.success(i18n.t('editor.synced', { n })),
         applyToHeader: (headerEl, field, val) => {
           if (field === 'destination') {
             const el = headerEl.querySelector('.tint-seq-dest');

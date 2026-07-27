@@ -3,30 +3,43 @@
   const container = document.getElementById('toast-container');
   let toastId = 0;
 
+  // Coalesce rapid repeats: the last toast per type is tracked; a follow-up
+  // `show` of the same type within its lifetime UPDATES that toast in place
+  // (new text + reset timer) instead of stacking a new one. Prevents toast spam
+  // from continuous edits (e.g. dragging a slider syncs every frame).
+  const lastByType = {};
   window.Toast = {
-    // onClick: optional. When provided, a click invokes onClick() instead of
-    // the default dismiss animation (used by the apply-warning toast to open a
-    // details dialog). Omit to keep the original click-to-dismiss behavior.
     show(message, type = 'info', duration = 3500, onClick) {
-      const id = ++toastId;
       const icon = { success: '✓', error: '✕', warning: '⚠' }[type] || '';
 
+      // Reuse the last toast of this type if it's still alive (no new element,
+      // no stack-up). onClick toasts (e.g. apply-warning details) always get a
+      // fresh element — they're one-shot, not coalesced.
+      if (!onClick && lastByType[type] && lastByType[type].el.parentNode && !lastByType[type].el._dismissing) {
+        const rec = lastByType[type];
+        rec.el.querySelector('.toast__msg').innerHTML = `${icon} ${message}`;
+        clearTimeout(rec.timer);
+        if (duration > 0) rec.timer = setTimeout(() => Toast.dismiss(rec.el, false), duration);
+        return rec.id;
+      }
+
+      const id = ++toastId;
       const el = document.createElement('div');
       el.className = `toast toast--${type}`;
       el.innerHTML = `
         <span class="toast__msg">${icon} ${message}</span>
       `;
-      // Default: click anywhere dismisses with a parabolic toss. With onClick,
-      // a click hands control to the caller (e.g. opens a details dialog).
       el.addEventListener('click', () => {
         if (onClick) onClick();
         else Toast.dismiss(el, true);
       });
       container.appendChild(el);
 
+      let timer = null;
       if (duration > 0) {
-        setTimeout(() => Toast.dismiss(el, false), duration);
+        timer = setTimeout(() => Toast.dismiss(el, false), duration);
       }
+      if (!onClick) lastByType[type] = { el, timer, id };
       return id;
     },
 

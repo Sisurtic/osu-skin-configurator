@@ -150,7 +150,8 @@
     "saveFirst": "当前编辑尚未保存——应用前先保存"
   },
   "editor": {
-    "emptyHint": "未选中任何项 — 在左侧选择预设或分组编辑，或新建一个。\n\n▸ 新建预设：「+ 新建预设」（Ctrl+N）→ 基本信息填名称 → 加 INI / 文件 / 图像操作 → 💾 保存（Ctrl+S）。\n▸ 分组与嵌套：Ctrl+G 新建分组；拖拽预设入组、拖组嵌套进另一分组。Ctrl+Shift+G 新建复选组表格。\n▸ 复选组表格：每行左侧的行名是普通子分组的名称；每行的选项是该行可选的预设（或嵌套复选组），每行选一个。\n▸ 编辑器快捷键：Ctrl+N 新建、Ctrl+S 保存、Ctrl+C / Ctrl+V 复制粘贴选中操作、Ctrl+Shift+C 复制选中项、1-4 切换标签、Esc 取消选中。\n\n编辑模式用于构建预设；使用模式（✏️ / Ctrl+E）选择并应用预设。"
+    "emptyHint": "未选中任何项 — 在左侧选择预设或分组编辑，或新建一个。\n\n▸ 新建预设：「+ 新建预设」（Ctrl+N）→ 基本信息填名称 → 加 INI / 文件 / 图像操作 → 💾 保存（Ctrl+S）。\n▸ 分组与嵌套：Ctrl+G 新建分组；拖拽预设入组、拖组嵌套进另一分组。Ctrl+Shift+G 新建复选组表格。\n▸ 复选组表格：每行左侧的行名是普通子分组的名称；每行的选项是该行可选的预设（或嵌套复选组），每行选一个。\n▸ 编辑器快捷键：Ctrl+N 新建、Ctrl+S 保存、Ctrl+C / Ctrl+V 复制粘贴选中操作、Ctrl+Shift+C 复制选中项、1-4 切换标签、Esc 取消选中。\n\n编辑模式用于构建预设；使用模式（✏️ / Ctrl+E）选择并应用预设。",
+    "synced": "已同步 {n} 个操作"
   },
   "preset": {
     "fallbackName": "预设 {id}",
@@ -269,8 +270,7 @@
     "centerRatio": "宽高比",
     "pickFileTitle": "选择文件",
     "columnSuffix": "(列{n})",
-    "deleteRowsConfirm": "确定要删除选中的 {n} 个 INI 操作吗？",
-    "synced": "已同步 {n} 个字段"
+    "deleteRowsConfirm": "确定要删除选中的 {n} 个 INI 操作吗？"
   },
   "file": {
     "heading": "文件移动",
@@ -298,8 +298,7 @@
     "deleteRowsConfirm": "确定要删除选中的 {n} 个文件操作吗？",
     "outsideSkin": "只能选择皮肤文件夹内的文件",
     "destOutsideSkin": "该路径不在皮肤内！",
-    "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名",
-    "synced": "已同步 {n} 个操作"
+    "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名"
   },
   "preview": {
     "heading": "预览图片",
@@ -352,8 +351,7 @@
     "deleted": "已删除 {n} 个图像操作",
     "filled": "已填充 {n} 个成员",
     "deleteRowsConfirm": "确定要删除选中的 {n} 个图像操作吗？",
-    "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名",
-    "synced": "已同步 {n} 个操作"
+    "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名"
   },
   "settings": {
     "pathSet": "osu! 路径已设置",
