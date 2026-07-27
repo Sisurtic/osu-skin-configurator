@@ -236,7 +236,7 @@
       </div>
       <div class="cp-input-row">
         <div class="cp-mode-tags">
-          <button type="button" class="cp-mode-tag is-active" data-mode="hsv">HSV</button>
+          <button type="button" class="cp-mode-tag is-active" data-mode="hsv">HSB</button>
           <button type="button" class="cp-mode-tag" data-mode="rgb">RGB</button>
           <button type="button" class="cp-mode-tag" data-mode="lab">Lab</button>
           <input type="text" class="form-input cp-hex-input" autocomplete="off" spellcheck="false">
@@ -348,7 +348,7 @@
             grad: () => 'linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)' },
           { key: 's', label: 'S', max: 100, get: () => hsvCache.s, set: v => { hsvCache = { h: hsvCache.h, s: v, v: hsvCache.v }; return fromHsv(hsvCache.h, v, hsvCache.v); },
             grad: () => { const a = hsvToRgb(hsvCache.h / 360, 0, hsvCache.v / 100), b = hsvToRgb(hsvCache.h / 360, 1, hsvCache.v / 100); return `linear-gradient(to right, rgb(${a.r},${a.g},${a.b}), rgb(${b.r},${b.g},${b.b}))`; } },
-          { key: 'v', label: 'V', max: 100, get: () => hsvCache.v, set: v => { hsvCache = { h: hsvCache.h, s: hsvCache.s, v }; return fromHsv(hsvCache.h, hsvCache.s, v); },
+          { key: 'v', label: 'B', max: 100, get: () => hsvCache.v, set: v => { hsvCache = { h: hsvCache.h, s: hsvCache.s, v }; return fromHsv(hsvCache.h, hsvCache.s, v); },
             grad: () => { const a = hsvToRgb(hsvCache.h / 360, hsvCache.s / 100, 0), b = hsvToRgb(hsvCache.h / 360, hsvCache.s / 100, 1); return `linear-gradient(to right, rgb(${a.r},${a.g},${a.b}), rgb(${b.r},${b.g},${b.b}))`; } },
         ];
       }
@@ -731,7 +731,7 @@
           closePopover();
         }
       } else if (e.key === '1' || e.key === '2' || e.key === '3') {
-        // 1/2/3 switch entry mode (HSV / RGB / Lab — the tag order). Only when
+        // 1/2/3 switch entry mode (HSB / RGB / Lab — the tag order). Only when
         // no text input is focused, so typing digits in the hex/number boxes works.
         const ae = document.activeElement;
         const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
