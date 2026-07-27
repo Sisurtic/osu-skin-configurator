@@ -407,7 +407,7 @@
     function renderCompSliders() {
       const channels = channelsFor(mode);
       const rows = type === 'rgba' ? [...channels, {
-        key: 'a', label: 'A', max: 255, get: () => current.a, set: v => ({ r: current.r, g: current.g, b: current.b, a: v }),
+        key: 'alpha', label: 'A', max: 255, get: () => current.a, set: v => ({ r: current.r, g: current.g, b: current.b, a: v }),
         grad: () => `linear-gradient(to right, rgba(${current.r},${current.g},${current.b},0), rgba(${current.r},${current.g},${current.b},1))`,
       }] : channels;
       // Rebuild DOM only when the channel set changes (mode switch); otherwise

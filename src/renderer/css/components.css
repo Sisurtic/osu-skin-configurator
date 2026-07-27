@@ -1501,6 +1501,11 @@ tr[data-group-parent] .file-thumb__icon {
   outline: none;
   user-select: none;
 }
+/* Suppress the browser's default focus ring on popover children (shift-key etc.
+   triggers it on the focused popover). Inputs keep their own focus style. */
+.cp-popover *:focus { outline: none; }
+.cp-popover .cp-num-input:focus,
+.cp-popover .cp-hex-input:focus { outline: none; border-color: var(--accent); }
 .cp-palette-wrap {
   position: relative;
   margin-bottom: 8px;
