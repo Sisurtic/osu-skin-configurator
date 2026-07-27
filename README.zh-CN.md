@@ -52,7 +52,7 @@
 
 ### 更新日志
 
-见 [GitHub Releases](https://github.com/Sisurtic/osu-skin-configurator/releases)，包含 v1.1.0 发布说明及发布后修复（复选组应用逻辑重做、统一拖拽系统重写、多选 selection 模块、预设+分组混选、操作复制粘贴、序列帧分组、编辑器空状态、ESC 取消选中、应用警告详情窗按来源分段、删除操作去重、警告来源显示完整分组路径、PS 对齐的 tint 混合模式、自定义下拉组件、PS 式多模式取色器 HSV/RGB/Lab+HEX、cropD 拉伸高度持久化、新建预设自动展开分组、取色器自定义颜色预设）。
+见 [GitHub Releases](https://github.com/Sisurtic/osu-skin-configurator/releases)，包含 v1.1.0 发布说明及发布后修复（复选组应用逻辑重做、统一拖拽系统重写、多选 selection 模块、预设+分组混选、操作复制粘贴、序列帧分组、编辑器空状态、ESC 取消选中、应用警告详情窗按来源分段、删除操作去重、警告来源显示完整分组路径、PS 对齐的 tint 混合模式、自定义下拉组件、PS 式多模式取色器 HSV/RGB/Lab+HEX、cropD 拉伸高度持久化、新建预设自动展开分组、取色器自定义颜色预设、删除行重选按钮、多选同步 toast、toast 合并防刷屏、标题栏层级修复）。
 
 ### 快速上手
 
