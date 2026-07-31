@@ -542,6 +542,7 @@
     "mode_saturation": "채도",
     "mode_color": "컬러",
     "mode_luminosity": "명도",
+    "mode_hue-shift": "색상 이동",
     "deleteZone": "작업을 여기로 드래그하여 삭제",
     "deleteBtn": "- 삭제",
     "deleted": "이미지 작업 {n}개 삭제됨",

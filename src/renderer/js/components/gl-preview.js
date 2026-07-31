@@ -28,7 +28,11 @@
     uniform int  u_tintOn;
     uniform vec3 u_color;     // 0..1
     uniform float u_t;        // blend strength = colorAlpha/255
-    uniform int  u_mode;      // 0 multiply,1 screen,2 overlay,3 hue,4 replace
+    uniform int  u_mode;      // 0 multiply,1 screen,2 overlay,3 soft-light,4 hard-light, ... 13 hue-shift,14 replace
+    // PS-style hue/sat/light offset (hue-shift mode only); pre-scaled fractions.
+    uniform float u_hueShift;  // hueShift/360 (±0.5 turn)
+    uniform float u_satShift;  // satShift/100 (±1)
+    uniform float u_lightShift;// lightShift/100 (±1)
     // crop
     uniform int  u_cropOn;
     uniform float u_tailH;    // px
@@ -74,7 +78,7 @@
     // tint one rgb (0..1) per the active mode, then lerp by u_t.
     // u_mode enum: 0 multiply,1 screen,2 overlay,3 soft-light,4 hard-light,
     // 5 lighten,6 darken,7 difference,8 exclusion,9 hue,10 saturation,
-    // 11 color,12 luminosity,13 replace.
+    // 11 color,12 luminosity,13 hue-shift,14 replace.
     vec3 applyTint(vec3 px) {
       vec3 b = px;
       if (u_mode == 0) { b = px * u_color; }                       // multiply
@@ -117,6 +121,12 @@
         vec3 ph = rgb2hsl(px);
         vec3 ch = rgb2hsl(u_color);
         b = hsl2rgb(ph.x, ph.y, ch.z);
+      } else if (u_mode == 13) {                                   // hue-shift (PS Hue/Sat offsets)
+        vec3 hsl = rgb2hsl(px);
+        float h = mod(hsl.x + u_hueShift + 1.0, 1.0);              // wrap mod 1
+        float s = clamp(hsl.y + u_satShift, 0.0, 1.0);
+        float l = clamp(hsl.z + u_lightShift, 0.0, 1.0);
+        b = hsl2rgb(h, s, l);
       } else { b = u_color; }                                      // replace
       return mix(px, b, u_t);
     }
@@ -252,6 +262,7 @@
       gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
       const U = ['u_srcSize','u_outSize','u_tintOn','u_color','u_t','u_mode',
+        'u_hueShift','u_satShift','u_lightShift',
         'u_cropOn','u_tailH','u_blank','u_outH','u_tile','u_tileDir',
         'u_darkenOn','u_shift','u_dalpha'];
       for (const u of U) loc[u] = gl.getUniformLocation(program, u);
@@ -331,6 +342,10 @@
       gl.uniform3fv(loc.u_color, tint.color || [1, 1, 1]);
       gl.uniform1f(loc.u_t, tint.t != null ? tint.t : 1);
       gl.uniform1i(loc.u_mode, tint.mode || 0);
+      // PS-style hue/sat/light offsets (hue-shift mode only; pre-scaled fractions).
+      gl.uniform1f(loc.u_hueShift, (tint.hueShift || 0) / 360);
+      gl.uniform1f(loc.u_satShift, (tint.satShift || 0) / 100);
+      gl.uniform1f(loc.u_lightShift, (tint.lightShift || 0) / 100);
 
       const crop = opts.crop || {};
       gl.uniform1i(loc.u_cropOn, crop.on ? 1 : 0);

@@ -542,6 +542,7 @@
     "mode_saturation": "彩度",
     "mode_color": "カラー",
     "mode_luminosity": "輝度",
+    "mode_hue-shift": "色相シフト",
     "deleteZone": "操作をここにドラッグして削除",
     "deleteBtn": "- 削除",
     "deleted": "{n} 個の画像操作を削除しました",

@@ -332,6 +332,7 @@
     "mode_saturation": "Saturation",
     "mode_color": "Color",
     "mode_luminosity": "Luminosity",
+    "mode_hue-shift": "Hue Shift",
     "deleteZone": "Drag an action here to delete",
     "deleteBtn": "- Delete",
     "deleted": "Deleted {n} image action(s)",

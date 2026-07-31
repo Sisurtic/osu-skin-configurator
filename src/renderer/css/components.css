@@ -1653,6 +1653,19 @@ tr[data-group-parent] .file-thumb__icon {
   border-radius: 4px;
   text-transform: uppercase;
 }
+/* Hue-shift adjust picker: before/after spectrum preview strips. */
+.cp-adjust-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 3px 0px 0px;
+  margin-bottom: 10px;
+}
+.cp-adjust-strip {
+  height: 6px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
 .cp-comp-sliders { display: flex; flex-direction: column; gap: 4px; }
 .cp-comp-row {
   display: flex;

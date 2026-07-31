@@ -198,6 +198,8 @@
 
   function attach(triggerEl, opts) {
     const type = opts.type || 'rgb';
+    const alphaPercent = !!opts.alphaPercent; // tint picker shows alpha as 0..100 (ini stays 0..255)
+    const adjust = !!opts.adjust;             // PS-style hue/sat/light offset picker (hue-shift mode)
     let current = parseColor(opts.value);
     if (type === 'rgb') current.a = 255;
 
@@ -229,6 +231,197 @@
     const popover = document.createElement('div');
     popover.className = 'cp-popover';
     popover.tabIndex = -1; // focusable so key events land here (1/2/3 mode switch)
+
+    // ── PS-style adjust picker (hue-shift mode): 4 standalone sliders ──
+    // Hue -180..180, Sat -100..100, Light -100..100, Opacity 0..100.
+    // onChange returns { hue, sat, light, alpha } (object, not a color string).
+    // Built as a self-contained path with its OWN close handler so it never
+    // touches the normal-mode cleanup vars (onMove/onUp/unlistenWin) declared
+    // further down (which would be in their temporal-dead-zone on close).
+    if (adjust) {
+      const seed = (opts.value && typeof opts.value === 'object') ? opts.value : {};
+      const st = {
+        hue: Math.max(-180, Math.min(180, +seed.hue || 0)),
+        sat: Math.max(-100, Math.min(100, +seed.sat || 0)),
+        light: Math.max(-100, Math.min(100, +seed.light || 0)),
+        alpha: Math.max(0, Math.min(100, +seed.alpha != null ? seed.alpha : 100)),
+      };
+      popover.innerHTML = `
+        <div class="cp-adjust-preview">
+          <div class="cp-adjust-strip" data-strip="before"></div>
+          <div class="cp-adjust-strip" data-strip="after"></div>
+        </div>
+        <div class="cp-comp-sliders cp-comp-sliders--adjust"></div>`;
+      document.body.appendChild(popover);
+      const sliders = popover.querySelector('.cp-comp-sliders');
+      const stripBefore = popover.querySelector('.cp-adjust-strip[data-strip="before"]');
+      const stripAfter = popover.querySelector('.cp-adjust-strip[data-strip="after"]');
+
+      // Apply hue/sat/light shifts to an [r,g,b] (0..255) → [r,g,b] (0..255).
+      // Local HSL helpers (the module's are HSV, not HSL).
+      function rgb2hsl01(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        const l = (mx + mn) / 2;
+        if (Math.abs(mx - mn) < 1e-9) return [0, 0, l];
+        const d = mx - mn;
+        const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+        let h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+        return [h / 6, s, l];
+      }
+      function hsl2rgb255(h, s, l) {
+        if (s < 1e-9) { const v = Math.round(l * 255); return [v, v, v]; }
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        const hue2 = (t) => { let tt = t < 0 ? t + 1 : t > 1 ? t - 1 : t;
+          if (tt < 1 / 6) return p + (q - p) * 6 * tt; if (tt < 0.5) return q;
+          if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6; return p; };
+        return [hue2(h + 1 / 3) * 255, hue2(h) * 255, hue2(h - 1 / 3) * 255];
+      }
+      function shiftRgb(rgb) {
+        const hsl = rgb2hsl01(rgb[0], rgb[1], rgb[2]);
+        const H = ((hsl[0] + st.hue / 360) % 1 + 1) % 1;
+        const S = Math.min(1, Math.max(0, hsl[1] + st.sat / 100));
+        const L = Math.min(1, Math.max(0, hsl[2] + st.light / 100));
+        const o = hsl2rgb255(H, S, L);
+        return [Math.round(o[0]), Math.round(o[1]), Math.round(o[2])];
+      }
+      // A full-saturation mid-lightness hue spectrum sample list for the strips.
+      const SPECTRUM = [];
+      for (let i = 0; i <= 12; i++) { const c = hsvToRgb(i / 12, 1, 1); SPECTRUM.push([c.r, c.g, c.b]); }
+
+      const channels = [
+        { key: 'hue', label: 'H', min: -180, max: 180,
+          grad: () => 'linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)' },
+        { key: 'sat', label: 'S', min: -100, max: 100,
+          grad: () => { const m = st.hue / 360; const lo = hsvToRgb(m, 0, 1), hi = hsvToRgb(m, 1, 1); return `linear-gradient(to right,rgb(${lo.r},${lo.g},${lo.b}),rgb(${hi.r},${hi.g},${hi.b}))`; } },
+        { key: 'light', label: 'L', min: -100, max: 100,
+          grad: () => 'linear-gradient(to right,#000,#fff)' },
+        { key: 'alpha', label: 'A', min: 0, max: 100,
+          grad: () => 'linear-gradient(to right,rgba(128,128,128,0),rgba(128,128,128,1))' },
+      ];
+
+      sliders.innerHTML = channels.map((ch, i) => `
+        <div class="cp-comp-row" data-ch="${ch.key}" data-idx="${i}">
+          <span class="cp-comp-label" data-idx="${i}">${ch.label}</span>
+          <div class="cp-comp-track" data-idx="${i}"><div class="cp-comp-thumb"></div></div>
+          <input type="number" class="form-input cp-num-input" min="${ch.min}" max="${ch.max}" step="1" data-ch="${ch.key}" data-idx="${i}">
+        </div>`).join('');
+
+      function renderAdjust() {
+        channels.forEach(ch => {
+          const row = sliders.querySelector(`.cp-comp-row[data-ch="${ch.key}"]`);
+          if (!row) return;
+          const v = st[ch.key];
+          const pct = (v - ch.min) / (ch.max - ch.min);
+          const thumb = row.querySelector('.cp-comp-thumb');
+          thumb.style.left = `calc(${pct} * (100% - 10px))`;
+          thumb.style.transform = 'translateY(-50%)';
+          thumb.style.background = '#fff';
+          row.querySelector('.cp-comp-track').style.background = ch.grad();
+          const inp = row.querySelector('.cp-num-input');
+          if (inp !== document.activeElement) inp.value = Math.round(v);
+        });
+        // Before/after preview strips: the same hue spectrum, the lower one with
+        // the current shifts applied, so the user sees the adjustment's effect.
+        const stops = (rgbArr) => rgbArr.map(c => `rgb(${c[0]},${c[1]},${c[2]})`).join(',');
+        stripBefore.style.background = `linear-gradient(to right,${stops(SPECTRUM)})`;
+        stripAfter.style.background = `linear-gradient(to right,${stops(SPECTRUM.map(shiftRgb))})`;
+        // Reflect the adjustment on the trigger swatch too (mirrors the base-red
+        // preview the tint stage shows).
+        const baseShifted = shiftRgb([128, 64, 64]);
+        triggerEl.style.background = `rgb(${baseShifted[0]},${baseShifted[1]},${baseShifted[2]})`;
+      }
+
+      function commit(key, rawVal) {
+        let v = Math.round(Number(rawVal));
+        if (isNaN(v)) return;
+        const ch = channels.find(c => c.key === key);
+        v = Math.max(ch.min, Math.min(ch.max, v));
+        st[key] = v;
+        renderAdjust();
+        if (opts.onChange) opts.onChange({ hue: st.hue, sat: st.sat, light: st.light, alpha: st.alpha });
+      }
+
+      function bindAdjustSlider(ch) {
+        const row = sliders.querySelector(`.cp-comp-row[data-ch="${ch.key}"]`);
+        const track = row.querySelector('.cp-comp-track');
+        const inp = row.querySelector('.cp-num-input');
+        const fromX = (clientX) => {
+          const r = track.getBoundingClientRect();
+          const pct = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+          return ch.min + pct * (ch.max - ch.min);
+        };
+        track.addEventListener('mousedown', e => {
+          const ae = document.activeElement;
+          if (ae && ae.tagName === 'INPUT' && ae !== inp) ae.blur();
+          const mv = ev => commit(ch.key, fromX(ev.clientX));
+          const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
+          document.addEventListener('mousemove', mv);
+          document.addEventListener('mouseup', up);
+          commit(ch.key, fromX(e.clientX));
+          e.preventDefault();
+        });
+        inp.addEventListener('input', () => commit(ch.key, inp.value));
+        inp.addEventListener('wheel', () => { inp.focus(); setTimeout(() => commit(ch.key, inp.value), 0); }, { passive: true });
+      }
+      channels.forEach(bindAdjustSlider);
+
+      activeTrigger = triggerEl;
+      // Adjust mode has no external text input to forward; no-op.
+      activeForward = null;
+
+      function adjustClose() {
+        if (document.body) document.body.focus();
+        popover.remove();
+        activeTrigger = null;
+        activeForward = null;
+        _activeClose = null;
+        window.removeEventListener('resize', adjustReposition);
+        document.removeEventListener('keydown', adjustKeydown, true);
+        if (opts.onClose) opts.onClose();
+      }
+      _activeClose = adjustClose;
+
+      function adjustReposition() {
+        if (!popover.parentNode) return;
+        const r = triggerEl.getBoundingClientRect();
+        const pw = popover.offsetWidth, ph = popover.offsetHeight;
+        const left = r.left - pw - 6;
+        let top = r.top;
+        if (top + ph > window.innerHeight - 20) top = window.innerHeight - ph - 20;
+        popover.style.left = left + 'px';
+        popover.style.top = top + 'px';
+      }
+      const adjustKeydown = (e) => {
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'e') { adjustClose(); return; }
+        if (e.ctrlKey || e.metaKey) return;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); adjustClose(); }
+        else if (e.key === 'Enter') {
+          e.preventDefault(); e.stopPropagation();
+          const ae = document.activeElement;
+          if (ae && ae.tagName === 'INPUT' && popover.contains(ae)) ae.blur();
+          else adjustClose();
+        } else { e.stopPropagation(); }
+      };
+      document.addEventListener('keydown', adjustKeydown, true);
+      window.addEventListener('resize', adjustReposition);
+
+      setTimeout(() => {
+        document.addEventListener('mousedown', function onOutside(e) {
+          if (!popover.contains(e.target) && e.target !== triggerEl) {
+            adjustClose();
+            document.removeEventListener('mousedown', onOutside);
+          }
+        });
+      }, 0);
+
+      renderAdjust();
+      adjustReposition();
+      popover.focus();
+      return;
+    }
+
     popover.innerHTML = `
       <div class="cp-palette-wrap">
         <canvas class="cp-palette" width="120" height="120"></canvas>
@@ -407,7 +600,11 @@
     function renderCompSliders() {
       const channels = channelsFor(mode);
       const rows = type === 'rgba' ? [...channels, {
-        key: 'alpha', label: 'A', max: 255, get: () => current.a, set: v => ({ r: current.r, g: current.g, b: current.b, a: v }),
+        key: 'alpha', label: 'A',
+        // alphaPercent (tint picker): display alpha as 0..100; stored value stays 0..255.
+        min: 0, max: alphaPercent ? 100 : 255,
+        get: () => alphaPercent ? Math.round(current.a / 2.55) : current.a,
+        set: v => ({ r: current.r, g: current.g, b: current.b, a: alphaPercent ? Math.round(v * 2.55) : v }),
         grad: () => `linear-gradient(to right, rgba(${current.r},${current.g},${current.b},0), rgba(${current.r},${current.g},${current.b},1))`,
       }] : channels;
       // Rebuild DOM only when the channel set changes (mode switch); otherwise

@@ -542,6 +542,7 @@
     "mode_saturation": "飽和度",
     "mode_color": "顏色",
     "mode_luminosity": "明度",
+    "mode_hue-shift": "色相偏移",
     "deleteZone": "拖曳操作到此處刪除",
     "deleteBtn": "- 刪除",
     "deleted": "已刪除 {n} 個圖像操作",

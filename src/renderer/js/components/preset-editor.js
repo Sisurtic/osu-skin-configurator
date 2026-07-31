@@ -47,7 +47,7 @@
   // omits defaults). darkenEnabled is derived (not stored).
   function normalizeTint(t) {
     return {
-      source: t.source || '', color: t.color || '255,255,255,255', mode: (t.mode === 'lightness' ? 'hue' : (t.mode || 'multiply')),
+      source: t.source || '', color: t.color || '255,255,255,255', mode: (t.mode === 'lightness' ? 'hue' : (t.mode || 'replace')),
       destination: t.destination || '',
       tintEnabled: !!t.tintEnabled,
       cropEnabled: !!t.cropEnabled,
@@ -55,6 +55,7 @@
       cropTile: !!t.cropTile, cropTileDir: t.cropTileDir === 'up' ? 'up' : 'down',
       darkenEnabled: !!t.cropEnabled && (+t.darkenOpacity || 0) > 0,
       darkenD: +t.darkenD || 0, darkenOpacity: +t.darkenOpacity || 0,
+      hueShift: +t.hueShift || 0, satShift: +t.satShift || 0, lightShift: +t.lightShift || 0,
     };
   }
   function normalizeActions(actions) {
@@ -821,8 +822,19 @@
         const o = { source: t.source, destination: t.destination || '' };
         if (t.tintEnabled) {
           o.tintEnabled = true;
-          o.color = t.color || '255,255,255,255';
-          o.mode = t.mode || 'multiply';
+          o.mode = t.mode || 'replace';
+          // Persist only the fields the active mode reads, so switching modes
+          // can't leave the other mode's dead values in the file.
+          if (o.mode === 'hue-shift') {
+            // alpha rides in color's 4th component; rgb is unused → neutral 255.
+            const a = (t.color || '').split(',').map(n => parseInt(n.trim(), 10));
+            o.color = `255,255,255,${a[3] != null ? a[3] : 255}`;
+            o.hueShift = +t.hueShift || 0;
+            o.satShift = +t.satShift || 0;
+            o.lightShift = +t.lightShift || 0;
+          } else {
+            o.color = t.color || '255,255,255,255';
+          }
         }
         if (t.cropEnabled) {
           o.cropEnabled = true;
@@ -922,8 +934,16 @@
           const o = { source: t.source, destination: t.destination || '' };
           if (t.tintEnabled) {
             o.tintEnabled = true;
-            o.color = t.color || '255,255,255,255';
-            o.mode = t.mode || 'multiply';
+            o.mode = t.mode || 'replace';
+            if (o.mode === 'hue-shift') {
+              const a = (t.color || '').split(',').map(n => parseInt(n.trim(), 10));
+              o.color = `255,255,255,${a[3] != null ? a[3] : 255}`;
+              o.hueShift = +t.hueShift || 0;
+              o.satShift = +t.satShift || 0;
+              o.lightShift = +t.lightShift || 0;
+            } else {
+              o.color = t.color || '255,255,255,255';
+            }
           }
           if (t.cropEnabled) {
             o.cropEnabled = true;

@@ -259,6 +259,12 @@ struct TintOp {
     darken_enabled: bool,
     darken_d: f64,
     darken_opacity: f64,
+    // PS-style Hue/Saturation adjustment offsets (hue-shift mode).
+    // hue_shift -180..180 (deg), sat_shift/light_shift -100..100 (percent).
+    // Identity at 0; ignored by every mode except "hue-shift".
+    hue_shift: f64,
+    sat_shift: f64,
+    light_shift: f64,
 }
 
 fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
@@ -333,6 +339,17 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
                         let (ch, _, _) = rgb_to_hsl(crf, cgf, cbf);
                         let (_, ps, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
                         let (rr, rg, rb) = hsl_to_rgb(ch, ps, pl);
+                        (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
+                    }
+                    // PS-style Hue/Saturation adjustment: shift the pixel's own
+                    // H/S/L by signed offsets (hue ±180°, sat/light ±100%).
+                    // hue wraps mod 1; sat/light clamp to [0,1].
+                    "hue-shift" => {
+                        let (ph, ps, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
+                        let h = ((ph + op.hue_shift / 360.0) % 1.0 + 1.0) % 1.0;
+                        let s = (ps + op.sat_shift / 100.0).clamp(0.0, 1.0);
+                        let l = (pl + op.light_shift / 100.0).clamp(0.0, 1.0);
+                        let (rr, rg, rb) = hsl_to_rgb(h, s, l);
                         (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
                     }
                     "saturation" => {
@@ -672,7 +689,7 @@ fn apply_one_set(
         let op = TintOp {
             tint_enabled: tint.get("tintEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
             color: tint.get("color").and_then(|v| v.as_str()).unwrap_or("255,255,255,255").to_string(),
-            mode: tint.get("mode").and_then(|v| v.as_str()).unwrap_or("multiply").to_string(),
+            mode: tint.get("mode").and_then(|v| v.as_str()).unwrap_or("replace").to_string(),
             crop_enabled: tint.get("cropEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
             crop_a: tint.get("cropA").and_then(|v| v.as_f64()).unwrap_or(0.0),
             crop_b: tint.get("cropB").and_then(|v| v.as_f64()).unwrap_or(0.0),
@@ -683,6 +700,9 @@ fn apply_one_set(
             darken_enabled: tint.get("darkenEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
             darken_d: tint.get("darkenD").and_then(|v| v.as_f64()).unwrap_or(0.0),
             darken_opacity: tint.get("darkenOpacity").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            hue_shift: tint.get("hueShift").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            sat_shift: tint.get("satShift").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            light_shift: tint.get("lightShift").and_then(|v| v.as_f64()).unwrap_or(0.0),
         };
 
         let is_dir_only = dest_rel.is_empty() || dest_rel.ends_with('/') || dest_rel.ends_with('\\');

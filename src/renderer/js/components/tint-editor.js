@@ -34,7 +34,7 @@
     ['lighten', 'screen'],
     ['overlay', 'soft-light', 'hard-light'],
     ['difference', 'exclusion'],
-    ['hue', 'saturation', 'color', 'luminosity'],
+    ['hue', 'saturation', 'color', 'luminosity', 'hue-shift'],
   ];
   // Above this logical output height the canvas2D backing would be too large to
   // repaint per frame (e.g. cropC=32768 → ~8M px → ~200ms/clear+drawImage). We
@@ -78,6 +78,20 @@
     const p = (c || '255,255,255,255').split(',').map(n => parseInt(n.trim(), 10));
     const r = p[0] || 0, g = p[1] || 0, b = p[2] || 0, a = (p[3] !== undefined ? p[3] : 255) / 255;
     return `rgba(${r},${g},${b},${a})`;
+  }
+  // Base color for the hue-shift swatch preview: HSB(0°, 50%, 50%) = a dark red.
+  // HSV(0, 0.5, 0.5) → rgb(128, 64, 64). Precomputed once.
+  const HUE_SHIFT_BASE_RGB = [128, 64, 64];
+  // Apply the op's hue/sat/light shifts to the base color, return a CSS color.
+  // Mirrors the apply math (H wraps mod 1; S/L clamp) so the swatch reads as the
+  // actual result of the adjustment on the base red.
+  function hueShiftPreviewCss(t) {
+    const hsl = rgb2hsl(HUE_SHIFT_BASE_RGB[0], HUE_SHIFT_BASE_RGB[1], HUE_SHIFT_BASE_RGB[2]); // [0..1]
+    const H = ((hsl[0] + (+(t && t.hueShift) || 0) / 360) % 1 + 1) % 1;
+    const S = Math.min(1, Math.max(0, hsl[1] + (+(t && t.satShift) || 0) / 100));
+    const L = Math.min(1, Math.max(0, hsl[2] + (+(t && t.lightShift) || 0) / 100));
+    const [r, g, b] = hsl2rgb(H, S, L); // → 0..255
+    return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
   }
   function blockUI() { document.body.style.cursor = 'wait'; }
   function unblockUI() { document.body.style.cursor = ''; }
@@ -386,7 +400,7 @@
     // Mode options as a native <select> (hidden by Dropdown.enhance, which
     // overlays the custom trigger + popover). Options read from MODE_GROUPS so
     // the divider grouping matches the custom menu.
-    const curMode = t.mode || 'multiply';
+    const curMode = t.mode || 'replace';
     const modeOpts = MODE_GROUPS.map(modes =>
       modes.map(m => `<option value="${m}" ${m === curMode ? 'selected' : ''}>${i18n.t('tint.mode_' + m)}</option>`).join('')
     ).join('');
@@ -398,7 +412,7 @@
       ${stageBlock('tint', tintOn, i18n.t('edit.stageTint'), `
         <div class="stage__field" style="flex:1 1 100%">
           <span class="stage__field-input" style="display:flex;align-items:center;gap:8px">
-            <button type="button" class="tint-color-swatch"${dis(tintOn)} style="width:24px;height:24px;border-radius:4px;border:1px solid var(--border);background:${colorToCss(t.color)};flex:0 0 auto"></button>
+            <button type="button" class="tint-color-swatch"${dis(tintOn)} style="width:24px;height:24px;border-radius:4px;border:1px solid var(--border);background:${t.mode === 'hue-shift' ? hueShiftPreviewCss(t) : colorToCss(t.color)};flex:0 0 auto"></button>
             <select class="form-input tint-mode"${dis(tintOn)} style="flex:1;min-width:0">${modeOpts}</select>
           </span>
         </div>`)}
@@ -569,8 +583,8 @@
   }
   // u_mode enum must match gl-preview.js applyTint: 0 multiply,1 screen,2 overlay,
   // 3 soft-light,4 hard-light,5 lighten,6 darken,7 difference,8 exclusion,
-  // 9 hue,10 saturation,11 color,12 luminosity,13 replace.
-  const TINT_MODE_IDX = { multiply: 0, screen: 1, overlay: 2, 'soft-light': 3, 'hard-light': 4, lighten: 5, darken: 6, difference: 7, exclusion: 8, hue: 9, saturation: 10, color: 11, luminosity: 12, replace: 13 };
+  // 9 hue,10 saturation,11 color,12 luminosity,13 hue-shift,14 replace.
+  const TINT_MODE_IDX = { multiply: 0, screen: 1, overlay: 2, 'soft-light': 3, 'hard-light': 4, lighten: 5, darken: 6, difference: 7, exclusion: 8, hue: 9, saturation: 10, color: 11, luminosity: 12, 'hue-shift': 13, replace: 14 };
 
   // ── Viewport virtualization (crop/darken canvas2D path) ──
   // Build the TINTED source canvas (the input cropCanvas/darkenCanvas operate
@@ -592,7 +606,7 @@
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
     canvas.getContext('2d').drawImage(img, 0, 0);
-    if (t.tintEnabled) canvas = tintCanvas(canvas, t.color, t.mode);
+    if (t.tintEnabled) canvas = tintCanvas(canvas, t.color, t.mode, t);
     return canvas;
   }
 
@@ -640,7 +654,8 @@
       const tc = parseColorUniforms(t.color);
       entry.renderer.render({
         img, srcKey: t.source, srcW, srcH, outW: srcW, outH: srcH,
-        tint: { on: true, color: tc.color, t: tc.t, mode: TINT_MODE_IDX[t.mode] || 0 },
+        tint: { on: true, color: tc.color, t: tc.t, mode: TINT_MODE_IDX[t.mode] || 0,
+          hueShift: +t.hueShift || 0, satShift: +t.satShift || 0, lightShift: +t.lightShift || 0 },
         crop: { on: false }, darken: { on: false },
       });
       // Blit the (possibly volatile) GL backing into the stable 2D result canvas.
@@ -972,7 +987,8 @@
       if (renderer) {
         renderer.render({
           img, srcKey, srcW, srcH, outW, outH,
-          tint: { on: true, color: tc.color, t: tc.t, mode: TINT_MODE_IDX[t.mode] || 0 },
+          tint: { on: true, color: tc.color, t: tc.t, mode: TINT_MODE_IDX[t.mode] || 0,
+          hueShift: +t.hueShift || 0, satShift: +t.satShift || 0, lightShift: +t.lightShift || 0 },
           crop: { on: false }, darken: { on: false },
         });
         // Clear any leftover canvas2D layout artifacts (style.width etc.).
@@ -1000,7 +1016,7 @@
     let canvas = document.createElement('canvas');
     canvas.width = outW; canvas.height = srcH;
     canvas.getContext('2d').drawImage(img, 0, 0);
-    if (t.tintEnabled) canvas = tintCanvas(canvas, t.color, t.mode);
+    if (t.tintEnabled) canvas = tintCanvas(canvas, t.color, t.mode, t);
     if (cropOn) canvas = cropCanvas(canvas, +t.cropA || 0, +t.cropB || 0, +t.cropC || 32768, !!t.cropTile, t.cropTileDir, +t.cropD || 0);
     if (darkenOn) canvas = darkenCanvas(canvas, +t.darkenD || 0, +t.darkenOpacity || 0);
     if (shown.width !== canvas.width || shown.height !== canvas.height) {
@@ -1261,7 +1277,7 @@
     return [Math.round(r), Math.round(g), Math.round(b)];
   }
 
-  function tintCanvas(src, color, mode) {
+  function tintCanvas(src, color, mode, op) {
     const out = document.createElement('canvas');
     out.width = src.width; out.height = src.height;
     const ctx = out.getContext('2d');
@@ -1301,6 +1317,18 @@
         r = lerp(pr, ex(pr, cr)); g = lerp(pg, ex(pg, cg)); b = lerp(pb, ex(pb, cb));
       } else if (mode === 'hue' || mode === 'saturation' || mode === 'color' || mode === 'luminosity') {
         const [nr, ng, nb] = hslCombine(pr, pg, pb, cr, cg, cb, mode);
+        r = lerp(pr, nr); g = lerp(pg, ng); b = lerp(pb, nb);
+      } else if (mode === 'hue-shift') {
+        // PS Hue/Saturation adjustment: shift the pixel's own H/S/L by signed
+        // offsets (hue ±180°, sat/light ±100%). hue wraps mod 1; sat/light clamp.
+        const ph = rgb2hsl(pr, pg, pb); // [h,s,l] in 0..1
+        const hShift = ((+(op && op.hueShift) || 0) / 360);
+        const sShift = ((+(op && op.satShift) || 0) / 100);
+        const lShift = ((+(op && op.lightShift) || 0) / 100);
+        const H = ((ph[0] + hShift) % 1 + 1) % 1;
+        const S = Math.min(1, Math.max(0, ph[1] + sShift));
+        const L = Math.min(1, Math.max(0, ph[2] + lShift));
+        const [nr, ng, nb] = hsl2rgb(H, S, L); // → 0..255
         r = lerp(pr, nr); g = lerp(pg, ng); b = lerp(pb, nb);
       } else { r = lerp(pr, cr); g = lerp(pg, cg); b = lerp(pb, cb); } // replace → solid color
       d[i] = Math.round(r); d[i + 1] = Math.round(g); d[i + 2] = Math.round(b);
@@ -1494,10 +1522,11 @@
     for (const t of a) {
       if (t && isFrame(t) && seqKeyOf(t) === gk) {
         return {
-          tintEnabled: !!t.tintEnabled, color: t.color || '255,255,255,255', mode: t.mode || 'multiply',
+          tintEnabled: !!t.tintEnabled, color: t.color || '255,255,255,255', mode: t.mode || 'replace',
           cropEnabled: !!t.cropEnabled, cropA: t.cropA, cropB: t.cropB, cropC: t.cropC, cropD: t.cropD,
           cropTile: !!t.cropTile, cropTileDir: t.cropTileDir,
           darkenEnabled: !!t.darkenEnabled, darkenD: t.darkenD, darkenOpacity: t.darkenOpacity,
+          hueShift: +t.hueShift || 0, satShift: +t.satShift || 0, lightShift: +t.lightShift || 0,
         };
       }
     }
@@ -2070,10 +2099,11 @@
         const temp = seqKey ? headerTempParams.get(seqKey) : null;
         const tpl = temp || arr[memberIdx[0]] || {};
         const params = {
-          tintEnabled: !!tpl.tintEnabled, color: tpl.color || '255,255,255,255', mode: tpl.mode || 'multiply',
+          tintEnabled: !!tpl.tintEnabled, color: tpl.color || '255,255,255,255', mode: tpl.mode || 'replace',
           cropEnabled: !!tpl.cropEnabled, cropA: tpl.cropA, cropB: tpl.cropB, cropC: tpl.cropC, cropD: tpl.cropD,
           cropTile: !!tpl.cropTile, cropTileDir: tpl.cropTileDir,
           darkenEnabled: !!tpl.darkenEnabled, darkenD: tpl.darkenD, darkenOpacity: tpl.darkenOpacity,
+          hueShift: +tpl.hueShift || 0, satShift: +tpl.satShift || 0, lightShift: +tpl.lightShift || 0,
         };
         for (const k of memberIdx) {
           arr[k] = { ...arr[k], destination: dest, exact, ...params };
@@ -2217,15 +2247,18 @@
         if (!anchor) return;
         if (stage === 'tint') {
           if (anchor.tintEnabled) {
-            // Turning tint OFF → reset color/mode to defaults.
-            applyToTargets({ tintEnabled: false, color: '255,255,255,255', mode: 'multiply' });
+            // Turning tint OFF → drop the flag only. The color/mode/shift values
+            // stay on the in-memory op (so re-opening restores them), but are NOT
+            // persisted: the save path omits tint fields when tintEnabled is false.
+            applyToTargets({ tintEnabled: false });
           } else {
             applyToTargets({ tintEnabled: true });
           }
         } else if (stage === 'percy') {
           if (anchor.cropEnabled) {
-            // Turning crop OFF → reset the whole crop/darken block to defaults.
-            applyToTargets({ cropEnabled: false, cropA: 0, cropB: 0, cropC: 32768, cropTile: false, cropTileDir: 'down', darkenD: 0, darkenOpacity: 0 });
+            // Turning crop OFF → drop the flag only (same stash-on-close model
+            // as tint: in-memory values survive for re-open, but aren't saved).
+            applyToTargets({ cropEnabled: false });
           } else {
             applyToTargets({ cropEnabled: true });
           }
@@ -2238,7 +2271,29 @@
     if (sw) sw.addEventListener('click', () => {
       const t = stageParams();
       if (!t || !t.tintEnabled || sw.disabled) return; // ignore when tint stage is off
-      window.ColorPicker.attach(sw, { type: 'rgba', value: t.color, onChange(v) {
+      // hue-shift mode → PS-style adjust picker (H/S/L offsets + opacity 0..100).
+      // Otherwise the normal rgba picker (opacity shown as 0..100 via alphaPercent).
+      if (t.mode === 'hue-shift') {
+        const parsed = window.ColorPicker.parseColor(t.color);
+        window.ColorPicker.attach(sw, {
+          adjust: true,
+          value: { hue: +t.hueShift || 0, sat: +t.satShift || 0, light: +t.lightShift || 0,
+                   alpha: Math.round((parsed.a / 255) * 100) },
+          onChange(v) {
+            applyToTargets({
+              hueShift: v.hue, satShift: v.sat, lightShift: v.light,
+              color: `255,255,255,${Math.round(v.alpha * 2.55)}`,
+            });
+            // Update the swatch live (don't re-render — that would rebuild DOM
+            // and lose the open popover). onClose lets renderStages finalize.
+            sw.style.background = hueShiftPreviewCss({ hueShift: v.hue, satShift: v.sat, lightShift: v.light });
+            schedulePreview(true);   // live: coalesced on rAF, downsampled
+          },
+          onClose() { schedulePreview(false); }, // final: full-quality recompute
+        });
+        return;
+      }
+      window.ColorPicker.attach(sw, { type: 'rgba', alphaPercent: true, value: t.color, onChange(v) {
         applyToTargets({ color: v });
         sw.style.background = colorToCss(v);
         schedulePreview(true);   // live: coalesced on rAF, downsampled
@@ -2257,7 +2312,9 @@
       window.Dropdown.enhance(modeSel, { groups, wheelInline: !modeSel.disabled });
       modeSel.addEventListener('change', () => {
         applyToTargets({ mode: modeSel.value });
-        schedulePreview();
+        // Re-render the stage so the swatch reflects the new mode (e.g. hue-shift
+        // shows the shifted-base-red preview vs a normal mode's color swatch).
+        refreshDetailAndList(true);
       });
     }
     // Crop inputs.
@@ -2324,10 +2381,11 @@
 
   function defaultOp(relPath) {
     return {
-      source: relPath, color: '255,255,255,255', mode: 'multiply', destination: '',
+      source: relPath, color: '255,255,255,255', mode: 'replace', destination: '',
       tintEnabled: false,
       cropEnabled: false, cropA: 0, cropB: 0, cropC: 32768, cropD: 0, cropTile: false, cropTileDir: 'down',
       darkenEnabled: false, darkenD: 0, darkenOpacity: 0,
+      hueShift: 0, satShift: 0, lightShift: 0,
       exact: false,
     };
   }
@@ -2354,6 +2412,7 @@
           cropEnabled: !!t.cropEnabled, cropA: t.cropA, cropB: t.cropB, cropC: t.cropC, cropD: t.cropD,
           cropTile: !!t.cropTile, cropTileDir: t.cropTileDir,
           darkenEnabled: !!t.darkenEnabled, darkenD: t.darkenD, darkenOpacity: t.darkenOpacity,
+          hueShift: +t.hueShift || 0, satShift: +t.satShift || 0, lightShift: +t.lightShift || 0,
           exact: !!t.exact,
         });
       }

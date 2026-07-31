@@ -542,6 +542,7 @@
     "mode_saturation": "Насыщенность",
     "mode_color": "Цвет",
     "mode_luminosity": "Яркость",
+    "mode_hue-shift": "Сдвиг тона",
     "deleteZone": "Перетащите действие сюда для удаления",
     "deleteBtn": "- Удалить",
     "deleted": "Удалено {n} действий с изображениями",
