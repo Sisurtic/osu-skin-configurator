@@ -1070,7 +1070,9 @@
     const result = await api.deletePreset(sk, pid);
     if (result.success) {
       Toast.success(i18n.t('preset.deletedToast'));
-      state.set('selectedPreset', null);
+      // The edited preset is gone: clear the dirty flag so the save button
+      // doesn't stay lit for unsaved edits to a preset that no longer exists.
+      state.setMultiple({ selectedPreset: null, presetDirty: false });
       // Drop cached previews BEFORE re-scan: ids get compacted on delete, so
       // stale id→image entries would otherwise map to the wrong preset.
       if (window.PresetSelector && typeof window.PresetSelector.invalidateCache === 'function') {

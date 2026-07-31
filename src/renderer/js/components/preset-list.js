@@ -696,7 +696,9 @@
           const ids = [...dragPresetIds];
           const result = await api.deletePresets(skin, ids);
           if (result.success && ids.includes(state.get('selectedPreset'))) {
-            state.set('selectedPreset', null);
+            // The edited preset was deleted: its unsaved edits are gone too, so
+            // clear the dirty flag (else the save button stays lit for nothing).
+            state.setMultiple({ selectedPreset: null, presetDirty: false });
           }
           // Mixed: also delete selected groups
           if (Selection.groupIds().length > 0) {
