@@ -104,6 +104,35 @@
       }
     }
 
+    // Auto-scroll the list when dragging near the top/bottom edges (inside the
+    // fade zones). Bound on the container (not per-row) so it fires even when the
+    // cursor is over the sticky thead or the fade area, not on a row.
+    if (A.container && !A.container._autoScrollBound) {
+      A.container._autoScrollBound = true;
+      A.container.addEventListener('dragover', (e) => {
+        if (!e.dataTransfer.types.includes(A.deleteMimeType)) return;
+        // Find the scroll container: the container itself if it scrolls, else
+        // the nearest scrolling DESCENDANT (the .files-table-body-scroll etc.).
+        let sc = A.container;
+        if (getComputedStyle(sc).overflowY !== 'auto') {
+          sc = A.container.querySelector('[style*="overflow"], .files-table-body-scroll, .ini-table-body-scroll, #layer-rows-scroll');
+          // Walk down to find the actual scroller.
+          const candidates = A.container.querySelectorAll('*');
+          for (const el of candidates) {
+            if (getComputedStyle(el).overflowY === 'auto') { sc = el; break; }
+          }
+        }
+        if (!sc) return;
+        const sr = sc.getBoundingClientRect();
+        const edge = 60; // 2× the fade height (30px), top/bottom auto-scroll zone
+        if (e.clientY < sr.top + edge) {
+          sc.scrollTop = Math.max(0, sc.scrollTop - 10);
+        } else if (e.clientY > sr.bottom - edge) {
+          sc.scrollTop = Math.min(sc.scrollHeight, sc.scrollTop + 10);
+        }
+      });
+    }
+
     function bindRow(row) {
       row.addEventListener('click', (e) => {
         // Skip if an input is focused (text selection drag, typing, etc.)

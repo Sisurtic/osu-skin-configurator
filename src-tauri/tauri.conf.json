@@ -16,7 +16,7 @@
         "title": "osu! Skin Configurator",
         "width": 1280,
         "height": 800,
-        "minWidth": 916,
+        "minWidth": 1140,
         "minHeight": 638,
         "backgroundColor": "#1a1a1a",
         "resizable": true,

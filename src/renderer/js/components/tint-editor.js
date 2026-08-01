@@ -118,6 +118,7 @@
     return a;
   }
   function sel() { const a = cur(); return a[selectedIdx()] || null; }
+  function hasSelection() { return !!(opSel && opSel.getAnchor() >= 0 && opSel.getSelected().size > 0); }
   // Indices a row represents: a plain row → [idx]; a sequence-group header →
   // the members of THIS group only (its rendered data-range [i,j)). Scoping to
   // the range — not a global seqKey scan — keeps same-name groups from all
@@ -198,7 +199,7 @@
         reorder: (fromIndices, toIndex) => applyReorderOps(fromIndices, toIndex),
       });
       // Default anchor = 0 (preview the first row on initial load).
-      opSel.setSelected(new Set(), 0);
+      opSel.setSelected(cur().length ? new Set([0]) : new Set(), 0);
     } else {
       opSel.setContainer(container);
     }
@@ -219,25 +220,12 @@
                 ${i18n.t('tint.deleteZone')}
               </div>
             </div>
-            ${tints.length > 0 ? `
-            <div class="files-header-table" style="margin-top:6px">
-              <div class="table-wrap">
-                <table class="table ini-table tint-table">
-                  <colgroup><col><col><col style="width:120px"></colgroup>
-                  <thead><tr>
-                    <th>${i18n.t('tint.colSource')}</th>
-                    <th title="${escapeHtml(i18n.t('tint.colDestTitle'))}">${i18n.t('tint.colDest')}</th>
-                    <th title="${escapeHtml(i18n.t('tint.colExactTitle'))}">${i18n.t('tint.colExact')}</th>
-                  </tr></thead>
-                </table>
-              </div>
-            </div>` : ''}
           </div>
           <div class="files-table-body-scroll" id="tint-table-body-scroll">${renderList(tints)}</div>
         </div>
         <div class="tint-divider" id="tint-divider"></div>
         <div class="tint-detail" style="flex:1 1 0">
-          ${sel()
+          ${hasSelection()
             ? `<div class="tint-preview" id="tint-preview"><div class="tint-preview__empty">${i18n.t('edit.previewEmpty')}</div></div>
                <div class="tint-stages" id="tint-stages">${renderStages()}</div>`
             : `<div class="tint-empty-hint tint-preview--fade">
@@ -293,6 +281,11 @@
       <div class="files-body-table"><div class="table-wrap">
         <table class="table ini-table tint-table tint-body-table">
           <colgroup><col><col><col style="width:120px"></colgroup>
+          <thead><tr>
+            <th>${i18n.t('tint.colSource')}</th>
+            <th title="${escapeHtml(i18n.t('tint.colDestTitle'))}">${i18n.t('tint.colDest')}</th>
+            <th title="${escapeHtml(i18n.t('tint.colExactTitle'))}">${i18n.t('tint.colExact')}</th>
+          </tr></thead>
           <tbody>${bodyHtml}</tbody>
         </table>
       </div></div>`;
@@ -1029,7 +1022,7 @@
 
   async function recomputePreview(fadeOnChange, live) {
     const previewEl = container && container.querySelector('#tint-preview');
-    if (!previewEl) return;
+    if (!previewEl) return; // no selection → detail shows empty-hint, no preview element
     // Whole-group selection: preview the anchor member's source with the group's
     // STAGE TEMP tint/crop params (→ first member when no temp set), so live
     // stage edits show in the preview before Fill commits them to every member.
@@ -1423,41 +1416,6 @@
     await thumbLoader.load(() => container);
   }
 
-  // Add top/bottom edge-fade overlays to a scroll viewport.
-  // `relativeEl` is the positioned ancestor the fades attach to; `scrollEl` is the
-  // scroller (defaults to relativeEl itself). `bg` overrides the fade gradient color.
-  // Layering: sticky header (z 10) > fades (z 9) > table border/content.
-  function setupEdgeFade(relativeEl, scrollEl, bg) {
-    if (!relativeEl || relativeEl._fadeBound) return;
-    relativeEl._fadeBound = true;
-    relativeEl.style.position = 'relative';
-    const scroller = scrollEl || relativeEl;
-    const topFade = document.createElement('div');
-    topFade.className = 'scroll-edge-fade scroll-edge-fade--top';
-    const botFade = document.createElement('div');
-    botFade.className = 'scroll-edge-fade scroll-edge-fade--bottom';
-    if (bg) {
-      topFade.style.background = `linear-gradient(to bottom, ${bg} 0%, transparent 100%)`;
-      botFade.style.background = `linear-gradient(to top, ${bg} 0%, transparent 100%)`;
-    }
-    relativeEl.appendChild(topFade);
-    relativeEl.appendChild(botFade);
-    const updateFade = () => {
-      const r = scroller.getBoundingClientRect();
-      const cr = relativeEl.getBoundingClientRect();
-      if (r.height === 0) return;
-      topFade.style.top = (r.top - cr.top) + 'px';
-      botFade.style.bottom = (cr.bottom - r.bottom) + 'px';
-      const canScroll = scroller.scrollHeight > scroller.clientHeight + 2;
-      topFade.style.opacity = (canScroll && scroller.scrollTop > 2) ? '1' : '0';
-      botFade.style.opacity = (canScroll && scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 2) ? '1' : '0';
-    };
-    scroller.addEventListener('scroll', updateFade, { passive: true });
-    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(updateFade).observe(scroller);
-    requestAnimationFrame(updateFade);
-    setTimeout(updateFade, 300);
-  }
-
   // Indices to apply stage edits to: the multi-select set if non-empty, else the anchor row.
   // BUT: when the selection is a whole sequence GROUP (i.e. the user clicked a
   // group header, which selects all its members), stage edits must NOT batch-
@@ -1573,7 +1531,8 @@
     const len = arr.length;
     const anchor = opSel ? opSel.getAnchor() : 0;
     render(document.getElementById('tab-tint'));
-    opSel.setSelected(new Set(), len ? Math.min(anchor, len - 1) : 0);
+    const a2 = len ? Math.min(anchor, len - 1) : 0;
+    opSel.setSelected(len ? new Set([a2]) : new Set(), a2);
   }
 
   // Move the rows at `fromIndices` to land at `toIndex` (original-array index,
@@ -1708,8 +1667,22 @@
   // change needs it; a multi-select change re-renders stages (batch targets) +
   // re-highlights but skips the preview rebuild.
   function refreshDetailAndList(recompute) {
-    const stages = container.querySelector('#tint-stages');
-    if (stages) stages.innerHTML = renderStages();
+    // Rebuild the whole detail pane when the selection-presence flips (selected
+    // → empty-hint or vice versa), since the two states are different DOM.
+    const detail = container.querySelector('.tint-detail');
+    const previewExists = !!container.querySelector('#tint-preview');
+    if (detail && previewExists !== hasSelection()) {
+      detail.innerHTML = hasSelection()
+        ? `<div class="tint-preview" id="tint-preview"><div class="tint-preview__empty">${i18n.t('edit.previewEmpty')}</div></div>
+           <div class="tint-stages" id="tint-stages">${renderStages()}</div>`
+        : `<div class="tint-empty-hint tint-preview--fade">
+             <div>${i18n.t('edit.hintAddSelect')}</div>
+             <div>${i18n.t('edit.hintApply')}</div>
+           </div>`;
+    } else {
+      const stages = container.querySelector('#tint-stages');
+      if (stages) stages.innerHTML = renderStages();
+    }
     // Highlight via OpTable (empty set → anchor only; non-empty → every member).
     if (opSel) opSel.highlightAll();
     bindStageHandlers();
@@ -1738,9 +1711,9 @@
         }
         applyTints(tints);
         render(container);
-        // Select the newly-added row AFTER render (so the row exists in the DOM
-        // when setSelected auto-highlights it). Anchor it for preview.
-        opSel.setSelected(new Set(), tints.length - 1);
+        opSel.setSelected(new Set([tints.length - 1]), tints.length - 1);
+        refreshDetailAndList(true); // render used the OLD selection state; rebuild detail for the new one
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
       } finally { fileDialogOpen = false; unblockUI(); }
     });
 
@@ -2163,7 +2136,7 @@
     bindTabCycle(container.querySelector('.tint-detail'));
 
     // Edge-fade overlays on the ops-list scroll viewport.
-    setupEdgeFade(container.querySelector('.tint-ops'), container.querySelector('#tint-table-body-scroll'));
+    window.setupEdgeFade(container.querySelector('.tint-ops'), container.querySelector('#tint-table-body-scroll'));
 
     // Double-click (custom 250ms) toggles fit; drag-to-scroll (width-fit mode) pans vertically.
     const previewEl = container.querySelector('#tint-preview');

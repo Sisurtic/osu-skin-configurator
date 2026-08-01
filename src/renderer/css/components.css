@@ -149,6 +149,8 @@ select.form-input {
    The native <select> stays as the hidden value SOT; a <button> trigger is
    overlaid via Dropdown.enhance (utils/dropdown.js). ── */
 button.form-input.dd-trigger { appearance: none; }
+.dd-trigger__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
+.dd-trigger__caret { flex: 0 0 auto; }
 .dd-menu {
   position: absolute;
   z-index: 300;
@@ -380,8 +382,11 @@ tr[data-group-parent] .file-thumb__icon {
 .table-wrap {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  overflow: hidden;
 }
+/* Editor tables: don't clip — the sticky thead needs to resolve against the
+   scroll container, not this wrapper. Border-radius clipping is sacrificed. */
+.files-body-table .table-wrap,
+.ini-body-table .table-wrap { overflow: visible; }
 .table {
   width: 100%;
   border-collapse: separate;
@@ -464,10 +469,6 @@ tr[data-group-parent] .file-thumb__icon {
 }
 /* Exact column (4th): tighter padding so the toggle + fill button fit. */
 .table.files-body-table td:nth-child(4) {
-  padding-left: 6px;
-  padding-right: 6px;
-}
-.table.files-header-table th:nth-child(4) {
   padding-left: 6px;
   padding-right: 6px;
 }
@@ -1937,32 +1938,34 @@ tr[data-group-parent] .file-thumb__icon {
 /* ── Editor tabs: flex layout so only tbody scrolls, header + thead stay fixed ── */
 .tab-content--active#tab-ini,
 .tab-content--active#tab-files,
-.tab-content--active#tab-tint {
+.tab-content--active:is(#tab-tint,#tab-layer) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 #tab-ini .editor-sticky-header,
 #tab-files .editor-sticky-header,
-#tab-tint .editor-sticky-header {
+:is(#tab-tint,#tab-layer) .editor-sticky-header {
   flex-shrink: 0;
 }
 #tab-ini .ini-table-body-scroll,
 #tab-files .files-table-body-scroll,
-#tab-tint .files-table-body-scroll {
+:is(#tab-tint,#tab-layer) .files-table-body-scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: clip;
   min-height: 0;
+  margin-top: 6px; /* gap below the sticky header (was the header table's margin) */
   scrollbar-width: none; /* Firefox: hide scrollbar */
 }
 #tab-ini .ini-table-body-scroll::-webkit-scrollbar,
 #tab-files .files-table-body-scroll::-webkit-scrollbar,
-#tab-tint .files-table-body-scroll::-webkit-scrollbar {
+:is(#tab-tint,#tab-layer) .files-table-body-scroll::-webkit-scrollbar {
   display: none; /* Chromium: hide scrollbar but keep scrolling */
 }
 
 /* ── Image edit (tint) split layout ── */
-#tab-tint .tint-split {
+:is(#tab-tint,#tab-layer) .tint-split {
   display: flex;
   flex-direction: row;
   gap: 0;
@@ -1970,13 +1973,13 @@ tr[data-group-parent] .file-thumb__icon {
   min-height: 0;
   flex: 1;
 }
-#tab-tint .tint-ops {
+:is(#tab-tint,#tab-layer) .tint-ops {
   display: flex;
   flex-direction: column;
   min-width: 0;
   position: relative;
 }
-#tab-tint .tint-divider {
+:is(#tab-tint,#tab-layer) .tint-divider {
   flex: 0 0 4px;
   margin: 0 20px;
   cursor: ew-resize;
@@ -1984,16 +1987,16 @@ tr[data-group-parent] .file-thumb__icon {
   border-radius: 2px;
   transition: background 0.15s;
 }
-#tab-tint .tint-divider:hover {
+:is(#tab-tint,#tab-layer) .tint-divider:hover {
   background: var(--accent);
 }
-#tab-tint .tint-detail {
+:is(#tab-tint,#tab-layer) .tint-detail {
   display: flex;
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
 }
-#tab-tint .tint-preview {
+:is(#tab-tint,#tab-layer) .tint-preview {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
@@ -2008,31 +2011,31 @@ tr[data-group-parent] .file-thumb__icon {
   display: flex;
   flex-direction: column;
 }
-#tab-tint .tint-preview::-webkit-scrollbar {
+:is(#tab-tint,#tab-layer) .tint-preview::-webkit-scrollbar {
   display: none;
 }
-#tab-tint .tint-preview__wrap {
+:is(#tab-tint,#tab-layer) .tint-preview__wrap {
   width: 100%;
   margin-block: auto;   /* center vertically when shorter than the container */
 }
-#tab-tint .tint-preview__stage {
+:is(#tab-tint,#tab-layer) .tint-preview__stage {
   position: relative;
   display: block;
   width: 100%;
 }
-#tab-tint .tint-preview__canvas {
+:is(#tab-tint,#tab-layer) .tint-preview__canvas {
   display: block;
   margin: 0 auto;
   max-width: 100%;
   height: auto;
   border-radius: var(--radius-sm);
 }
-#tab-tint .tint-guide {
+:is(#tab-tint,#tab-layer) .tint-guide {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
-#tab-tint .tint-guide__line {
+:is(#tab-tint,#tab-layer) .tint-guide__line {
   position: absolute;
   left: 0;
   right: 0;
@@ -2042,13 +2045,13 @@ tr[data-group-parent] .file-thumb__icon {
 }
 /* Label wrapper sits at the same position as its line but above it (z-index 2),
    so the dashed line never paints over the label. */
-#tab-tint .tint-guide__labelwrap {
+:is(#tab-tint,#tab-layer) .tint-guide__labelwrap {
   position: absolute;
   left: 0;
   right: 0;
   z-index: 2;
 }
-#tab-tint .tint-guide__label {
+:is(#tab-tint,#tab-layer) .tint-guide__label {
   position: absolute;
   top: 0;
   display: inline-flex;
@@ -2061,16 +2064,16 @@ tr[data-group-parent] .file-thumb__icon {
   border-radius: 2px;
   white-space: nowrap;
 }
-#tab-tint .tint-guide__label--left { left: 8px; }
-#tab-tint .tint-guide__label--above {
+:is(#tab-tint,#tab-layer) .tint-guide__label--left { left: 8px; }
+:is(#tab-tint,#tab-layer) .tint-guide__label--above {
   top: auto;
   bottom: 0;
 }
-#tab-tint .tint-guide__arrow {
+:is(#tab-tint,#tab-layer) .tint-guide__arrow {
   font-size: 8px;
   line-height: 1;
 }
-#tab-tint .tint-preview__empty {
+:is(#tab-tint,#tab-layer) .tint-preview__empty {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   display: flex;
@@ -2081,10 +2084,10 @@ tr[data-group-parent] .file-thumb__icon {
   text-align: center;
   pointer-events: none;
 }
-#tab-tint .tint-preview--fade {
+:is(#tab-tint,#tab-layer) .tint-preview--fade {
   animation: preset-preview-fade-up 0.25s ease;
 }
-#tab-tint .tint-empty-hint {
+:is(#tab-tint,#tab-layer) .tint-empty-hint {
   flex: 1 1 0;
   display: flex;
   flex-direction: column;
@@ -2096,16 +2099,16 @@ tr[data-group-parent] .file-thumb__icon {
   text-align: center;
   padding: 20px;
 }
-#tab-tint .tint-stages {
+:is(#tab-tint,#tab-layer) .tint-stages {
   flex-shrink: 0;
 }
-#tab-tint .stage {
+:is(#tab-tint,#tab-layer) .stage {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   margin-bottom: 6px;
   overflow: hidden;
 }
-#tab-tint .stage__toggle {
+:is(#tab-tint,#tab-layer) .stage__toggle {
   padding: 6px 10px;
   font-size: 12px;
   font-weight: 500;
@@ -2114,46 +2117,46 @@ tr[data-group-parent] .file-thumb__icon {
   border-bottom: 2px solid transparent;
   user-select: none;
 }
-#tab-tint .stage__toggle:hover {
+:is(#tab-tint,#tab-layer) .stage__toggle:hover {
   background: var(--bg-hover);
 }
-#tab-tint .stage__body {
+:is(#tab-tint,#tab-layer) .stage__body {
   padding: 8px 10px;
   font-size: 12px;
   display: flex;
   flex-wrap: wrap;
   gap: 6px 12px;
 }
-#tab-tint .stage__field {
+:is(#tab-tint,#tab-layer) .stage__field {
   display: flex;
   align-items: center;
   gap: 8px;
   flex: 1 1 200px;
   min-width: 0;
 }
-#tab-tint .stage__sep {
+:is(#tab-tint,#tab-layer) .stage__sep {
   flex: 0 0 100%;
   width: 100%;
   height: 0;
   border-top: 1px solid var(--border);
   margin: 4px 0;
 }
-#tab-tint .stage__field-label {
+:is(#tab-tint,#tab-layer) .stage__field-label {
   flex: 0 0 auto;
   white-space: nowrap;
   color: var(--text-secondary);
 }
-#tab-tint .stage__field-input {
+:is(#tab-tint,#tab-layer) .stage__field-input {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
 }
-#tab-tint .stage__field-input .form-input {
+:is(#tab-tint,#tab-layer) .stage__field-input .form-input {
   width: 100%;
   min-width: 0;
 }
-#tab-tint .crop-tile-dir {
+:is(#tab-tint,#tab-layer) .crop-tile-dir {
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -2163,48 +2166,48 @@ tr[data-group-parent] .file-thumb__icon {
   line-height: 1;
   transition: color var(--transition-fast);
 }
-#tab-tint .crop-tile-dir:hover {
+:is(#tab-tint,#tab-layer) .crop-tile-dir:hover {
   color: var(--text-secondary);
 }
 /* Arrow turns green once tiling is enabled (regardless of direction). */
-#tab-tint .crop-tile-dir--on {
+:is(#tab-tint,#tab-layer) .crop-tile-dir--on {
   color: var(--accent);
 }
-#tab-tint .stage--active .stage__toggle {
+:is(#tab-tint,#tab-layer) .stage--active .stage__toggle {
   border-bottom-color: var(--accent);
   color: var(--accent);
 }
 /* Disabled (inactive) stage: dim everything inside and show a "not allowed"
    cursor over the body, like a disabled app button. */
-#tab-tint .stage:not(.stage--active) .stage__body {
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .stage__body {
   cursor: not-allowed;
   opacity: 0.5;
   background: color-mix(in srgb, var(--bg-secondary) 50%, transparent);
 }
-#tab-tint .stage:not(.stage--active) .stage__field-label,
-#tab-tint .stage:not(.stage--active) .stage__field-input,
-#tab-tint .stage:not(.stage--active) .form-input,
-#tab-tint .stage:not(.stage--active) .crop-tile-dir {
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .stage__field-label,
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .stage__field-input,
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .form-input,
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .crop-tile-dir {
   color: var(--text-muted);
 }
-#tab-tint .tint-color-swatch {
+:is(#tab-tint,#tab-layer) .tint-color-swatch {
   transition: transform 0.15s;
 }
-#tab-tint .stage--active .tint-color-swatch {
+:is(#tab-tint,#tab-layer) .stage--active .tint-color-swatch {
   cursor: pointer;
 }
-#tab-tint .stage--active .tint-color-swatch:hover {
+:is(#tab-tint,#tab-layer) .stage--active .tint-color-swatch:hover {
   transform: scale(1.15);
 }
 /* Disabled stage: every interactive control shows a "not allowed" cursor and
    ignores hover effects (no scale, no pointer). */
-#tab-tint .stage:not(.stage--active) .tint-color-swatch,
-#tab-tint .stage:not(.stage--active) .form-input,
-#tab-tint .stage:not(.stage--active) .crop-tile-dir,
-#tab-tint .stage:not(.stage--active) .tint-mode {
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .tint-color-swatch,
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .form-input,
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .crop-tile-dir,
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .tint-mode {
   cursor: not-allowed;
 }
-#tab-tint .stage:not(.stage--active) .tint-color-swatch:hover {
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .tint-color-swatch:hover {
   transform: none;
 }
 /* Edge fade overlays: JS creates fixed-position <div>s at the top/bottom
@@ -2227,18 +2230,39 @@ tr[data-group-parent] .file-thumb__icon {
 .scroll-edge-fade--bottom {
   background: linear-gradient(to top, var(--bg-primary) 0%, var(--bg-primary) 0%, transparent 100%);
 }
-/* Header table wrapper: no bottom border-radius (seamless with body table) */
-.ini-header-table .table-wrap,
-.files-header-table .table-wrap {
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  border-bottom: none;
-  margin-bottom: 0;
-}
-/* Body table wrapper: no top border (seamless with header table) */
+/* Body table wrapper: rounded (the header table wrapper was removed when the
+   editors switched to single auto-layout tables). */
 .ini-body-table .table-wrap,
 .files-body-table .table-wrap {
-  border-top: none;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  border-radius: var(--radius-sm);
+}
+/* Single-table editors (thead + tbody in one table): auto layout so columns
+   size to content, and a sticky thead so the header stays visible while the
+   body scrolls. Applied to file-copy (.files-single-table), ini
+   (.ini-body-table .table), tint (.tint-body-table), layer (.layer-sub-table). */
+/* Operation lists: auto layout so columns size to content with sensible minimums.
+   Each narrow column gets a min-width via colgroup; the table has a min-width so a
+   too-narrow window scrolls horizontally instead of crushing columns to nothing. */
+.table.files-single-table,
+.ini-body-table .table.ini-table,
+.table.tint-body-table,
+.table.layer-body-table,
+.table.layer-sub-table {
+  table-layout: auto;
+}
+/* Sticky thead for all single-table editors (header stays put while body scrolls). */
+.table.files-single-table thead th,
+.ini-body-table .table thead th,
+.table.tint-body-table thead th,
+.table.layer-body-table thead th,
+.table.layer-sub-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* outline (unlike box-shadow/border) is NOT subject to z-index, so a sticky
+     thead outline in the bg color covers scrolling rows' selection outlines
+     that would otherwise peek through on the sides. */
+  outline: 1px solid var(--bg-tertiary);
 }
 
 /* ── Info / about dialog ── */
@@ -2475,3 +2499,63 @@ tr[data-group-parent] .file-thumb__icon {
 @keyframes mode-enter-down  { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes mode-fade-out    { from { opacity: 1; } to { opacity: 0; } }
 @keyframes mode-fade-in     { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── Layer compositing editor ──
+   Layout (split/ops/divider/detail/preview/stages) shares the tint classes
+   (.tint-split etc.) via :is(#tab-tint,#tab-layer) selectors above. Only
+   layer-specific widgets (flyout, 9-grid, sub-table) are defined here. */
+/* Layer preview: fit the whole composite centered, no scrolling (unlike tint's
+   tall crop outputs). Override the shared .tint-preview overflow. */
+#tab-layer .tint-preview { overflow: hidden; }
+#tab-layer .tint-preview__canvas { max-height: 100%; object-fit: contain; }
+.layer-table, .layer-sub-table { width: 100%; }
+/* Destination input fills its column (auto layout wouldn't stretch it otherwise). */
+.layer-table .layer-dest { width: 100%; min-width: 0; }
+/* Blend-mode column: width + nudge are inline on the <select> so the Dropdown
+   overlay's trigger (which copies the select's inline style) inherits them —
+   otherwise the trigger would resize with the selected label and jump. */
+/* Layer tables use auto layout so columns size to their content (the exact
+   column fits its header text in every language) instead of .ini-table's
+   fixed layout with hardcoded colgroup widths. */
+.table.layer-sub-table { table-layout: auto; }
+/* Sticky header inside the layer sub-list scroll area (thead + tbody share one
+   table so auto columns align; thead stays pinned while rows scroll). */
+/* Sticky header for all single-table editors (merged thead+tbody): the header
+   stays pinned at the top of the scroll container while rows scroll. */
+.table.files-single-table thead th,
+.ini-body-table .table thead th,
+.table.tint-body-table thead th,
+.table.layer-body-table thead th,
+.table.layer-sub-table thead th {
+  position: sticky; top: 0; z-index: 2;
+}
+/* Zero cell spacing so the sticky thead's background is continuous (no gaps
+   for row-highlight to peek through). */
+.files-single-table, .ini-body-table .table,
+.tint-body-table, .layer-body-table, .layer-sub-table {
+  border-spacing: 0;
+}
+.layer-canvas-mode { font-size: 10px !important; padding: 2px 6px !important; }
+/* Layer properties (☰) button: dim when idle, bright on hover, accent while its flyout is open. */
+.layer-flyout-btn { color: var(--text-muted); opacity: 0.5; transition: opacity 0.12s ease, color 0.12s ease; }
+.layer-flyout-btn:hover { opacity: 1; color: var(--text-primary); }
+.layer-flyout-btn--open { opacity: 1; color: var(--accent); background: transparent; border-color: transparent; }
+.layer-flyout-btn--open:hover { background: var(--bg-hover); }
+
+/* Layer properties flyout (reuses .cp-popover frame). */
+.layer-flyout { padding: 10px 12px; }
+.layer-flyout__cols { display: flex; align-items: flex-start; gap: 12px; }
+.layer-flyout__fields { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.layer-flyout__row { display: flex; align-items: center; gap: 8px; }
+.layer-flyout__row .stage__field-label { width: 48px; font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+/* 9-grid alignment picker styled as a direction pad with corner/edge glyphs. */
+.layer-9grid { display: grid; grid-template-columns: repeat(3, 22px); grid-template-rows: repeat(3, 22px); gap: 2px; flex: 0 0 auto; align-self: center; }
+.layer-9grid__cell {
+  border: 1px solid var(--border); border-radius: 2px;
+  background: var(--bg-tertiary); cursor: pointer; transition: all var(--transition-fast);
+  display: flex; align-items: center; justify-content: center; padding: 0;
+}
+.layer-9grid__cell svg { stroke: var(--text-muted); stroke-width: 1.4; fill: none; transition: transform 0.12s ease; }
+.layer-9grid__cell:hover { background: var(--bg-hover); }
+.layer-9grid__cell:hover svg { stroke: var(--accent); transform: scale(1.18); }
+

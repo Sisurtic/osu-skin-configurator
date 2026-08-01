@@ -100,11 +100,17 @@
       if (it.dataset.value === current) it.classList.add('is-selected');
     });
 
-    // Anchor below the trigger, left-aligned, width-matched. Re-runs on window
-    // resize so the menu stays glued to its trigger.
+    // Anchor left-aligned with the trigger, width-matched. Flips ABOVE the
+    // trigger when there isn't room below (e.g. rows near the bottom of the
+    // list), so the menu never falls off-screen.
     function reposition() {
       const r = trigger.getBoundingClientRect();
-      pop.style.top = `${r.bottom + window.scrollY + 2}px`;
+      const ph = pop.offsetHeight || 0;
+      const roomBelow = window.innerHeight - r.bottom;
+      const above = roomBelow < ph + 8 && r.top > ph + 8;
+      pop.style.top = above
+        ? `${r.top + window.scrollY - ph - 2}px`
+        : `${r.bottom + window.scrollY + 2}px`;
       pop.style.left = `${r.left + window.scrollX}px`;
       pop.style.width = `${r.width}px`;
       pop.style.boxSizing = 'border-box';

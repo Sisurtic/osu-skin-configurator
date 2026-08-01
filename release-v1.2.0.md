@@ -13,10 +13,27 @@ Relative to the v1.1.1 release. Covers all changes since the v1.1.1 version bump
 ### Color picker
 - **Tint-mode picker opacity is now 0..100** (display only; the stored alpha in the color string stays 0..255, so it remains the blend strength). The **ini** color picker is unchanged and still shows 0..255.
 
+### Layer compositing editor (new "图层" tab)
+- Stack multiple PNG layers into one composite output. Each layer has its own blend mode (full PS set incl. normal), opacity, exact toggle, and position (9-grid alignment + X/Y coordinates).
+- **Canvas size** switchable per stack: bottom-layer size or max width × max height.
+- **Per-layer properties flyout** (☰ button): opacity / 9-grid SVG alignment pad / coordinate X / coordinate Y. Wheel adjusts (1px normal, 10px shift).
+- **Z-order** = list order (layers[0] = top). Drag to reorder; drag to delete zone. New layers appear at the top.
+- **Composite preview** (canvas2D, centered fit). Rust `apply_layers` backend with pixel-vs-pixel blend compositing.
+- Full action-category round-trip (fileLayers): store → save → load → apply → copy/paste.
+- Apply dialog counts (groupLayer/itemLayer).
+
+### Editor infrastructure
+- **Single-table refactor**: tint/file/ini/layer editors merged their header + body tables into one (thead+tbody). Auto layout (layer) or fixed layout (tint/file/ini) per table. Sticky thead with outline-based edge coverage. Shared `utils/edge-fade.js`.
+- **Edge-fade overlays** repositioned below the sticky thead.
+- **Esc selection** fixed: now correctly clears after add (was blocked by empty selection set + focusable target check).
+- **Switching skins** clears selection (selectedPreset/group → null, multi-select cleared).
+
 ## Fixes
+- presetDirty cleared when deleting the edited preset/group.
+- Tab labels shortened (INI/文件/图像).
+- Window minWidth bumped to 1140 so columns aren't crushed.
 
-- (none this release)
-
-## Notes
-
-- Older presets without the new `hueShift`/`satShift`/`lightShift` fields render identically (defaults = 0 → no shift).
+## Refactor & Cleanup
+- Shared `utils/edge-fade.js` (was inlined in 3 editors).
+- Removed probe-based column-width pipelines (file-copy/ini) — single table + auto/fixed layout handles it.
+- Sticky thead + drag auto-scroll in OpTable (container-level, 2× fade-height zones).

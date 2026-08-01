@@ -20,7 +20,7 @@
   let editData = {
     kind: 'preset',
     meta: { name: '', description: '' },
-    actions: { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] },
+    actions: { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [], fileLayers: [] },
     _previewPath: null,
     _previewKind: 'image',
     _previewFrames: null,
@@ -58,6 +58,40 @@
       hueShift: +t.hueShift || 0, satShift: +t.satShift || 0, lightShift: +t.lightShift || 0,
     };
   }
+  // Fill in default fields for a layer-stack op loaded from config.osp.
+  // canvasMode: 'bottom' = use the bottom layer's size; 'max' = max width and
+  // max height across all layers (each axis independently). Each layer keeps
+  // only offset positioning (9-grid is a UI shortcut that writes offset).
+  function normalizeLayerStack(s) {
+    const layers = Array.isArray(s && s.layers) ? s.layers : [];
+    return {
+      destination: s.destination || '',
+      canvasMode: s.canvasMode === 'max' ? 'max' : 'bottom',
+      layers: layers.map(l => ({
+        source: l.source || '',
+        exact: !!l.exact,
+        blendMode: l.blendMode || 'normal',
+        opacity: +l.opacity || 100,
+        offsetX: +l.offsetX || 0,
+        offsetY: +l.offsetY || 0,
+      })),
+    };
+  }
+  // Serialize a layer-stack op for save: keep destination/canvasMode/layers,
+  // drop default-valued layer fields (offset 0) and any _-prefixed runtime keys.
+  function serializeLayerStack(s) {
+    const out = { destination: s.destination || '' };
+    if (s.canvasMode === 'max') out.canvasMode = 'max'; // 'bottom' is the default → omit
+    out.layers = (s.layers || []).map(l => {
+      const lo = { source: l.source || '', blendMode: l.blendMode || 'normal', opacity: +l.opacity || 100 };
+      if (l.exact) lo.exact = true;
+      const ox = +l.offsetX || 0, oy = +l.offsetY || 0;
+      if (ox) lo.offsetX = ox;
+      if (oy) lo.offsetY = oy;
+      return lo;
+    });
+    return out;
+  }
   function normalizeActions(actions) {
     const a = actions || {};
     return {
@@ -65,6 +99,7 @@
       fileCopies: a.fileCopies || [],
       fileDeletes: a.fileDeletes || [],
       fileTints: (a.fileTints || []).map(normalizeTint),
+      fileLayers: (a.fileLayers || []).map(normalizeLayerStack),
     };
   }
 
@@ -76,6 +111,8 @@
   function setFileDeletes(v) { if (_suppressSubEditorWrites) return; editData.actions.fileDeletes = v; state.set('presetDirty', true); }
   function getFileTints() { return editData.actions.fileTints || []; }
   function setFileTints(v) { if (_suppressSubEditorWrites) return; editData.actions.fileTints = v; state.set('presetDirty', true); }
+  function getFileLayers() { return editData.actions.fileLayers || []; }
+  function setFileLayers(v) { if (_suppressSubEditorWrites) return; editData.actions.fileLayers = v; state.set('presetDirty', true); }
   function getPreviewDataUrl() { return editData._previewPath; }
   function setPreviewDataUrl(v) { editData._previewPath = v; state.set('presetDirty', true); }
   // Full preview meta getter/setter (kind/frames/fps). preview-upload writes via this.
@@ -127,6 +164,12 @@
     const r = await api.getSkinPath(sn);
     return r.success ? r.data : null;
   });
+  if (window.LayerEditor) LayerEditor.init(getFileLayers, setFileLayers, skinName, () => state.get('selectedPreset'), async () => {
+    const sn = skinName();
+    if (!sn) return null;
+    const r = await api.getSkinPath(sn);
+    return r.success ? r.data : null;
+  });
 
   // True when nothing is selected (no preset, no group, no multi-select) → the
   // editor shows the empty/hint state instead of a form.
@@ -143,6 +186,7 @@
         <div class="tab" data-tab="ini" tabindex="0">${i18n.t('preset.tabIni')}</div>
         <div class="tab" data-tab="files" tabindex="0">${i18n.t('preset.tabFiles')}</div>
         <div class="tab" data-tab="tint" tabindex="0">${i18n.t('preset.tabTint')}</div>
+        <div class="tab" data-tab="layer" tabindex="0">${i18n.t('preset.tabLayer')}</div>
         <div class="tabs__indicator" id="tabs-indicator"></div>
       </div>
       <div class="tab-content tab-content--active editor-empty">
@@ -163,6 +207,7 @@
         <div class="tab" data-tab="ini" tabindex="0">${i18n.t('preset.tabIni')}</div>
         <div class="tab" data-tab="files" tabindex="0">${i18n.t('preset.tabFiles')}</div>
         <div class="tab" data-tab="tint" tabindex="0">${i18n.t('preset.tabTint')}</div>
+        <div class="tab" data-tab="layer" tabindex="0">${i18n.t('preset.tabLayer')}</div>
         <div class="tabs__indicator" id="tabs-indicator"></div>
       </div>
 
@@ -170,6 +215,7 @@
       <div class="tab-content" id="tab-ini"></div>
       <div class="tab-content" id="tab-files"></div>
       <div class="tab-content" id="tab-tint"></div>
+      <div class="tab-content" id="tab-layer"></div>
     `;
 
     // A NON-table group has no actions — disable ini/files/tint tabs (basic only).
@@ -200,6 +246,7 @@
     IniEditor.render(document.getElementById('tab-ini'));
     FileCopyEditor.render(document.getElementById('tab-files'));
     if (window.TintEditor) TintEditor.render(document.getElementById('tab-tint'));
+    if (window.LayerEditor) LayerEditor.render(document.getElementById('tab-layer'));
     // Position the sliding underline under the active tab (next frame, once
     // layout is measurable).
     requestAnimationFrame(() => moveTabIndicator(viewEl.querySelector('.tab--active')));
@@ -253,6 +300,8 @@
           window.FileCopyEditor.layoutColumns(targetEl);
         } else if (tab.dataset.tab === 'tint' && window.TintEditor && window.TintEditor.layoutColumns) {
           window.TintEditor.layoutColumns(targetEl);
+        } else if (tab.dataset.tab === 'layer' && window.LayerEditor && window.LayerEditor.layoutColumns) {
+          window.LayerEditor.layoutColumns(targetEl);
         }
         // Re-trigger scroll event on next frame so edge-fade overlays
         // re-calculate position (getBoundingClientRect needs visible layout).
@@ -849,6 +898,7 @@
         }
         return o;
       }),
+      fileLayers: (editData.actions.fileLayers || []).map(serializeLayerStack),
     };
     const r4 = await api.setGroupActions(sk, gid, actionsToSave);
     if (!r4.success) { Toast.error(i18n.t('group.saveFailed', { msg: r4.error || '' })); return false; }
@@ -958,6 +1008,7 @@
           }
           return o;
         }),
+        fileLayers: (editData.actions.fileLayers || []).map(serializeLayerStack),
       },
     };
 
@@ -1120,6 +1171,7 @@
     FileCopyEditor.init(getFileCopies, setFileCopies, getFileDeletes, setFileDeletes, skinName, idFn, pathFn);
     PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, idFn);
     TintEditor.init(getFileTints, setFileTints, skinName, idFn, pathFn);
+    if (window.LayerEditor) LayerEditor.init(getFileLayers, setFileLayers, skinName, idFn, pathFn);
     render();
     playEditorEnter();
   });
@@ -1199,6 +1251,12 @@
       const r = await api.getSkinPath(sn);
       return r.success ? r.data : null;
     });
+    if (window.LayerEditor) LayerEditor.init(getFileLayers, setFileLayers, skinName, () => state.get('selectedPreset'), async () => {
+      const sn = skinName();
+      if (!sn) return null;
+      const r = await api.getSkinPath(sn);
+      return r.success ? r.data : null;
+    });
     render();
     return true;
   }
@@ -1255,7 +1313,7 @@
     if (editData.kind === 'group' && !editData._isTableGroup) return false;
     // Tab-scoped: copy only the selected rows of the ACTIVE tab's editor.
     const activeTab = viewEl.querySelector('.tab--active')?.dataset.tab;
-    const cb = { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] };
+    const cb = { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [], fileLayers: [] };
     if (activeTab === 'ini' && window.IniEditor && window.IniEditor.getSelectedActions) {
       cb.skinIni = window.IniEditor.getSelectedActions();
     } else if (activeTab === 'files' && window.FileCopyEditor && window.FileCopyEditor.getSelectedActions) {
@@ -1264,10 +1322,12 @@
       cb.fileDeletes = r.fileDeletes || [];
     } else if (activeTab === 'tint' && window.TintEditor && window.TintEditor.getSelectedActions) {
       cb.fileTints = window.TintEditor.getSelectedActions();
+    } else if (activeTab === 'layer' && window.LayerEditor && window.LayerEditor.getSelectedActions) {
+      cb.fileLayers = window.LayerEditor.getSelectedActions();
     } else {
       return false;
     }
-    const total = cb.skinIni.length + cb.fileCopies.length + cb.fileDeletes.length + cb.fileTints.length;
+    const total = cb.skinIni.length + cb.fileCopies.length + cb.fileDeletes.length + cb.fileTints.length + cb.fileLayers.length;
     // Only copy when rows are actually selected — otherwise leave the clipboard
     // untouched and let the caller skip preventDefault.
     if (total === 0) return false;
@@ -1283,6 +1343,9 @@
   const _copyKey = (e) => e.source || '';
   const _deleteKey = (e) => e.path || '';
   const _tintKey = (e) => e.source || '';
+  // A layer stack's dedup key: its destination (each output is unique), falling
+  // back to the sorted source list when destination is empty.
+  const _layerKey = (e) => (e && e.destination) || ((e && e.layers || []).map(l => l.source || '').sort().join('◆'));
 
   async function pasteActions() {
     if (isEmptyState()) return;
@@ -1310,16 +1373,17 @@
       { name: 'fileCopies', key: _copyKey,  label: i18n.t('paste.catCopy'),   allowAppend: true },
       { name: 'fileDeletes', key: _deleteKey, label: i18n.t('paste.catDelete'), allowAppend: true },
       { name: 'fileTints', key: _tintKey,   label: i18n.t('paste.catTint'),   allowAppend: true },
+      { name: 'fileLayers', key: _layerKey, label: i18n.t('paste.catLayer'), allowAppend: true },
     ];
 
-    const result = { skinIni: [...editData.actions.skinIni], fileCopies: [...editData.actions.fileCopies], fileDeletes: [...editData.actions.fileDeletes], fileTints: [...editData.actions.fileTints] };
+    const result = { skinIni: [...editData.actions.skinIni], fileCopies: [...editData.actions.fileCopies], fileDeletes: [...editData.actions.fileDeletes], fileTints: [...editData.actions.fileTints], fileLayers: [...editData.actions.fileLayers] };
     let added = 0;
     // Per-category INDICES (within that category's own array) touched by this
     // paste — fresh-append tail + overwrite in-place + conflict-append tail.
     // Passed to the editor's selectAdded so it selects EXACTLY the pasted rows
     // by position, not by key (key-matching would also hit the source rows when
     // an appended row shares a key with an existing one).
-    const touchedIdx = { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] };
+    const touchedIdx = { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [], fileLayers: [] };
 
     for (const cat of categories) {
       const target = result[cat.name];
@@ -1368,6 +1432,7 @@
     setFileCopies(result.fileCopies);
     setFileDeletes(result.fileDeletes);
     setFileTints(result.fileTints);
+    setFileLayers(result.fileLayers);
     state.set('presetDirty', true);
     render();
     // Select every row touched by this paste (appended AND overwrite-replaced)
@@ -1381,6 +1446,8 @@
       });
     } else if (activeTab === 'tint' && window.TintEditor && typeof window.TintEditor.selectAdded === 'function') {
       window.TintEditor.selectAdded({ idx: touchedIdx.fileTints });
+    } else if (activeTab === 'layer' && window.LayerEditor && typeof window.LayerEditor.selectAdded === 'function') {
+      window.LayerEditor.selectAdded({ idx: touchedIdx.fileLayers });
     } else if (activeTab === 'ini' && window.IniEditor && typeof window.IniEditor.selectAdded === 'function') {
       window.IniEditor.selectAdded({ idx: touchedIdx.skinIni });
     }
@@ -1392,7 +1459,7 @@
     editData = {
       kind: 'preset',
       meta: { name: '', description: '' },
-      actions: { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] },
+      actions: { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [], fileLayers: [] },
       _previewPath: null,
       _previewKind: 'image',
       _previewFrames: null,
@@ -1416,6 +1483,12 @@
     });
     PreviewUpload.init(getPreviewMeta, setPreviewMeta, skinName, () => editData._groupId ?? state.get('selectedPreset'));
     TintEditor.init(getFileTints, setFileTints, skinName, () => state.get('selectedPreset'), async () => {
+      const sn = skinName();
+      if (!sn) return null;
+      const r = await api.getSkinPath(sn);
+      return r.success ? r.data : null;
+    });
+    if (window.LayerEditor) LayerEditor.init(getFileLayers, setFileLayers, skinName, () => state.get('selectedPreset'), async () => {
       const sn = skinName();
       if (!sn) return null;
       const r = await api.getSkinPath(sn);

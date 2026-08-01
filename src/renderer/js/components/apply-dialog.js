@@ -2,11 +2,12 @@
 (function () {
   // Compact three-label summary, e.g. "INI 编辑×3, 文件移动×1, 图像编辑×2".
   // Used by both the per-preset cards and the success toast so they match.
-  function summaryText(ini, file, tint) {
+  function summaryText(ini, file, tint, layer) {
     const parts = [];
     if (ini > 0) parts.push(`${i18n.t('apply.groupIni')}×${ini}`);
     if (file > 0) parts.push(`${i18n.t('apply.groupFile')}×${file}`);
     if (tint > 0) parts.push(`${i18n.t('apply.groupTint')}×${tint}`);
+    if (layer > 0) parts.push(`${i18n.t('apply.groupLayer')}×${layer}`);
     return parts.join(', ');
   }
   // A group block: a title bar with up to two counts laid out side by side
@@ -23,7 +24,7 @@
     if (document.querySelector('.modal-overlay')) return;
     const data = window.PresetEditor?.getCurrentEditData?.() || {};
     const meta = data.meta || {};
-    const actions = data.actions || { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] };
+    const actions = data.actions || { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [], fileLayers: [] };
     const iniModifyCount = (actions.skinIni || []).filter(e => !e._delete).length;
     const iniDeleteCount = (actions.skinIni || []).filter(e => e._delete).length;
     const copyCount = actions.fileCopies?.length || 0;
@@ -31,7 +32,8 @@
     const tints = actions.fileTints || [];
     const colorCount = tints.filter(t => t.tintEnabled).length;
     const cropCount = tints.filter(t => t.cropEnabled || t.darkenEnabled).length;
-    const hasActions = iniModifyCount > 0 || iniDeleteCount > 0 || copyCount > 0 || deleteCount > 0 || colorCount > 0 || cropCount > 0;
+    const layerCount = (actions.fileLayers || []).filter(s => (s.layers || []).length > 0).length;
+    const hasActions = iniModifyCount > 0 || iniDeleteCount > 0 || copyCount > 0 || deleteCount > 0 || colorCount > 0 || cropCount > 0 || layerCount > 0;
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
@@ -52,6 +54,9 @@
           ${group(i18n.t('apply.groupTint'), [
             { show: colorCount > 0, key: 'apply.itemColor', n: colorCount },
             { show: cropCount > 0, key: 'apply.itemCrop', n: cropCount },
+          ])}
+          ${group(i18n.t('apply.groupLayer'), [
+            { show: layerCount > 0, key: 'apply.itemLayer', n: layerCount },
           ])}
           ${!hasActions ? `<p style="color:var(--warning);margin-top:8px">${i18n.t('apply.noActions')}</p>` : ''}
         </div>
@@ -91,7 +96,7 @@
         const d = result.data;
         state.set('activePresets', {});
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
-        const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0);
+        const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0, d.filesLayered || 0);
         Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
         // Surface partial-failure warnings (missing sources, copy/tint failures,
         // paths outside the skin) the backend reports alongside the success.
@@ -197,7 +202,7 @@
     }
 
     // Combine actions
-    let totalIniMod = 0, totalIniDel = 0, totalCopy = 0, totalDelete = 0, totalColor = 0, totalCrop = 0;
+    let totalIniMod = 0, totalIniDel = 0, totalCopy = 0, totalDelete = 0, totalColor = 0, totalCrop = 0, totalLayer = 0;
     const presetSummaries = [];
     const countActions = (a) => {
       const ini = a.skinIni || [];
@@ -208,13 +213,14 @@
         deleteCount: a.fileDeletes?.length || 0,
         colorCount: (a.fileTints || []).filter(t => t.tintEnabled).length,
         cropCount: (a.fileTints || []).filter(t => t.cropEnabled || t.darkenEnabled).length,
+        layerCount: (a.fileLayers || []).filter(s => (s.layers || []).length > 0).length,
       };
     };
     for (const pd of presetDataList) {
       const c = countActions(pd.actions);
       totalIniMod += c.iniMod; totalIniDel += c.iniDel;
       totalCopy += c.copyCount; totalDelete += c.deleteCount;
-      totalColor += c.colorCount; totalCrop += c.cropCount;
+      totalColor += c.colorCount; totalCrop += c.cropCount; totalLayer += c.layerCount;
       presetSummaries.push({ name: pd.meta.name || i18n.t('preset.fallbackName', { id: pd.id }), ...c });
     }
     // Group apply units: gd.actions already merges every unit the backend will
@@ -224,13 +230,13 @@
       const c = countActions(gd.actions);
       totalIniMod += c.iniMod; totalIniDel += c.iniDel;
       totalCopy += c.copyCount; totalDelete += c.deleteCount;
-      totalColor += c.colorCount; totalCrop += c.cropCount;
+      totalColor += c.colorCount; totalCrop += c.cropCount; totalLayer += c.layerCount;
       presetSummaries.push({
         name: gd.meta.name + (gd.applyCount > 0 ? ` (${gd.applyCount})` : ''),
         ...c,
       });
     }
-    const hasAny = totalIniMod > 0 || totalIniDel > 0 || totalCopy > 0 || totalDelete > 0 || totalColor > 0 || totalCrop > 0;
+    const hasAny = totalIniMod > 0 || totalIniDel > 0 || totalCopy > 0 || totalDelete > 0 || totalColor > 0 || totalCrop > 0 || totalLayer > 0;
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
@@ -244,7 +250,7 @@
             <div style="padding:3px 2px">
               <strong>${escapeHtml(ps.name)}</strong>
               <span style="font-size:12px;color:var(--text-muted);margin-left:8px">
-                ${(() => { const s = summaryText(ps.iniMod + ps.iniDel, ps.copyCount + ps.deleteCount, ps.colorCount + ps.cropCount); return s || i18n.t('apply.fragmentNone'); })()}
+                ${(() => { const s = summaryText(ps.iniMod + ps.iniDel, ps.copyCount + ps.deleteCount, ps.colorCount + ps.cropCount, ps.layerCount); return s || i18n.t('apply.fragmentNone'); })()}
               </span>
             </div>
           `).join('')}
@@ -260,6 +266,9 @@
             ${group(i18n.t('apply.groupTint'), [
               { show: totalColor > 0, key: 'apply.itemColor', n: totalColor },
               { show: totalCrop > 0, key: 'apply.itemCrop', n: totalCrop },
+            ])}
+            ${group(i18n.t('apply.groupLayer'), [
+              { show: totalLayer > 0, key: 'apply.itemLayer', n: totalLayer },
             ])}
           </div>
           ${!hasAny ? `<p style="color:var(--warning);margin-top:8px">${i18n.t('apply.noActionsMulti')}</p>` : ''}
@@ -328,6 +337,7 @@
               combined.filesCopied = (combined.filesCopied || 0) + (d.filesCopied || 0);
               combined.filesDeleted = (combined.filesDeleted || 0) + (d.filesDeleted || 0);
               combined.filesTinted = (combined.filesTinted || 0) + (d.filesTinted || 0);
+              combined.filesLayered = (combined.filesLayered || 0) + (d.filesLayered || 0);
               combined.warnings = [...(combined.warnings || []), ...(d.warnings || [])];
             }
           } else { failed = rg; break; }
@@ -346,7 +356,7 @@
         // listener of its own).
         state.setMultiple({ activePresets: {}, activeTableGroups: {} });
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
-        const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0);
+        const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0, d.filesLayered || 0);
         Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
         // Surface partial-failure warnings (missing sources, copy/tint failures,
         // paths outside the skin) the backend reports alongside the success.

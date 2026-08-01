@@ -530,6 +530,176 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
     r
 }
 
+// Compose a layer stack into one output PNG. Each `stack` value carries
+// destination, canvasMode ('bottom'|'max'), and a layers[] (top→bottom: layers[0]
+// = highest). Compositing iterates in reverse (lowest first). Each
+// layer: source/exact/blendMode/opacity/offsetX/offsetY. Resolves each layer's
+// source via resolve_source, computes the canvas (bottom layer size, or max
+// width×max height across layers), over-composites per blend+opacity+offset,
+// then writes PNG via PngEncoder (like apply_tint).
+//
+// Blend math: each mode is "base B vs source S" (PS convention — the active
+// layer is the source). The blended result is then over-composited onto the
+// accumulator with strength = layerOpacity * layerPixelAlpha. 'normal' = plain
+// alpha-over (no blend).
+fn apply_layers(skin_path: &str, stack: &Value) -> Result<(), String> {
+    let dest_rel = stack.get("destination").and_then(|v| v.as_str()).unwrap_or("");
+    let canvas_mode = stack.get("canvasMode").and_then(|v| v.as_str()).unwrap_or("bottom");
+    let layers = stack.get("layers").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    if layers.is_empty() { return Err("no layers".to_string()); }
+
+    // Resolve every layer's source PNG (skin-relative, @2x fallback). Keep their
+    // RGBA buffers + sizes + per-layer params; skip layers that fail to load.
+    let mut resolved: Vec<(image::RgbaImage, u32, u32, &Value)> = Vec::new();
+    for l in &layers {
+        let source = l.get("source").and_then(|v| v.as_str()).unwrap_or("");
+        let exact = l.get("exact").and_then(|v| v.as_bool()).unwrap_or(false);
+        let origin = stack.get("origin").and_then(|v| v.as_str()).unwrap_or("");
+        let (use_src, _name) = match resolve_source(skin_path, source, dest_rel, exact, origin, &mut Vec::new()) {
+            Some(v) => v,
+            None => continue,
+        };
+        let img = match image::open(&use_src) {
+            Ok(i) => i.to_rgba8(),
+            Err(_) => continue,
+        };
+        let (w, h) = img.dimensions();
+        resolved.push((img, w, h, l));
+    }
+    if resolved.is_empty() { return Err("no resolvable layers".to_string()); }
+
+    // Canvas size: 'bottom' = lowest layer (resolved[last]); 'max' = max w×h.
+    let (cw, ch) = if canvas_mode == "max" {
+        let mw = resolved.iter().map(|(_, w, _, _)| *w).max().unwrap_or(1);
+        let mh = resolved.iter().map(|(_, _, h, _)| *h).max().unwrap_or(1);
+        (mw.max(1), mh.max(1))
+    } else {
+        let b = resolved.last().unwrap(); // resolved non-empty (checked above)
+        (b.1.max(1), b.2.max(1))
+    };
+
+    // Accumulator (fully transparent starts). Over-composite layers bottom→top:
+    // layers[N-1] (list bottom = lowest) first, layers[0] (list top = highest)
+    // last, so layers[0] ends up on top — matching the visual list order.
+    let mut acc = image::RgbaImage::new(cw, ch);
+    for (limg, lw, lh, l) in resolved.iter().rev() {
+        let mode = l.get("blendMode").and_then(|v| v.as_str()).unwrap_or("normal");
+        let opacity = l.get("opacity").and_then(|v| v.as_f64()).unwrap_or(100.0) / 100.0;
+        let ox = l.get("offsetX").and_then(|v| v.as_f64()).unwrap_or(0.0).round() as i64;
+        let oy = l.get("offsetY").and_then(|v| v.as_f64()).unwrap_or(0.0).round() as i64;
+        let strength = opacity.clamp(0.0, 1.0);
+        // For each layer pixel, find the accumulator pixel under it and blend.
+        for ly in 0..*lh {
+            let ay = oy + ly as i64;
+            if ay < 0 || ay >= ch as i64 { continue; }
+            for lx in 0..*lw {
+                let ax = ox + lx as i64;
+                if ax < 0 || ax >= cw as i64 { continue; }
+                let lp = limg.get_pixel(lx, ly);
+                let la = lp[3] as f64 / 255.0;
+                if la == 0.0 { continue; }
+                let bp = acc.get_pixel_mut(ax as u32, ay as u32);
+                // blended RGB per the active mode (B = base, S = layer).
+                let (br, bg, bb) = blend_rgb(bp, lp, mode, strength * la);
+                // over-composite the blended color onto the base with alpha = strength*la.
+                let sa = (strength * la).clamp(0.0, 1.0);
+                let ba = bp[3] as f64 / 255.0;
+                let out_a = sa + ba * (1.0 - sa);
+                if out_a <= 0.0 { continue; }
+                let or = (br * sa + bp[0] as f64 * ba * (1.0 - sa)) / out_a;
+                let og = (bg * sa + bp[1] as f64 * ba * (1.0 - sa)) / out_a;
+                let ob = (bb * sa + bp[2] as f64 * ba * (1.0 - sa)) / out_a;
+                bp[0] = or.round() as u8; bp[1] = og.round() as u8; bp[2] = ob.round() as u8;
+                bp[3] = (out_a * 255.0).round() as u8;
+            }
+        }
+    }
+
+    // Destination path (mirrors tint's three-branch resolution). Uses the
+    // LOWEST layer (last in the array) for the source filename + in-place output.
+    let bottom = layers.last().unwrap(); // layers non-empty (checked above)
+    let src_filename = bottom.get("source").and_then(|v| v.as_str())
+        .map(|s| Path::new(s).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())
+        .unwrap_or_default();
+    let dest_path = if dest_rel.is_empty() {
+        // Empty destination = overwrite the bottom layer's resolved source in place.
+        let s0 = bottom.get("source").and_then(|v| v.as_str()).unwrap_or("");
+        let e0 = bottom.get("exact").and_then(|v| v.as_bool()).unwrap_or(false);
+        match resolve_source(skin_path, s0, "", e0, "", &mut Vec::new()) {
+            Some((p, _)) => p,
+            None => return Err("cannot resolve bottom source for in-place output".to_string()),
+        }
+    } else {
+        let is_dir = dest_rel.ends_with('/') || dest_rel.ends_with('\\');
+        let dest_name = if is_dir {
+            PathBuf::from(dest_rel).join(&src_filename).to_string_lossy().to_string()
+        } else {
+            let with_suffix = apply_index_and_suffix(dest_rel, &src_filename);
+            if Path::new(&with_suffix).extension().is_some() { with_suffix }
+            else { format!("{}.png", with_suffix) }
+        };
+        PathBuf::from(skin_path).join(dest_name).to_string_lossy().to_string()
+    };
+    if !is_within(&dest_path, skin_path) { return Err("destination outside skin".to_string()); }
+    if let Some(parent) = Path::new(&dest_path).parent() {
+        if !parent.exists() { let _ = std::fs::create_dir_all(parent); }
+    }
+
+    let raw = acc.as_raw();
+    let f = std::fs::File::create(&dest_path).map_err(|e| e.to_string())?;
+    let enc = image::codecs::png::PngEncoder::new_with_quality(
+        f, image::codecs::png::CompressionType::Fast, image::codecs::png::FilterType::Adaptive);
+    use image::ImageEncoder;
+    enc.write_image(raw, cw, ch, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())
+}
+
+// Blend base pixel B with source pixel S per PS `mode`, return blended RGB in 0..255.
+// `t` = blend strength (layer opacity × layer alpha) — the blend is lerped by t.
+fn blend_rgb(b: &image::Rgba<u8>, s: &image::Rgba<u8>, mode: &str, t: f64) -> (f64, f64, f64) {
+    let f = |c: u8| c as f64;
+    let bf = (f(b[0]), f(b[1]), f(b[2]));           // base 0..255
+    let n = |v: f64| v / 255.0;                       // → 0..1
+    let bn = (n(bf.0), n(bf.1), n(bf.2));
+    let sn = (n(f(s[0])), n(f(s[1])), n(f(s[2])));
+    let lerp = |o: f64, bl: f64| o + (bl - o) * t;
+    let out255 = |v: f64| v * 255.0;
+    let m = match mode {
+        "normal" => (f(s[0]), f(s[1]), f(s[2])),
+        "multiply" => (out255(bn.0 * sn.0), out255(bn.1 * sn.1), out255(bn.2 * sn.2)),
+        "screen" => (out255(1.0 - (1.0 - bn.0) * (1.0 - sn.0)), out255(1.0 - (1.0 - bn.1) * (1.0 - sn.1)), out255(1.0 - (1.0 - bn.2) * (1.0 - sn.2))),
+        "overlay" => {
+            let o = |b: f64, s: f64| if b < 0.5 { 2.0 * b * s } else { 1.0 - 2.0 * (1.0 - b) * (1.0 - s) };
+            (out255(o(bn.0, sn.0)), out255(o(bn.1, sn.1)), out255(o(bn.2, sn.2)))
+        }
+        "darken" => (out255(bn.0.min(sn.0)), out255(bn.1.min(sn.1)), out255(bn.2.min(sn.2))),
+        "lighten" => (out255(bn.0.max(sn.0)), out255(bn.1.max(sn.1)), out255(bn.2.max(sn.2))),
+        "soft-light" => {
+            let sl = |b: f64, s: f64| if s <= 0.5 { 2.0 * b * s + b * b * (1.0 - 2.0 * s) } else { 2.0 * b * (1.0 - s) + b * b * (2.0 * s - 1.0) };
+            (out255(sl(bn.0, sn.0)), out255(sl(bn.1, sn.1)), out255(sl(bn.2, sn.2)))
+        }
+        "hard-light" => {
+            let hl = |b: f64, s: f64| if s <= 0.5 { 2.0 * b * s } else { 1.0 - 2.0 * (1.0 - b) * (1.0 - s) };
+            (out255(hl(bn.0, sn.0)), out255(hl(bn.1, sn.1)), out255(hl(bn.2, sn.2)))
+        }
+        "difference" => (out255((bn.0 - sn.0).abs()), out255((bn.1 - sn.1).abs()), out255((bn.2 - sn.2).abs())),
+        "exclusion" => (out255(bn.0 + sn.0 - 2.0 * bn.0 * sn.0), out255(bn.1 + sn.1 - 2.0 * bn.1 * sn.1), out255(bn.2 + sn.2 - 2.0 * bn.2 * sn.2)),
+        "hue" | "saturation" | "color" | "luminosity" => {
+            let (bh, bs, bl) = rgb_to_hsl(bf.0, bf.1, bf.2);
+            let (sh, ss, sl) = rgb_to_hsl(f(s[0]), f(s[1]), f(s[2]));
+            let (h, s, l) = match mode {
+                "hue" => (sh, bs, bl),
+                "saturation" => (bh, ss, bl),
+                "color" => (sh, ss, bl),
+                _ => (bh, bs, sl), // luminosity
+            };
+            let (r, g, b) = hsl_to_rgb(h, s, l);
+            (r * 255.0, g * 255.0, b * 255.0)
+        }
+        _ => (f(s[0]), f(s[1]), f(s[2])), // unknown → source-over
+    };
+    (lerp(bf.0, m.0), lerp(bf.1, m.1), lerp(bf.2, m.2))
+}
+
 
 // Shared source-resolution for copy + tint: validate the dest path, resolve the
 // (possibly skin-relative) source to absolute, fall back to the non-@2x variant
@@ -588,12 +758,14 @@ fn apply_one_set(
     file_copies: &[Value],
     file_deletes: &[Value],
     file_tints: &[Value],
+    file_layers: &[Value],
 ) -> Value {
     let mut warnings: Vec<Value> = Vec::new();
     let mut skin_ini_changes = 0i64;
     let mut files_copied = 0i64;
     let mut files_deleted = 0i64;
     let mut files_tinted = 0i64;
+    let mut files_layered = 0i64;
 
     // skin.ini merge
     if !skin_ini_edits.is_empty() {
@@ -745,11 +917,25 @@ fn apply_one_set(
         }
     }
 
+    // Layer compositing (file_layers): each entry is a layer stack → one output
+    // PNG. Delegated to apply_layers (multi-source over-composite).
+    for stack in file_layers {
+        let origin = stack.get("origin").and_then(|v| v.as_str()).unwrap_or("");
+        match apply_layers(skin_path, stack) {
+            Ok(()) => files_layered += 1,
+            Err(msg) => {
+                let name = stack.get("destination").and_then(|v| v.as_str()).unwrap_or("");
+                push_warn(&mut warnings, origin, crate::i18n::t("warn.tint_failed", &[("name", &name), ("msg", &msg)]));
+            }
+        }
+    }
+
     json!({
         "skinIniChanges": skin_ini_changes,
         "filesCopied": files_copied,
         "filesDeleted": files_deleted,
         "filesTinted": files_tinted,
+        "filesLayered": files_layered,
         "warnings": warnings,
     })
 }
@@ -825,7 +1011,8 @@ pub fn apply_preset(skin_path: &str, preset_id: i64) -> Result<Value, String> {
     let copies = tag("fileCopies");
     let deletes = tag("fileDeletes");
     let tints = tag("fileTints");
-    Ok(apply_one_set(skin_path, &skin_ini, &copies, &deletes, &tints))
+    let layers = tag("fileLayers");
+    Ok(apply_one_set(skin_path, &skin_ini, &copies, &deletes, &tints, &layers))
 }
 
 pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
@@ -833,6 +1020,7 @@ pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
     let mut all_copies: Vec<Value> = Vec::new();
     let mut all_deletes: Vec<Value> = Vec::new();
     let mut all_tints: Vec<Value> = Vec::new();
+    let mut all_layers: Vec<Value> = Vec::new();
     let mut warnings: Vec<Value> = Vec::new();
     // Load config once to resolve each preset's enclosing plain-group path.
     let cfg = crate::preset_manager::load_config(skin_path);
@@ -864,6 +1052,7 @@ pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
                 tag(&mut all_copies, "fileCopies");
                 tag(&mut all_deletes, "fileDeletes");
                 tag(&mut all_tints, "fileTints");
+                tag(&mut all_layers, "fileLayers");
                 tag(&mut all_ini, "skinIni");
             }
             None => push_warn(&mut warnings, &id.to_string(), crate::i18n::t("err.preset_not_found", &[("id", &id.to_string())])),
@@ -881,7 +1070,7 @@ pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
     }
     let merged_ini: Vec<Value> = merged_map.values().cloned().collect();
 
-    let mut result = apply_one_set(skin_path, &merged_ini, &all_copies, &all_deletes, &all_tints);
+    let mut result = apply_one_set(skin_path, &merged_ini, &all_copies, &all_deletes, &all_tints, &all_layers);
     // prepend load warnings (already Vec<Value>)
     if let Some(obj) = result.as_object_mut() {
         if let Some(w) = obj.get_mut("warnings").and_then(|v| v.as_array_mut()) {
@@ -904,6 +1093,7 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
     let mut all_copies: Vec<Value> = Vec::new();
     let mut all_deletes: Vec<Value> = Vec::new();
     let mut all_tints: Vec<Value> = Vec::new();
+    let mut all_layers: Vec<Value> = Vec::new();
     let mut warnings: Vec<Value> = Vec::new();
 
     // Clone each action from `a[key]` and stamp `origin` (owning preset/group
@@ -1015,7 +1205,7 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
         root_sel: &Value,
         applied_presets: &mut HashSet<i64>,
         applied_groups: &mut HashSet<i64>,
-        ini: &mut Vec<Value>, copies: &mut Vec<Value>, deletes: &mut Vec<Value>, tints: &mut Vec<Value>,
+        ini: &mut Vec<Value>, copies: &mut Vec<Value>, deletes: &mut Vec<Value>, tints: &mut Vec<Value>, layers: &mut Vec<Value>,
         warnings: &mut Vec<Value>,
         push_actions: &impl Fn(&mut Vec<Value>, &Value, &str, &str),
     ) {
@@ -1044,6 +1234,7 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
             push_actions(copies, ga, "fileCopies", &group_origin);
             push_actions(deletes, ga, "fileDeletes", &group_origin);
             push_actions(tints, ga, "fileTints", &group_origin);
+            push_actions(layers, ga, "fileLayers", &group_origin);
         }
         let rows = collect_table_rows(g, by_id, expanded, &path_prefix);
         for (row_key, _opts) in &rows {
@@ -1074,6 +1265,7 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
                                         push_actions(copies, a, "fileCopies", &preset_origin);
                                         push_actions(deletes, a, "fileDeletes", &preset_origin);
                                         push_actions(tints, a, "fileTints", &preset_origin);
+                                        push_actions(layers, a, "fileLayers", &preset_origin);
                                     }
                                 }
                                 None => push_warn(warnings, &id.to_string(), crate::i18n::t("err.preset_not_found", &[("id", &id.to_string())])),
@@ -1085,7 +1277,7 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
                     if let Ok(child_gid) = s[6..].parse::<i64>() {
                         let child_prefix = format!("{}{}:", path_prefix, child_gid);
                         collect_units(child_gid, child_prefix, by_id, cfg, expanded, root_sel,
-                            applied_presets, applied_groups, ini, copies, deletes, tints, warnings, push_actions);
+                            applied_presets, applied_groups, ini, copies, deletes, tints, layers, warnings, push_actions);
                     }
                 }
                 _ => {}
@@ -1100,7 +1292,7 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
     let root_prefix = format!("{}:", group_id);
     collect_units(group_id, root_prefix, &by_id, &cfg, &cfg.table_expanded_children, root_sel,
         &mut applied_presets, &mut applied_groups,
-        &mut all_ini, &mut all_copies, &mut all_deletes, &mut all_tints, &mut warnings, &push_actions);
+        &mut all_ini, &mut all_copies, &mut all_deletes, &mut all_tints, &mut all_layers, &mut warnings, &push_actions);
 
     // Dedup INI edits (same as apply_multiple_presets).
     let mut merged_map: IndexMap<String, Value> = IndexMap::new();
@@ -1113,7 +1305,7 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
     }
     let merged_ini: Vec<Value> = merged_map.values().cloned().collect();
 
-    let mut result = apply_one_set(skin_path, &merged_ini, &all_copies, &all_deletes, &all_tints);
+    let mut result = apply_one_set(skin_path, &merged_ini, &all_copies, &all_deletes, &all_tints, &all_layers);
     if let Some(obj) = result.as_object_mut() {
         if let Some(w) = obj.get_mut("warnings").and_then(|v| v.as_array_mut()) {
             warnings.append(w);

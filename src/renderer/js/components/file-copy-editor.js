@@ -81,61 +81,10 @@
   // Re-render the body (used by exact-toggle / sequence-group handlers).
   function rerenderTable(container) { render(container); }
 
-  // ── Column widths: ONE unified pipeline (mirrors the INI editor) ──
-  // measureColumns(): probe-based; caches all 3 columns' content widths per
-  //   locale. layoutColumns(): the ONLY function that applies widths, driven
-  //   by a single ResizeObserver. render() only measures.
-  let lastMeasureLocale = null;
-  let measured = null;            // [action, file, dest] content widths (px)
-  const COL_PAD = 24;
-
-  function measureColumns(container) {
-    const loc = (window.i18n && window.i18n.locale()) || '';
-    if (measured && loc === lastMeasureLocale) return; // cached
-    const headerTable = container.querySelector('.files-header-table .table');
-    const bodyTable = container.querySelector('.files-body-table .table');
-    if (!headerTable || !bodyTable) { measured = null; return; }
-    const probe = document.createElement('span');
-    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-size:13px;';
-    document.body.appendChild(probe);
-    const textW = (html) => { probe.innerHTML = html || ''; return probe.offsetWidth; };
-    const widths = [0, 0, 0];
-    headerTable.querySelectorAll('thead th').forEach((th, i) => { if (i < 3) widths[i] = Math.max(widths[i], textW(th.innerHTML)); });
-    bodyTable.querySelectorAll('tbody tr').forEach(row => {
-      // Skip sequence-group header rows (their cells don't represent real op content).
-      if (row.classList.contains('file-seq-group')) return;
-      const cells = row.querySelectorAll('td');
-      for (let i = 0; i < 3 && i < cells.length; i++) widths[i] = Math.max(widths[i], textW(cells[i].innerHTML));
-    });
-    document.body.removeChild(probe);
-    measured = widths.map(w => Math.ceil(w + COL_PAD));
-    lastMeasureLocale = loc;
-  }
-
-  const BASE_W = 578; // table content width at the minimum window (900 - 280 - 40 - 2)
-
-  function layoutColumns(container) {
-    measureColumns(container);
-    if (!measured) return;
-    const [wAction, wFile, wDest] = measured;
-    const exactW = 120;
-    const rest = Math.max(0, BASE_W - wAction - exactW);
-    const fdSum = (wFile + wDest) || 1;
-    const fileW = Math.max(60, Math.round(rest * (wFile / fdSum)));
-    const destW = Math.max(60, rest - fileW);
-    container.querySelectorAll('.files-header-table .table, .files-body-table .table').forEach(t => {
-      const cg = t.querySelector('colgroup');
-      if (!cg) return;
-      const c = cg.children;
-      if (c[0]) c[0].style.width = wAction + 'px';
-      if (c[1]) c[1].style.width = fileW + 'px';
-      if (c[2]) c[2].style.width = destW + 'px';
-      if (c[3]) c[3].style.width = exactW + 'px';
-    });
-    adjustFillButtons();
-  }
-
-  // Collapse fill-button labels to '#' when their cell is too narrow.
+  // Collapse fill-button labels to '#' when their cell is too narrow. (The old
+  // two-table probe-based column-width pipeline was removed when the editor
+  // switched to a single auto-layout table; column sizing is now the browser's
+  // job. This label-collapse is the only piece still worth keeping.)
   function adjustFillButtons() {
     document.querySelectorAll('.file-seq-fill-btn').forEach(btn => {
       const full = btn.dataset.full || '#';
@@ -144,9 +93,6 @@
       btn.textContent = (cell.scrollWidth > cell.clientWidth + 2) ? '#' : full;
     });
   }
-
-  // render() only measures; layoutColumns is driven by the ResizeObserver.
-  function autosizeColumns(container) { measureColumns(container); }
 
   function render(container) {
     const fileOps = buildFileOps();
@@ -231,27 +177,6 @@
           </div>
         </div>
 
-        <!-- Fixed header table (thead only) — only show when there are operations -->
-        ${fileOps.length > 0 ? `
-        <div class="files-header-table" style="margin-top:6px">
-          <div class="table-wrap">
-            <table class="table ini-table">
-              <colgroup>
-                <col style="width:72px">
-                <col>
-                <col>
-                <col style="width:120px">
-              </colgroup>
-              <thead><tr>
-                <th data-col="action">${i18n.t('file.colAction')}</th>
-                <th>${i18n.t('file.colFile')}</th>
-                <th title="${escapeHtml(i18n.t('file.colDestTitle'))}">${i18n.t('file.colDest')}</th>
-                <th title="${escapeHtml(i18n.t('file.colExactTitle'))}">${i18n.t('file.colExact')}</th>
-              </tr></thead>
-            </table>
-          </div>
-        </div>
-        ` : ''}
       </div>
 
       <div class="files-table-body-scroll" id="files-table-body-scroll">
@@ -795,43 +720,12 @@
 
     sel.bindDeleteZone(container.querySelector('#file-delete-zone'));
 
-    // Measure + apply column widths. If the tab is active but layoutColumns
-    // skipped (container width not settled yet this frame), retry next frame.
-    autosizeColumns(container);
-    layoutColumns(container);
-    if (container.classList.contains('tab-content--active')) {
-      requestAnimationFrame(() => layoutColumns(container));
-    }
+    // Single auto-layout table now sizes its own columns; just collapse fill
+    // button labels that overflow their cell.
+    adjustFillButtons();
 
-    // Edge-fade overlays: added to the scroll element's PARENT (container)
-    // so they stay fixed at the scroll viewport edges regardless of scroll.
-    // Layering: sticky header (z 10) > fades (z 9) > table border/content.
-    const scrollEl = container.querySelector('.files-table-body-scroll');
-    if (scrollEl && !scrollEl._fadeBound) {
-      scrollEl._fadeBound = true;
-      container.style.position = 'relative';
-      const topFade = document.createElement('div');
-      topFade.className = 'scroll-edge-fade scroll-edge-fade--top';
-      const botFade = document.createElement('div');
-      botFade.className = 'scroll-edge-fade scroll-edge-fade--bottom';
-      container.appendChild(topFade);
-      container.appendChild(botFade);
-      const updateFade = () => {
-        const r = scrollEl.getBoundingClientRect();
-        const cr = container.getBoundingClientRect();
-        if (r.height === 0) return;
-        topFade.style.top = (r.top - cr.top) + 'px';
-        botFade.style.bottom = (cr.bottom - r.bottom) + 'px';
-        topFade.style.opacity = scrollEl.scrollTop > 2 ? '1' : '0';
-        botFade.style.opacity = (scrollEl.scrollTop + scrollEl.clientHeight < scrollEl.scrollHeight - 2) ? '1' : '0';
-      };
-      scrollEl.addEventListener('scroll', updateFade, { passive: true });
-      if (typeof ResizeObserver !== 'undefined') {
-        new ResizeObserver(updateFade).observe(scrollEl);
-      }
-      requestAnimationFrame(updateFade);
-      setTimeout(updateFade, 300);
-    }
+    // Edge-fade overlays (shared).
+    window.setupEdgeFade(container, container.querySelector('.files-table-body-scroll'));
   }
 
   // Indices a row represents: a plain row → [idx]; a sequence-group header →
@@ -1047,13 +941,19 @@
     return `
       <div class="files-body-table">
         <div class="table-wrap">
-          <table class="table ini-table">
+          <table class="table ini-table files-single-table">
             <colgroup>
               <col style="width:72px">
               <col>
               <col>
               <col style="width:120px">
             </colgroup>
+            ${plan.length > 0 ? `<thead><tr>
+              <th data-col="action" style="white-space:nowrap">${i18n.t('file.colAction')}</th>
+              <th>${i18n.t('file.colFile')}</th>
+              <th title="${escapeHtml(i18n.t('file.colDestTitle'))}">${i18n.t('file.colDest')}</th>
+              <th title="${escapeHtml(i18n.t('file.colExactTitle'))}" style="white-space:nowrap">${i18n.t('file.colExact')}</th>
+            </tr></thead>` : ''}
             <tbody>
             ${plan.map(p => p.type === 'group' ? renderGroup(p) : renderRow(fileOps[p.i], p.i, null)).join('')}
           </tbody>
@@ -1112,15 +1012,6 @@
     return OpTable.escapeHtml(str);
   }
 
-  // Single ResizeObserver: the ONLY driver of layoutColumns (tab visible +
-  // window resize). All column logic stays internal.
-  const filesContainer = document.getElementById('tab-files');
-  if (filesContainer && typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(() => layoutColumns(filesContainer)).observe(filesContainer);
-  } else if (filesContainer) {
-    window.addEventListener('resize', () => layoutColumns(filesContainer));
-  }
-
   // Return the currently-selected file-copy + file-delete rows as plain
   // objects (deep-cloned), split by _type. Selection indices map into the
   // unified currentFileOps view-model. No anchor fallback (empty = empty).
@@ -1153,5 +1044,5 @@
     sel.setSelected(ns, anchor);
   }
 
-  window.FileCopyEditor = { init, render, layoutColumns, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection(), invalidateCache: () => thumbCache.clear() };
+  window.FileCopyEditor = { init, render, layoutColumns: adjustFillButtons, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection(), invalidateCache: () => thumbCache.clear() };
 })();

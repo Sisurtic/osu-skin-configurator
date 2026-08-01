@@ -530,7 +530,13 @@
           tableActivations: result.data.tableActivations || {},
           activePresets: {},
           activeTableGroups: {},
+          selectedPreset: null,
+          selectedGroup: null,
+          multiSelectActive: false,
         });
+        // Drop the multi-select sets too (their --multi-selected highlight is
+        // independent of selectedPreset and would otherwise persist).
+        if (window.Selection && typeof window.Selection.clear === 'function') window.Selection.clear();
       }
       if (main) main.classList.remove('main-content--exit');
       playEnterAnim(main, 'main-content--enter');
@@ -779,7 +785,7 @@
   // fresh bytes from disk. Called after applying a preset (which may copy,
   // delete, or image-edit files) so the UI no longer shows stale images.
   window.invalidateImageCaches = function () {
-    ['PresetSelector', 'PreviewUpload', 'FileCopyEditor', 'TintEditor'].forEach(name => {
+    ['PresetSelector', 'PreviewUpload', 'FileCopyEditor', 'TintEditor', 'LayerEditor'].forEach(name => {
       const m = window[name];
       if (m && typeof m.invalidateCache === 'function') m.invalidateCache();
     });
@@ -1562,9 +1568,10 @@
     // input/button keeps its own Escape behavior: the dedicated blur handler at
     // the top blurs the field; the selection is cleared only on a subsequent
     // Escape when nothing is focused). Prompt to save unsaved edits before
-    // discarding the selection.
+    // discarding the selection. (Buttons excluded: a focused "add" button should
+    // not block Esc from clearing the just-added selection.)
     const escTargetIsFocusable = e.target && e.target !== document.body
-      && e.target.matches && e.target.matches('input, textarea, select, button, [contenteditable], [tabindex]');
+      && e.target.matches && e.target.matches('input, textarea, select, [contenteditable]');
     // Don't clear selection while a color picker popover is open.
     if (e.key === 'Escape' && state.get('appMode') === 'edit' && !isModal && !escTargetIsFocusable && !document.querySelector('.cp-popover')) {
       // First ESC: clear the active operation-table selection (ini/file/tint
@@ -1572,7 +1579,7 @@
       // preset selection — so a single ESC cancels the innermost selection first.
       const activeTabEl = document.querySelector('.tab-content--active');
       const editorFor = (id, name) => id && document.getElementById(id) === activeTabEl ? window[name] : null;
-      const ed = editorFor('tab-ini', 'IniEditor') || editorFor('tab-files', 'FileCopyEditor') || editorFor('tab-tint', 'TintEditor');
+      const ed = editorFor('tab-ini', 'IniEditor') || editorFor('tab-files', 'FileCopyEditor') || editorFor('tab-tint', 'TintEditor') || editorFor('tab-layer', 'LayerEditor');
       if (ed && typeof ed.hasSelection === 'function' && ed.hasSelection()) {
         if (typeof ed.clearSelection === 'function') ed.clearSelection();
         return;
@@ -1660,7 +1667,7 @@
       e.preventDefault();
     }
 
-    if (e.key >= '1' && e.key <= '4' && !isInput && !isModal && state.get('appMode') === 'edit') {
+    if (e.key >= '1' && e.key <= '5' && !isInput && !isModal && state.get('appMode') === 'edit') {
       // Number-key tab switching only when the editor is actually usable:
       // not multi-select, not the empty/no-selection state, not a plain group.
       if (state.get('multiSelectActive')) return;
@@ -1671,7 +1678,7 @@
         const g = (state.get('groups') || []).find(x => x.id === sg);
         if (g && g.type !== 'table') return;
       }
-      const tabs = ['basic', 'ini', 'files', 'tint'];
+      const tabs = ['basic', 'ini', 'files', 'tint', 'layer'];
       const idx = parseInt(e.key) - 1;
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab--active'));
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('tab-content--active'));

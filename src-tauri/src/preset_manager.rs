@@ -115,7 +115,7 @@ pub fn load_config(skin_path: &str) -> Config {
         .map(|arr| arr.iter().map(|p| {
             let id = p.get("id").cloned().unwrap_or(json!(0));
             let meta = p.get("meta").cloned().unwrap_or_else(|| json!({"name": crate::i18n::t("preset.fallback_name", &[("id", &id.as_i64().unwrap_or(0).to_string())]), "description": "", "previewPath": ""}));
-            let actions = p.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": [], "fileTints": []}));
+            let actions = p.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": [], "fileTints": [], "fileLayers": []}));
             json!({"id": id, "meta": meta, "actions": actions})
         }).collect::<Vec<_>>())
         .unwrap_or_default();
@@ -650,7 +650,7 @@ pub fn save_preset(skin_path: &str, preset_id: Option<i64>, data: &Value) -> Res
         meta.insert("previewPath".into(), json!(""));
     }
     entry.insert("meta".into(), Value::Object(meta));
-    entry.insert("actions".into(), data.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": [], "fileTints": []})));
+    entry.insert("actions".into(), data.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": [], "fileTints": [], "fileLayers": []})));
     let entry = Value::Object(entry);
     let is_new = preset_id.is_none();
     if let Some(pos) = cfg.presets.iter().position(|p| p.get("id").and_then(|v| v.as_i64()) == Some(id)) {
@@ -790,7 +790,7 @@ pub fn set_group_actions(skin_path: &str, group_id: i64, actions: &Value) -> Res
     let mut cfg = load_config(skin_path);
     let g = cfg.groups.iter_mut().find(|g| g.id == group_id)
         .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
-    let empty = json!({"skinIni":[],"fileCopies":[],"fileDeletes":[],"fileTints":[]});
+    let empty = json!({"skinIni":[],"fileCopies":[],"fileDeletes":[],"fileTints":[],"fileLayers":[]});
     g.actions = if actions == &empty { None } else { Some(actions.clone()) };
     save_config(skin_path, &cfg)
 }

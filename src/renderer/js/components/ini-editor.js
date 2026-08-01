@@ -143,27 +143,6 @@
           </div>
         </div>
 
-        ${iniEdits.length > 0 ? `
-        <!-- Fixed header table (thead only, matching colgroup with body) -->
-        <div class="ini-header-table" style="margin-top:12px">
-          <div class="table-wrap">
-            <table class="table ini-table">
-              <colgroup>
-                <col style="width:72px">
-                <col style="width:120px">
-                <col style="width:240px">
-                <col>
-              </colgroup>
-              <thead><tr>
-                <th data-col="action">${i18n.t('ini.colAction')}</th>
-                <th data-col="section">${i18n.t('ini.colSection')}</th>
-                <th>${i18n.t('ini.colKey')}</th>
-                <th>${i18n.t('ini.colValue')}</th>
-              </tr></thead>
-            </table>
-          </div>
-        </div>
-        ` : ''}
       </div>
 
       <div class="ini-table-body-scroll" id="ini-table-body-scroll">
@@ -944,48 +923,11 @@
       });
     });
 
-    // Measure + apply column widths. If the tab is active but layoutColumns
-    // skipped (container width not settled yet this frame), retry next frame.
-    autosizeColumns(container);
-    layoutColumns(container);
-    if (container.classList.contains('tab-content--active')) {
-      requestAnimationFrame(() => layoutColumns(container));
-    }
+    // Single auto-layout table sizes its own columns; just collapse fill labels.
     adjustFillButtons();
 
-    // Edge-fade overlays: added to the scroll element's PARENT (container)
-    // so they stay fixed at the scroll viewport edges regardless of scroll
-    // position. Position is computed via getBoundingClientRect.
-    // Layering: sticky header (z 10) > fades (z 9) > table border/content.
-    // The fades cover the border + content (rows fade out at the edge), but the
-    // sticky header occludes the fades' top edge.
-    const scrollEl = container.querySelector('.ini-table-body-scroll');
-    if (scrollEl && !scrollEl._fadeBound) {
-      scrollEl._fadeBound = true;
-      container.style.position = 'relative';
-      const topFade = document.createElement('div');
-      topFade.className = 'scroll-edge-fade scroll-edge-fade--top';
-      const botFade = document.createElement('div');
-      botFade.className = 'scroll-edge-fade scroll-edge-fade--bottom';
-      container.appendChild(topFade);
-      container.appendChild(botFade);
-      const updateFade = () => {
-        const r = scrollEl.getBoundingClientRect();
-        const cr = container.getBoundingClientRect();
-        if (r.height === 0) return;
-        topFade.style.top = (r.top - cr.top) + 'px';
-        botFade.style.bottom = (cr.bottom - r.bottom) + 'px';
-        topFade.style.opacity = scrollEl.scrollTop > 2 ? '1' : '0';
-        botFade.style.opacity = (scrollEl.scrollTop + scrollEl.clientHeight < scrollEl.scrollHeight - 2) ? '1' : '0';
-      };
-      scrollEl.addEventListener('scroll', updateFade, { passive: true });
-      // Re-check on resize and after layout settles.
-      if (typeof ResizeObserver !== 'undefined') {
-        new ResizeObserver(updateFade).observe(scrollEl);
-      }
-      requestAnimationFrame(updateFade);
-      setTimeout(updateFade, 300);
-    }
+    // Edge-fade overlays (shared).
+    window.setupEdgeFade(container, container.querySelector('.ini-table-body-scroll'));
 
     // Restore Section/Key/ManiaKeys AFTER all event handlers are bound (so the
     // dispatched 'change' sets currentFields; without it key validation fails).
@@ -1125,73 +1067,9 @@
   // (headers + cells) in the current language, then lock to fixed layout so
   // adding/removing rows never shifts them. The 4th (Value) column takes the
   // remaining width.
-  // ── Column widths: ONE unified pipeline ──
-  //
-  // measureColumns(): probe-based; caches the three text columns' content
-  //   widths per locale (independent of the live table layout, so resizing
-  //   never corrupts the measurement). Called from render() and on locale
-  //   change — cheap when cached.
-  //
-  // layoutColumns(): the ONLY function that computes & applies colgroup widths.
-  //   Driven by a single ResizeObserver on the tab container, so it runs
-  //   whenever the container becomes visible (0 → >0) or the window resizes.
-  //   No render-time applying, no second observer — one source of truth.
-  //   Silently skips when tables/container width aren't ready (the observer
-  //   fires again once they are).
-  let lastMeasureLocale = null;
-  let measured = null;            // [wAction, wSection, wKey] content widths (px)
-  const COL_PAD = 24;
-  const VALUE_MIN = 200;
-  const KEY_MIN = 60;
-  const BASE_W = 578; // table content width at the minimum window (900 - 280 sidebar - 40 padding - 2 border)
-
-  function measureColumns(container) {
-    const loc = (window.i18n && window.i18n.locale()) || '';
-    if (measured && loc === lastMeasureLocale) return; // cached
-    const headerTable = container.querySelector('.ini-header-table .table');
-    const bodyTable = container.querySelector('.ini-body-table .table');
-    if (!headerTable || !bodyTable) { measured = null; return; } // no tables yet
-    const probe = document.createElement('span');
-    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-size:13px;';
-    document.body.appendChild(probe);
-    const textW = (html) => { probe.innerHTML = html || ''; return probe.offsetWidth; };
-    const widths = [0, 0, 0, 0];
-    headerTable.querySelectorAll('thead th').forEach((th, i) => { if (i < 4) widths[i] = Math.max(widths[i], textW(th.innerHTML)); });
-    bodyTable.querySelectorAll('tbody tr').forEach(row => {
-      const cells = row.querySelectorAll('td');
-      for (let i = 0; i < 4 && i < cells.length; i++) widths[i] = Math.max(widths[i], textW(cells[i].innerHTML));
-    });
-    document.body.removeChild(probe);
-    measured = widths.map(w => Math.ceil(w + COL_PAD));
-    lastMeasureLocale = loc;
-  }
-
-  function layoutColumns(container) {
-    measureColumns(container); // ensure measured (no-op if cached)
-    if (!measured) return;                       // tables not ready yet
-    // Always compute column widths based on the MINIMUM window (BASE_W), never
-    // the current width. The table is width:100% + fixed layout, so the browser
-    // scales these base widths proportionally to fill the actual table width.
-    // This keeps proportions identical regardless of window size or refresh.
-    const [wAction, wSection] = measured;
-    let valueW = VALUE_MIN;
-    let keyW = BASE_W - wAction - wSection - valueW;
-    if (keyW < KEY_MIN) { keyW = KEY_MIN; valueW = BASE_W - wAction - wSection - keyW; }
-    container.querySelectorAll('.ini-header-table .table, .ini-body-table .table').forEach(t => {
-      const cg = t.querySelector('colgroup');
-      if (!cg) return;
-      const c = cg.children;
-      if (c[0]) c[0].style.width = wAction + 'px';
-      if (c[1]) c[1].style.width = wSection + 'px';
-      if (c[2]) c[2].style.width = keyW + 'px';
-      if (c[3]) c[3].style.width = valueW + 'px';
-    });
-    adjustFillButtons();
-  }
-
-  // Called from render(): only ensures a measurement. layoutColumns is driven
-  // by the ResizeObserver below — render never applies widths itself.
-  function autosizeColumns(container) { measureColumns(container); }
+  // Column widths are now the browser's job (single auto-layout table).
+  // The old two-table probe-based measureColumns/layoutColumns pipeline was
+  // removed; adjustFillButtons (below) is the only piece retained.
 
 
   // Confirm dialog for centering ColumnStart. Shown on every center-button click.
@@ -1329,6 +1207,12 @@
               <col style="width:240px">
               <col>
             </colgroup>
+            ${iniEdits.length > 0 ? `<thead><tr>
+              <th data-col="action" style="white-space:nowrap">${i18n.t('ini.colAction')}</th>
+              <th data-col="section" style="white-space:nowrap">${i18n.t('ini.colSection')}</th>
+              <th style="white-space:nowrap">${i18n.t('ini.colKey')}</th>
+              <th>${i18n.t('ini.colValue')}</th>
+            </tr></thead>` : ''}
             <tbody>
             ${rowPlan.map(plan => {
               if (plan.kind === 'single') {
@@ -1504,15 +1388,6 @@
     }
   }
 
-  // Single ResizeObserver: the ONLY driver of layoutColumns. Covers the tab
-  // becoming visible (width 0 → >0) and window resizing.
-  const iniContainer = document.getElementById('tab-ini');
-  if (iniContainer && typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(() => layoutColumns(iniContainer)).observe(iniContainer);
-  } else if (iniContainer) {
-    window.addEventListener('resize', () => layoutColumns(iniContainer));
-  }
-
   // Return the currently-selected INI rows as plain action objects (deep-
   // cloned). Indices from sel.getSelected() map directly into getActions().
   function getSelectedActions() {
@@ -1547,5 +1422,5 @@
     sel.setSelected(ns, anchor);
   }
 
-  window.IniEditor = { init, render, deleteSelected, layoutColumns, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection() };
+  window.IniEditor = { init, render, deleteSelected, layoutColumns: adjustFillButtons, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection() };
 })();
