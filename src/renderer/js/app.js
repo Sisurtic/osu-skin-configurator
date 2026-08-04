@@ -453,8 +453,16 @@
     renderCurrentView();
   });
 
-  state.on('osuPath', (p) => {
+  state.on('osuPath', (p, prev) => {
     toolbarPath.textContent = p || i18n.t('app.pathUnsetClickHint');
+    // Guard: only react to a REAL path change. state.set has no equality
+    // short-circuit, so a no-op re-set (e.g. rerenderAll on language switch
+    // copies osuPath back into state) would otherwise re-run the destructive
+    // reset below and wipe the user's current skin selection.
+    if (p === prev) {
+      renderCurrentView();
+      return;
+    }
     if (p) {
       if (!state.get('_initializing')) {
         scanSkins();

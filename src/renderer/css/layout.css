@@ -238,6 +238,19 @@ button#decorum-tb-close:hover {
   letter-spacing: 0.5px;
   color: var(--text-muted);
 }
+/* Inline skin name on the "current skin" header row, right-aligned via the
+   header's space-between. Larger, accent, title-case to read as a value. */
+.sidebar__skin-name {
+  max-width: 65%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--accent);
+}
 .sidebar__list {
   flex: 1;
   overflow-y: auto;
