@@ -339,16 +339,6 @@
     "posY": "Поз. Y"
   },
   "settings": {
-    "pathSet": "Путь osu! задан",
-    "changePath": "🔄 Изменить путь",
-    "detecting": "Определение пути установки osu!…",
-    "detectHint": "Если автоопределение не удалось, выберите папку osu! вручную",
-    "autoDetect": "🔍 Автоопределение",
-    "browse": "📂 Обзор…",
-    "searching": "Поиск…",
-    "detectedOk": "Путь osu! определён автоматически",
-    "detectedFail": "Не найдено — выберите вручную",
-    "notFoundManual": "Путь установки osu! не найден — выберите вручную",
     "pathSetShort": "Путь osu! задан"
   },
   "skinlist": {

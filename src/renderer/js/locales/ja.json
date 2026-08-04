@@ -339,16 +339,6 @@
     "posY": "座標 Y"
   },
   "settings": {
-    "pathSet": "osu! パスが設定済みです",
-    "changePath": "🔄 パスを変更",
-    "detecting": "osu! インストールパスを検出中…",
-    "detectHint": "自動検出できない場合は手動で osu! インストールフォルダを選択してください",
-    "autoDetect": "🔍 自動検出",
-    "browse": "📂 参照…",
-    "searching": "検索中…",
-    "detectedOk": "osu! パスを自動検出しました",
-    "detectedFail": "見つかりません — 参照して選択してください",
-    "notFoundManual": "osu! インストールパスが見つかりません — 手動で選択してください",
     "pathSetShort": "osu! パスが設定済みです"
   },
   "skinlist": {

@@ -339,16 +339,6 @@
     "posY": "座標 Y"
   },
   "settings": {
-    "pathSet": "osu! 路徑已設定",
-    "changePath": "🔄 更換路徑",
-    "detecting": "正在偵測 osu! 安裝路徑…",
-    "detectHint": "如果未自動偵測到,請手動選擇 osu! 安裝目錄",
-    "autoDetect": "🔍 自動偵測",
-    "browse": "📂 手動瀏覽",
-    "searching": "正在搜尋…",
-    "detectedOk": "已自動偵測到 osu! 路徑",
-    "detectedFail": "未找到,請手動瀏覽選擇",
-    "notFoundManual": "未找到 osu! 安裝路徑,請手動選擇",
     "pathSetShort": "osu! 路徑已設定"
   },
   "skinlist": {

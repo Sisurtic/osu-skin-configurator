@@ -339,16 +339,6 @@
     "posY": "좌표 Y"
   },
   "settings": {
-    "pathSet": "osu! 경로가 설정되었습니다",
-    "changePath": "🔄 경로 변경",
-    "detecting": "osu! 설치 경로 감지 중…",
-    "detectHint": "자동 감지되지 않으면 osu! 설치 폴더를 수동으로 선택하세요",
-    "autoDetect": "🔍 자동 감지",
-    "browse": "📂 찾아보기…",
-    "searching": "검색 중…",
-    "detectedOk": "osu! 경로가 자동 감지되었습니다",
-    "detectedFail": "찾을 수 없습니다 — 찾아보기하여 선택하세요",
-    "notFoundManual": "osu! 설치 경로를 찾을 수 없습니다 — 수동으로 선택하세요",
     "pathSetShort": "osu! 경로가 설정되었습니다"
   },
   "skinlist": {

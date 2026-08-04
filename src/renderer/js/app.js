@@ -7,13 +7,12 @@
   const btnApplyPreset = document.getElementById('btn-apply-preset');
   const btnToggleMode = document.getElementById('btn-toggle-mode');
 
-  const viewSettings = document.getElementById('view-settings');
   const viewWelcome = document.getElementById('view-welcome');
   const viewEditor = document.getElementById('view-editor');
   const viewSelector = document.getElementById('view-selector');
 
   function switchView(viewId) {
-    [viewSettings, viewWelcome, viewEditor, viewSelector].forEach(v => {
+    [viewWelcome, viewEditor, viewSelector].forEach(v => {
       if (v) v.classList.remove('view--active');
     });
     const target = document.getElementById(`view-${viewId}`);
@@ -231,9 +230,14 @@
 
       toolbarPath.style.cursor = 'pointer';
       toolbarPath.title = i18n.t('app.clickToSetPath');
-      toolbarPath.addEventListener('click', () => {
-        switchView('settings');
-        SettingsView.render();
+      toolbarPath.addEventListener('click', async () => {
+        // Open the folder picker directly — no intermediate "path set" screen.
+        const result = await api.browseForOsuPath();
+        if (result.success && result.data) {
+          await api.setOsuPath(result.data);
+          state.set('osuPath', result.data);
+          if (window.Toast) Toast.success(i18n.t('settings.pathSetShort'));
+        }
       });
 
       // 1. osu! path
@@ -464,9 +468,6 @@
         if (state.get('appMode') === 'edit') state.set('appMode', 'use');
         clearAllEditorSelections();
         state.set('selectedSkin', null);
-      }
-      if (state.get('currentView') === 'settings') {
-        switchView('welcome');
       }
     }
     renderCurrentView();

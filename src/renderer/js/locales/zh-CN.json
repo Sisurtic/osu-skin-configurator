@@ -380,16 +380,6 @@
     "posY": "坐标 Y"
   },
   "settings": {
-    "pathSet": "osu! 路径已设置",
-    "changePath": "🔄 更换路径",
-    "detecting": "正在检测 osu! 安装路径…",
-    "detectHint": "如果未自动检测到，请手动选择 osu! 安装目录",
-    "autoDetect": "🔍 自动检测",
-    "browse": "📂 手动浏览",
-    "searching": "正在搜索…",
-    "detectedOk": "已自动检测到 osu! 路径",
-    "detectedFail": "未找到，请手动浏览选择",
-    "notFoundManual": "未找到 osu! 安装路径，请手动选择",
     "pathSetShort": "osu! 路径已设置"
   },
   "skinlist": {

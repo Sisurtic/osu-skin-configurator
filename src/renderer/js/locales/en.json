@@ -380,16 +380,6 @@
     "posY": "Pos Y"
   },
   "settings": {
-    "pathSet": "osu! path is set",
-    "changePath": "🔄 Change path",
-    "detecting": "Detecting osu! install path…",
-    "detectHint": "If auto-detection fails, pick the osu! install folder manually",
-    "autoDetect": "🔍 Auto-detect",
-    "browse": "📂 Browse…",
-    "searching": "Searching…",
-    "detectedOk": "osu! path detected automatically",
-    "detectedFail": "Not found — please browse and select it",
-    "notFoundManual": "osu! install path not found — please select it manually",
     "pathSetShort": "osu! path is set"
   },
   "skinlist": {
