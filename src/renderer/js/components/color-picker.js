@@ -216,6 +216,11 @@
       // restore focus to the trigger element.
       if (document.body) document.body.focus();
       popover.remove();
+      // Drop the open-state highlight here too — this close path is used by the
+      // popover's own Enter/Escape handlers, which bypass module-level closeAll()
+      // (the only place that removed the class before). Without this the trigger
+      // kept its accent outline after the popover was gone.
+      triggerEl.classList.remove('cp-trigger--open');
       activeTrigger = null;
       activeForward = null;
       _activeClose = null;
@@ -375,6 +380,10 @@
       function adjustClose() {
         if (document.body) document.body.focus();
         popover.remove();
+        // Same highlight cleanup as the main closePopover — without it this
+        // path (the hue-shift adjust popover's own close) leaves the accent
+        // outline on the trigger.
+        triggerEl.classList.remove('cp-trigger--open');
         activeTrigger = null;
         activeForward = null;
         _activeClose = null;
