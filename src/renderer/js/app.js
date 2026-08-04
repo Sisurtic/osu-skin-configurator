@@ -452,7 +452,19 @@
   state.on('osuPath', (p) => {
     toolbarPath.textContent = p || i18n.t('app.pathUnsetClickHint');
     if (p) {
-      if (!state.get('_initializing')) scanSkins();
+      if (!state.get('_initializing')) {
+        scanSkins();
+        // The path changed: every editor + the preset tree hold data scoped to
+        // the OLD path. They refresh only on selectedSkin/selectedPreset events,
+        // none of which fire here — so reset the skin selection. That trips the
+        // selectedSkin listener's full clear branch (presets/groups/table state
+        // + renderCurrentView), dropping the editor back to the empty state and
+        // forcing the user to pick a skin under the new path. state.set always
+        // fires (no equality short-circuit), so this works even if already null.
+        if (state.get('appMode') === 'edit') state.set('appMode', 'use');
+        clearAllEditorSelections();
+        state.set('selectedSkin', null);
+      }
       if (state.get('currentView') === 'settings') {
         switchView('welcome');
       }
