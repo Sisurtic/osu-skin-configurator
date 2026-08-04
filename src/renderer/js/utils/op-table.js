@@ -315,7 +315,7 @@
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         zoneEl.style.opacity = '1';
-        zoneEl.style.background = 'rgba(224,85,85,0.1)';
+        zoneEl.style.background = 'var(--danger-bg)';
       });
       zoneEl.addEventListener('dragleave', () => {
         zoneEl.style.opacity = '0.5';

@@ -36,7 +36,7 @@
 }
 /* Update-available state: orange dot with expanding ring pulse. */
 .titlebar__dot--update .titlebar__dot-core {
-  background: #e0a040;
+  background: var(--warning);
   position: relative;
 }
 .titlebar__dot--update .titlebar__dot-core::before {
@@ -44,7 +44,7 @@
   position: absolute;
   inset: -2px;
   border-radius: 50%;
-  border: 2px solid rgba(224, 160, 64, 0.6);
+  border: 2px solid color-mix(in srgb, var(--warning) 60%, transparent);
   animation: update-dot-pulse 2s ease-out infinite;
 }
 @keyframes update-dot-pulse {
@@ -72,12 +72,12 @@ button.decorum-tb-btn {
   transition: background 0.12s ease, color 0.12s ease;
 }
 button.decorum-tb-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--overlay-hover);
   color: var(--text-primary);
 }
 button#decorum-tb-close:hover {
   background: var(--danger);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* ── Toolbar ── */
@@ -134,7 +134,7 @@ button#decorum-tb-close:hover {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-md);
   z-index: 50;
   padding: 4px 0;
 }

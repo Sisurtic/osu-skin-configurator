@@ -5,7 +5,7 @@
   let layer = null;
   let lastX = null, lastY = null, lastT = 0;
   let spawnAccum = 0;
-  const GREEN = 'hsl(140, 60%, 75%)';
+  const GREEN = 'var(--accent-light)';
   const MAX_PARTICLES = 18;  // hard cap to prevent flooding
 
   function ensureLayer() {

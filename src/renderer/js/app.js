@@ -1140,7 +1140,7 @@
               <tbody id="shortcuts-tbody-global">
                 ${rows.map((r, i) => `
                   <tr class="shortcut-row${globalSelected.has(r.key) ? ' row--selected' : ''}" data-sel-key="${escapeHtml(r.key)}" data-row-index="${i}">
-                    <td class="col-shortcut"><code style="background:var(--bg-tertiary);padding:2px 8px;border-radius:var(--radius-sm);font-size:12px;color:#ffe600;white-space:nowrap">${escapeHtml(r.shortcut)}</code></td>
+                    <td class="col-shortcut"><code style="background:var(--bg-tertiary);padding:2px 8px;border-radius:var(--radius-sm);font-size:12px;color:var(--shortcut);white-space:nowrap">${escapeHtml(r.shortcut)}</code></td>
                     <td class="col-name" style="font-size:12px;color:var(--text-secondary)">${escapeHtml(r.name)}</td>
                     <td style="font-size:11px;color:var(--text-muted)">${escapeHtml(r.type === 'group' ? i18n.t('dialog.globalTypeTable') : i18n.t('dialog.globalTypePreset'))}</td>
                   </tr>

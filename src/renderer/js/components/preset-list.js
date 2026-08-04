@@ -674,7 +674,7 @@
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         deleteZone.style.opacity = '1';
-        deleteZone.style.background = 'rgba(224,85,85,0.1)';
+        deleteZone.style.background = 'var(--danger-bg)';
         deleteZone.classList.add('preset-drop-zone--active');
       });
       deleteZone.addEventListener('dragleave', () => {
