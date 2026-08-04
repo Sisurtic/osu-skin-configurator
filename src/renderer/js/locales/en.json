@@ -587,7 +587,6 @@
     "cropTile": "Tile",
     "darkenD": "Shadow distance",
     "darkenOpacity": "Shadow opacity",
-    "previewEmpty": "Add and select an image to preview",
     "previewMissing": "The selected file does not exist",
     "stagePercy": "Stretch",
     "cropAHint": "Measured from the top of the image",

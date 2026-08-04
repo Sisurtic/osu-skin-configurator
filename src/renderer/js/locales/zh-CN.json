@@ -607,7 +607,6 @@
     "cropTile": "是否平铺",
     "darkenD": "投影距离",
     "darkenOpacity": "投影明度",
-    "previewEmpty": "添加并选中一张图片以预览",
     "previewMissing": "当前文件不存在",
     "stagePercy": "拉伸",
     "cropAHint": "从图片顶部开始计算高度",

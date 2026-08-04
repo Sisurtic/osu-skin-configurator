@@ -368,6 +368,7 @@
       channels.forEach(bindAdjustSlider);
 
       activeTrigger = triggerEl;
+      triggerEl.classList.add('cp-trigger--open');
       // Adjust mode has no external text input to forward; no-op.
       activeForward = null;
 
@@ -892,6 +893,7 @@
     // Register this popover as active so an external input (INI row's color box) can
     // forward typed values into it. silent=true skips onChange (the caller owns iniEdits).
     activeTrigger = triggerEl;
+    triggerEl.classList.add('cp-trigger--open');
     activeForward = function (value) {
       if (isIncompleteBlack(value)) return; // incomplete typing — leave picker alone
       applyValue(value, true);
@@ -1001,6 +1003,8 @@
   window.ColorPicker = { attach, forwardInput, parseColor, formatOutput, closeAll };
   // Close any open popover (called by the global ESC/Enter handler).
   function closeAll() {
+    // Clear the open-state highlight BEFORE the bound close nulls activeTrigger.
+    if (activeTrigger) activeTrigger.classList.remove('cp-trigger--open');
     if (typeof _activeClose === 'function') _activeClose();
   }
 })();
