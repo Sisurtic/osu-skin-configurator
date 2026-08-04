@@ -1331,6 +1331,10 @@ tr[data-group-parent] .file-thumb__icon {
 }
 /* Selected row: tint the filename with the former outline color so the
    selection reads on the label, not a border around the whole row. */
+/* INI key cell: key name at full size, its Chinese description one step smaller
+   + dimmed, so the two are visually distinct (not the same size). */
+.ini-key-name { font-size: 13px; }
+.ini-key-desc { margin-left: 6px; font-size: 10px; color: var(--text-muted); }
 .row--selected .file-thumb__name,
 .row--selected .ini-key-name {
   color: var(--accent);
