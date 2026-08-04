@@ -1947,15 +1947,19 @@ tr[data-group-parent] .file-thumb__icon {
 :is(#tab-tint,#tab-layer) .tint-preview::-webkit-scrollbar {
   display: none;
 }
-:is(#tab-tint,#tab-layer) .tint-preview__wrap {
-  width: 100%;
-  margin-block: auto;   /* center vertically when shorter than the container */
-}
-:is(#tab-tint,#tab-layer) .tint-preview__stage {
-  position: relative;
+/* Tint preview: a transform pan/zoom box (no native scroll, no flex centering —
+   the group is absolutely positioned by TintTransform). Layer keeps the shared
+   flex/scroll model above (its #tab-layer override forces overflow:hidden). */
+#tab-tint .tint-preview {
+  overflow: hidden;
+  text-align: left;
   display: block;
-  width: 100%;
 }
+/* Unified group-transform box (virtualized AND non-virtualized pan/zoom). The
+   TintTransform engine sets position/left/top/width/height/transform inline;
+   CSS only provides the base + how the canvas/guide sit inside it. The canvas
+   is at its natural backing size (non-virtualized: the full output; virtualized:
+   a viewport slice, absolutely positioned by the engine at top=visTop). */
 :is(#tab-tint,#tab-layer) .tint-preview__canvas {
   display: block;
   margin: 0 auto;
@@ -1963,10 +1967,29 @@ tr[data-group-parent] .file-thumb__icon {
   height: auto;
   border-radius: var(--radius-sm);
 }
-:is(#tab-tint,#tab-layer) .tint-guide {
+/* Tint group-transform box (scoped to #tab-tint so layer's ImageViewer canvas,
+   which also carries .tint-preview__canvas, is untouched). The engine sets
+   position/left/top/width/height/transform inline. */
+#tab-tint .tint-preview__group {
+  position: absolute;
+  box-sizing: content-box;
+}
+#tab-tint .tint-preview__group > .tint-preview__canvas {
+  display: block;
+  margin: 0;
+  max-width: none;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 0;   /* square corners, matching the layer canvas */
+  box-sizing: content-box;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  will-change: transform;
+}
+#tab-tint .tint-guide {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 4;   /* above the scaled canvas (will-change:transform promotes it) */
 }
 :is(#tab-tint,#tab-layer) .tint-guide__line {
   position: absolute;

@@ -712,10 +712,16 @@
       cw = Math.max(1, ...sizes.map(s => s[0]));
       ch = Math.max(1, ...sizes.map(s => s[1]));
     } else {
-      // bottom: lowest layer = layers[N-1] = last in array.
-      const bot = sizes[sizes.length - 1] || [1, 1];
-      cw = bot[0] || 1;
-      ch = bot[1] || 1;
+      // bottom: the canvas matches the LOWEST layer (layers[N-1]). If that layer's
+      // source is missing, walk UP the stack to the first layer that has a real
+      // image and use its size — so a missing base never collapses the canvas to
+      // 1×1 (which loses the whole preview). Falls back to 1×1 only if every layer is gone.
+      let base = null;
+      for (let k = sizes.length - 1; k >= 0; k--) {
+        if (sizes[k][0] && sizes[k][1]) { base = sizes[k]; break; }
+      }
+      cw = base ? base[0] : 1;
+      ch = base ? base[1] : 1;
     }
     if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
     const ctx = canvas.getContext('2d');

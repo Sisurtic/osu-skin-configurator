@@ -18,9 +18,6 @@
   let splitFraction = 0.5;
   let previewDebounce = null;
   let liveFrame = 0;            // rAF id for in-flight live (color-drag) preview
-  let previewFullFit = false;
-  let vpActive = false;            // true while the live preview is viewport-virtualized
-  let vpScrollFrame = 0;           // rAF id coalescing virtualized scroll repaints
 
   const IMG_EXTS = new Set(['.png']);
   const thumbCache = new Map();      // src path → dataURL (for list thumbnails)
@@ -427,27 +424,305 @@
     </div>`;
   }
 
-  // ── Canvas preview pipeline ──
-  // Apply the current fit mode (width-fit default, full-fit after dblclick) to a preview canvas.
-  function applyPreviewFit(canvasEl, previewEl) {
-    // Virtualized previews own their own canvas layout (sticky + spacer); a fit
-    // toggle / resize just needs a re-layout + repaint, not max-dimension tweaks.
-    if (vpActive && repaintVirtual(previewEl)) return;
-    // The GL renderer sets canvas.style.width (real logical px) + aspect-ratio;
-    // here we only constrain max dimensions and scrolling behavior.
-    if (previewFullFit) {
-      // Constrain to both preview width and height; no scrolling in this mode.
-      const maxH = previewEl.clientHeight;
-      canvasEl.style.maxWidth = '100%';
-      canvasEl.style.maxHeight = Math.max(40, maxH) + 'px';
-      previewEl.style.overflow = 'hidden';
-    } else {
-      // Width-fit only: show at real width, shrink only if it overflows the pane.
-      canvasEl.style.maxWidth = '100%';
-      canvasEl.style.maxHeight = 'none';
-      previewEl.style.overflowY = 'auto';
+  // ── TintTransform: pan/zoom engine for the NON-virtualized preview ──
+  // Mirror of ImageViewer's transform model, but tint-specific: X is ALWAYS
+  // centered (no horizontal pan / no ox), only Y pans. The group element holds
+  // the canvas (+ guide) at its NATURAL size; the engine scales it and offsets
+  // it vertically. State is keyed on the preview element via a WeakMap so pan/
+  // zoom survives across re-mounts (anchor change rebuilds the group, but the
+  // state is intentionally dropped via reset() on anchor change — see stage D).
+  //
+  // Interactions:
+  //   • Alt + wheel   → zoom (X stays centered, Y follows the cursor)
+  //   • wheel         → vertical pan (Shift = 10× faster)
+  //   • drag          → vertical pan
+  //   • double-click  → cycle: custom → fit → actual(1:1) → fit → …
+  const TintTransform = (function () {
+    const states = new WeakMap();
+
+    function getSt(previewEl) {
+      let st = states.get(previewEl);
+      if (!st) {
+        // virtual: true while the group shows a viewport SLICE (cropC>threshold).
+        // In that mode groupNatH = st.total (not the canvas backing, which is
+        // just the slice), and apply() schedules a viewport re-raster via
+        // paintViewportFromTransform instead of relying on a pre-drawn canvas.
+        st = { scale: null, oy: 0, mode: 'fit', dragging: null,
+               virtual: false, total: 0, vpSrc: null, cropArgs: null, paintRaf: 0 };
+        states.set(previewEl, st);
+      }
+      return st;
     }
-  }
+
+    // Update the virtualization context (called on full rebuild / live redraw).
+    // cropArgs is the argument bundle paintViewportFromTransform forwards to
+    // cropViewportCanvas; vpSrc is the tinted source canvas; total = cropC.
+    function configure(previewEl, opts) {
+      const st = getSt(previewEl);
+      st.virtual = !!(opts && opts.virtual);
+      st.total = (opts && opts.total) || 0;
+      st.vpSrc = (opts && opts.vpSrc) || null;
+      st.cropArgs = (opts && opts.cropArgs) || null;
+    }
+
+    // Geometry context for a group's NATURAL (un-scaled) size.
+    // Non-virtualized: natural size = the canvas backing (outW × outH).
+    // Virtualized: the canvas is only a viewport SLICE — its backing is a
+    // downsampled sliver (round(outW*ds) wide), NOT the natural width. So the
+    // natural width must come from the tinted source (st.vpSrc.width = outW),
+    // never from canvas.width. Natural height = st.total (the full cropC output).
+    function geom(previewEl, group, st) {
+      let groupNatW, groupNatH;
+      if (st && st.virtual) {
+        groupNatW = (st.vpSrc && st.vpSrc.width) || group.offsetWidth;
+        groupNatH = st.total || group.offsetHeight;
+      } else {
+        const canvas = group.querySelector('.tint-preview__canvas');
+        groupNatW = canvas ? canvas.width : group.offsetWidth;
+        groupNatH = canvas ? canvas.height : group.offsetHeight;
+      }
+      const paneW = previewEl.clientWidth;
+      const paneH = previewEl.clientHeight > 0 ? previewEl.clientHeight : 400;
+      return { groupNatW, groupNatH, paneW, paneH };
+    }
+
+    // Fit = containment: scale so the WHOLE image fits entirely inside the pane
+    // (the smaller of the width/height ratios). Every guide line lands within
+    // the pane and is visible at once — no panning needed, the whole output is
+    // already on screen. (Zoom in past fit to pan around a partial view.)
+    function fitScale(g) {
+      if (!g.paneW || !g.paneH || !g.groupNatW || !g.groupNatH) return 1;
+      return Math.min(g.paneW / g.groupNatW, g.paneH / g.groupNatH);
+    }
+
+    // Zoom badge text (top-right of the pane), mirroring ImageViewer.
+    function badgeText(st) {
+      if (st.mode === 'fit') return 'Fit';
+      if (st.mode === 'actual') return '100%';
+      return Math.round((st.scale || 1) * 100) + '%';
+    }
+
+    // Ensure the badge exists on the pane and reflects the current state. The
+    // badge is a pane-level overlay (not inside the scaled group) so it stays
+    // fixed at the top-right regardless of pan/zoom.
+    function syncBadge(previewEl, st) {
+      // The badge is re-created if it was dropped (previewEl.innerHTML='' on a
+      // full rebuild clears it, but the stale reference survives in state).
+      if (!st.badge || !st.badge.isConnected) {
+        const badge = document.createElement('div');
+        badge.className = 'iv-badge';
+        previewEl.appendChild(badge);
+        st.badge = badge;
+      }
+      st.badge.textContent = badgeText(st);
+    }
+
+    // Place the group: scale to its natural size, center X, center+oy Y. For a
+    // virtualized group, also schedule a viewport-slice re-raster so the slice
+    // tracks the new pan/zoom (coalesced on a rAF).
+    function apply(previewEl, group, st) {
+      const g = geom(previewEl, group, st);
+      // fit is a deterministic containment view: always (re)compute its scale and
+      // center it (oy=0), writing both back so a stale st.scale/st.oy from a prior
+      // actual/custom state can never leak into a fit view (which would paint the
+      // wrong viewport slice or shift the centered image).
+      const scale = st.mode === 'fit' ? fitScale(g) : (st.scale != null ? st.scale : fitScale(g));
+      if (st.mode === 'fit') {
+        st.scale = scale;
+        st.oy = 0;
+      }
+      const dispW = g.groupNatW * scale, dispH = g.groupNatH * scale;
+      group.style.position = 'absolute';
+      group.style.left = (g.paneW - dispW) / 2 + 'px';
+      group.style.top = (g.paneH - dispH) / 2 + st.oy + 'px';
+      group.style.width = g.groupNatW + 'px';
+      group.style.height = g.groupNatH + 'px';
+      group.style.transformOrigin = '0 0';
+      group.style.transform = `scale(${scale})`;
+      syncBadge(previewEl, st);
+      // Reposition the pane-level guide overlay to match the content's vertical
+      // pan/zoom (groupScreenTop mirrors group.style.top above).
+      const groupScreenTop = (g.paneH - dispH) / 2 + st.oy;
+      syncGuide(previewEl, scale, groupScreenTop, g.paneH);
+      if (st.virtual && st.vpSrc) schedulePaint(previewEl, group, st);
+    }
+
+    // Coalesce viewport re-rasters: one rAF per frame regardless of how many
+    // apply() calls fired (wheel/drag fire many). The rAF re-measures geometry
+    // fresh (pane size may have changed; scale/oy in st are current) so the
+    // slice always matches the group's actual on-screen transform — never a
+    // stale capture from the first apply of the burst.
+    function schedulePaint(previewEl, group, st) {
+      if (st.paintRaf) return;
+      st.paintRaf = requestAnimationFrame(() => {
+        st.paintRaf = 0;
+        const canvas = group.querySelector('.tint-preview__canvas');
+        if (!canvas) return;
+        const g = geom(previewEl, group, st);
+        const scale = st.scale != null ? st.scale : fitScale(g);
+        paintViewportFromTransform(canvas, previewEl, st, g.paneW, g.paneH, scale);
+      });
+    }
+
+    // Vertical clamp: the image edge may never be dragged past the pane edge it
+    // would expose — i.e. the group always fully COVERS the pane (when larger than
+    // it) or stays fully INSIDE it (when smaller). Concretely groupScreenTop is
+    // pinned to [min(0, paneH-dispH), max(0, paneH-dispH)], which in oy space is
+    // [-|paneH-dispH|/2, |paneH-dispH|/2]. At fit, dispH≈paneH → maxOy≈0 → the
+    // view is locked (the whole image already fills the pane, so pan is a no-op
+    // and can never push the engine into a partial-viewport slice). Zoom in past
+    // fit and maxOy grows, re-enabling pan over the now-larger-than-pane image.
+    function clamp(g, scale, st) {
+      if (!g.groupNatW || !g.groupNatH) return;
+      const dispH = g.groupNatH * scale;
+      const maxOy = Math.abs(g.paneH - dispH) / 2;
+      st.oy = Math.max(-maxOy, Math.min(maxOy, st.oy));
+    }
+
+    function currentScale(previewEl, group, st) {
+      if (st.scale != null) return st.scale;
+      return fitScale(geom(previewEl, group, st));
+    }
+
+    // Recompute layout (called after a live re-draw / resize / mode change).
+    // In fit mode the scale tracks the pane; in custom/actual it is held.
+    function refresh(previewEl) {
+      const group = previewEl.querySelector('.tint-preview__group');
+      if (!group) return;
+      const st = getSt(previewEl);
+      const g = geom(previewEl, group, st);
+      if (st.mode === 'fit' || st.scale == null) st.scale = fitScale(g);
+      clamp(g, st.scale, st);
+      apply(previewEl, group, st);
+    }
+
+    // Bind the interactions on a preview element (idempotent via _ttBound).
+    // Both the non-virtualized and virtualized groups drive the same transform;
+    // the only difference is whether apply() also re-rasters a viewport slice.
+    function bind(previewEl) {
+      if (!previewEl || previewEl._ttBound) return;
+      previewEl._ttBound = true;
+      const st = getSt(previewEl);
+
+      const onWheel = (e) => {
+        const group = previewEl.querySelector('.tint-preview__group');
+        if (!group) return;
+        e.preventDefault();
+        const shift = e.shiftKey ? 10 : 1;
+        const g = geom(previewEl, group, st);
+        if (e.altKey) {
+          // Zoom: X centered, Y follows cursor. py = cursor Y relative to the
+          // pane center; imgY = the natural row under the cursor. After zoom,
+          // recompute oy so imgY stays under the cursor.
+          const rect = previewEl.getBoundingClientRect();
+          const py = e.clientY - rect.top - rect.height / 2;
+          const oldScale = currentScale(previewEl, group, st);
+          const imgY = (py - st.oy) / oldScale + g.groupNatH / 2;
+          // No lower clamp on ns: we want to be able to scroll down to/below 1%
+          // so the snap-to-fit check below triggers (a hard 0.02 floor would
+          // make 1% unreachable).
+          const ns = Math.min(64, oldScale * Math.exp(-e.deltaY * 0.0015 * shift));
+          // Zooming out past ~1% snaps to fit (the view is already near the
+          // containment floor; going lower just starves the rasteriser for no
+          // visible gain). Fit re-centers and re-clamps oy.
+          if (ns <= 0.01) {
+            st.mode = 'fit'; st.scale = null; st.oy = 0;
+          } else {
+            st.oy = py - (imgY - g.groupNatH / 2) * ns;
+            st.scale = ns;
+            st.mode = 'custom';
+            clamp(g, st.scale, st);
+          }
+          apply(previewEl, group, st);
+        } else {
+          // Vertical pan only. Natural direction: scroll DOWN → content moves up
+          // → see lower content (matches browsers / PS).
+          const step = 40 * shift;
+          st.oy -= (e.deltaY > 0 ? step : -step);
+          clamp(g, currentScale(previewEl, group, st), st);
+          apply(previewEl, group, st);
+        }
+      };
+      previewEl.addEventListener('wheel', onWheel, { passive: false });
+
+      const onDblClick = (e) => {
+        const group = previewEl.querySelector('.tint-preview__group');
+        if (!group) return;
+        if (e.target.closest('.tint-guide__label')) return;
+        const g = geom(previewEl, group, st);
+        if (st.mode === 'fit') {
+          // fit → actual (1:1): top-align so the top of the image is visible
+          // (a tall image centered at 100% would show only its middle).
+          st.mode = 'actual'; st.scale = 1;
+          const dispH = g.groupNatH * 1;
+          st.oy = dispH > g.paneH ? (dispH - g.paneH) / 2 : 0;
+        } else {
+          st.mode = 'fit'; st.scale = fitScale(g);
+          st.oy = 0;
+        }
+        clamp(g, st.scale, st);
+        apply(previewEl, group, st);
+      };
+      previewEl.addEventListener('dblclick', onDblClick);
+
+      const onDown = (e) => {
+        if (e.button !== 0) return;
+        const group = previewEl.querySelector('.tint-preview__group');
+        if (!group) return;
+        if (e.target.closest('.tint-guide__label')) return;
+        st.dragging = { y: e.clientY, oy: st.oy, moved: false };
+        e.preventDefault();
+      };
+      const onMove = (e) => {
+        if (!st.dragging) return;
+        if (!st.dragging.moved) {
+          if (Math.abs(e.clientY - st.dragging.y) < 3) return;
+          st.dragging.moved = true;
+        }
+        st.oy = st.dragging.oy + (e.clientY - st.dragging.y);
+        const group = previewEl.querySelector('.tint-preview__group');
+        if (group) {
+          clamp(geom(previewEl, group, st), currentScale(previewEl, group, st), st);
+          apply(previewEl, group, st);
+        }
+      };
+      const onUp = () => {
+        if (!st.dragging) return;
+        if (st.dragging.moved) st.mode = 'custom';
+        st.dragging = null;
+      };
+      previewEl.addEventListener('mousedown', onDown);
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+
+      // Re-fit when the pane resizes, but only in fit mode (custom/actual hold).
+      if (typeof ResizeObserver !== 'undefined') {
+        let raf = 0;
+        new ResizeObserver(() => {
+          cancelAnimationFrame(raf);
+          raf = requestAnimationFrame(() => {
+            const group = previewEl.querySelector('.tint-preview__group');
+            if (!group) return;
+            const g = geom(previewEl, group, st);
+            if (st.mode === 'fit' || st.scale == null) st.scale = fitScale(g);
+            clamp(g, st.scale, st);
+            apply(previewEl, group, st);
+          });
+        }).observe(previewEl);
+      }
+    }
+
+    function reset(previewEl) {
+      const st = states.get(previewEl);
+      if (st) { st.scale = null; st.oy = 0; st.mode = 'fit'; }
+    }
+
+    return { bind, refresh, reset, configure };
+  })();
+
+  // ── Canvas preview pipeline ──
+  // (Fit/pan/zoom layout is owned by TintTransform; see the engine above. The
+  // helpers below draw pixel content into the canvas backing.)
 
   // One hue per guide kind, so each line+label reads as a distinct color band.
   const GUIDE_COLORS = {
@@ -458,21 +733,20 @@
     darken:  '#fb923c', // orange — 暗化偏移
   };
 
-  // A horizontal guide line at `topPct`% of the canvas height, tinted `color`.
-  // The label floats beside its own line; its vertical position is finalized in
-  // relayoutGuideIndent (snaps to the line, cascades down on overlap).
-  function guideLine(topPct, label, color, above, bottom) {
+  // A horizontal guide line at natural output row `row` (0..total), tinted
+  // `color`. The line + its label live in a pane-level overlay (NOT inside the
+  // scaled group), so zoom never stretches them horizontally — only their
+  // vertical position tracks the content. The screen Y is computed from the
+  // current transform state in syncGuide() (called after every apply); the row
+  // is stored on data-row so syncGuide can reposition without rebuilding.
+  function guideLine(row, label, color, above) {
     const arrow = above ? '▼' : '▲';
     const aboveCls = above ? ' tint-guide__label--above' : '';
-    // Bottom-anchored lines sit 1px INSIDE the stage bottom edge so the dashed
-    // border always renders (at a fractional stage height a border right on the
-    // last pixel row can drop out due to subpixel sampling).
-    const posStyle = bottom ? 'bottom:1px;top:auto' : `top:${topPct}%`;
     // Line (full-width dashed) and label are SIBLINGS so the label's stacking
     // (z-index 3) clearly sits above the line (z-index 1) — the dashed line
     // never paints over the label text.
-    return `<div class="tint-guide__line" style="${posStyle};border-color:${color}"></div>`
-      + `<div class="tint-guide__labelwrap" style="${posStyle}">`
+    return `<div class="tint-guide__line" data-row="${row}" style="border-color:${color}"></div>`
+      + `<div class="tint-guide__labelwrap" data-row="${row}">`
       + `<span class="tint-guide__label tint-guide__label--left${aboveCls}" style="background:${color}"><span class="tint-guide__arrow">${arrow}</span>${escapeHtml(label)}</span>`
       + `</div>`;
   }
@@ -503,35 +777,82 @@
     const botSrc = Math.max(0, sh - tailH - b);
     const pinOutTop = Math.max(tailBottom, total - botSrc);
     const lines = [
-      { pct: (blank / total) * 100, label: i18n.t('edit.guideBlank') + ' ' + blank, color: GUIDE_COLORS.blank, above: false, bottom: false },
-      { pct: (tailBottom / total) * 100, label: i18n.t('edit.guideTop') + ' ' + tailH, color: GUIDE_COLORS.top, above: false, bottom: false },
-      { pct: 0, label: i18n.t('edit.guideExt') + ' ' + total, color: GUIDE_COLORS.ext, above: true, bottom: true },
+      { row: blank, label: i18n.t('edit.guideBlank') + ' ' + blank, color: GUIDE_COLORS.blank, above: false },
+      { row: tailBottom, label: i18n.t('edit.guideTop') + ' ' + tailH, color: GUIDE_COLORS.top, above: false },
+      { row: 0, label: i18n.t('edit.guideExt') + ' ' + total, color: GUIDE_COLORS.ext, above: true },
     ];
     if (b > 0) {
       // 拉伸 line at pinOutTop: above is the stretched middle, below is 1:1 bottom.
-      lines.push({ pct: (pinOutTop / total) * 100, label: i18n.t('edit.guideStretch') + ' ' + b, color: GUIDE_COLORS.stretch, above: false, bottom: false });
+      lines.push({ row: pinOutTop, label: i18n.t('edit.guideStretch') + ' ' + b, color: GUIDE_COLORS.stretch, above: false });
     }
     if (darkening) {
-      lines.push({ pct: ((tailBottom + shift) / total) * 100, label: i18n.t('edit.guideDarken') + ' ' + shift, color: GUIDE_COLORS.darken, above: false, bottom: false });
+      lines.push({ row: tailBottom + shift, label: i18n.t('edit.guideDarken') + ' ' + shift, color: GUIDE_COLORS.darken, above: false });
     }
     const guide = document.createElement('div');
     guide.className = 'tint-guide';
-    guide.innerHTML = lines.map(ln => guideLine(ln.pct, ln.label, ln.color, ln.above, ln.bottom)).join('');
+    guide.innerHTML = lines.map(ln => guideLine(ln.row, ln.label, ln.color, ln.above)).join('');
     return guide;
+  }
+
+  // Reposition every guide line + label to its screen Y for the current
+  // transform. The guide is a pane-level overlay (not inside the scaled group),
+  // so a line at natural row `row` sits at screen Y = groupScreenTop + row*scale
+  // — it tracks the content's vertical pan/zoom but is never stretched. Labels
+  // that would render off-pane are hidden (clamped to nothing); the cascade in
+  // relayoutGuideIndent then stacks overlapping on-screen labels.
+  function syncGuide(previewEl, scale, groupScreenTop, paneH) {
+    const guide = previewEl.querySelector('.tint-guide');
+    if (!guide) return;
+    const lines = guide.querySelectorAll('.tint-guide__line');
+    const wraps = guide.querySelectorAll('.tint-guide__labelwrap');
+    const setY = (el) => {
+      const row = parseFloat(el.dataset.row);
+      let y = groupScreenTop + row * scale;
+      // A line at the pane top (y=0) renders fine; a line at the pane bottom
+      // (y=paneH) is half-clipped by overflow:hidden, so nudge only the BOTTOM
+      // up by 2px. Do NOT nudge the top — that would lift the top guide off the
+      // image's top edge (it should sit flush at y=0). Lines far off-pane hide.
+      const onPane = y > -2 && y < paneH + 2;
+      if (onPane) y = Math.min(y, paneH - 2);
+      el.style.top = y + 'px';
+      el.style.bottom = 'auto';
+      el.style.visibility = onPane ? '' : 'hidden';
+    };
+    lines.forEach(setY);
+    // Position each label wrap, then flip its badge to the INSIDE of the pane:
+    // a line in the upper half anchors its label BELOW the line (▼, pointing up
+    // at it), a line in the lower half anchors it ABOVE (▲, pointing down). This
+    // keeps the badges off the pane edges (the bottom guide's label would else
+    // render past the pane bottom and be clipped).
+    wraps.forEach((wrap) => {
+      const row = parseFloat(wrap.dataset.row);
+      const y = groupScreenTop + row * scale;
+      wrap.style.top = y + 'px';
+      wrap.style.bottom = 'auto';
+      wrap.style.visibility = (y > -2 && y < paneH + 2) ? '' : 'hidden';
+      const label = wrap.querySelector('.tint-guide__label');
+      const arrow = wrap.querySelector('.tint-guide__arrow');
+      if (label && arrow) {
+        const above = y >= paneH / 2;
+        label.classList.toggle('tint-guide__label--above', above);
+        arrow.textContent = above ? '▼' : '▲';
+      }
+    });
+    relayoutGuideIndent(previewEl);
   }
 
   // Float each label next to its own dashed line. Overlap is detected from the
   // labels' ACTUAL rendered rects (not a computed pixel guess), so the layout is
   // stable across zoom changes — a value tweak only re-cascades when labels
-  // genuinely overlap at the current size.
-  function relayoutGuideIndent(stage, t, total) {
-    const guide = stage.querySelector('.tint-guide');
+  // genuinely overlap at the current size. Base coordinate space = the pane.
+  function relayoutGuideIndent(previewEl) {
+    const guide = previewEl.querySelector('.tint-guide');
     if (!guide) return;
     const wraps = guide.querySelectorAll('.tint-guide__labelwrap');
     if (!wraps.length) return;
     const labels = guide.querySelectorAll('.tint-guide__label');
     if (!labels.length || labels.length !== wraps.length) return;
-    const stageRect = stage.getBoundingClientRect();
+    const paneRect = previewEl.getBoundingClientRect();
     // Reset any prior cascade so we measure natural (line-hugging) positions.
     wraps.forEach(w => { w.style.marginTop = ''; });
     // Force a reflow so the rects reflect the reset positions.
@@ -550,11 +871,11 @@
     // Top-anchored labels, ordered by natural top.
     const casc = entries.filter(e => !e.above)
       .sort((a, b) => a.label.getBoundingClientRect().top - b.label.getBoundingClientRect().top);
-    const placed = []; // {top, bottom} of settled labels (stage coords)
+    const placed = []; // {top, bottom} of settled labels (pane coords)
     for (const e of casc) {
       const r = e.label.getBoundingClientRect();
-      const top = r.top - stageRect.top;
-      const bottom = r.bottom - stageRect.top;
+      const top = r.top - paneRect.top;
+      const bottom = r.bottom - paneRect.top;
       let shift = 0;
       for (const p of placed) {
         if (top + shift < p.bottom && bottom + shift > p.top) {
@@ -833,95 +1154,79 @@
     }
   }
 
-  // ── Virtualized viewport plumbing ──
-  // The viewport canvas is `position: sticky; top: 0` so it stays pinned to the
-  // top of the scroll pane while the (tall) stage scrolls behind it. Only the
-  // visible output rows are painted into its (small) backing each frame.
+  // ── Virtualized viewport slice (transform-driven) ──
+  // The group's natural height = total (the full cropC output), but only a
+  // viewport-sized slice of it is rasterised into the canvas each frame. The
+  // canvas is absolutely positioned at top=visTop inside the group (group
+  // natural coordinates); the group's CSS transform provides the visual scale.
+  // Pan/zoom change st.oy/st.scale → apply() schedules this repaint, which
+  // recomputes which slice is visible and re-rasters just those rows.
   //
-  // Scale relationship between logical output px and CSS display px:
-  //   displayW = min(paneW, outW)         (canvas is width-fit then height-auto)
-  //   scale    = displayW / outW           (CSS px per logical px)
-  //   visH     = ceil(paneH / scale)       (logical rows that fill the viewport)
-  //   spacerH  = total * scale             (full logical height, in CSS px)
-  //   visTop   = scrollTop / scale         (top logical row currently in view)
+  // Geometry (mirrors apply()'s group.top so visTop tracks the slice actually
+  // under the pane):
+  //   groupScreenTop = (paneH - total*scale)/2 + oy
+  //   visTop = clamp(0, total, (0 - groupScreenTop)/scale)   // top natural row
+  //   visBot = clamp(0, total, (paneH - groupScreenTop)/scale)
+  //   visH   = max(1, ceil(visBot - visTop))
+  //   backing = outW × visH   (full source width; only height is sliced)
 
-  // Paint the viewport slice into the on-screen canvas. Returns the visH used.
-  // In full-fit mode the whole logical output is rendered (downsampled via ds so
-  // the backing stays small); in width-fit mode only the scrolled viewport is
-  // painted at full logical resolution (ds=1, crisp).
-  function paintViewport(shown, srcCanvas, t, total) {
-    const outW = srcCanvas.width;
-    const previewEl = shown.closest('.tint-preview');
-    const paneW = previewEl ? previewEl.clientWidth : outW;
-    // The pane has no size while its tab is hidden (clientWidth=0). Painting now
-    // would compute scale=0 → visH=Infinity → a broken canvas. Skip; the caller
-    // re-paints once the tab is shown (ResizeObserver / rAF / scroll).
-    if (paneW <= 0) return 0;
-    // clientHeight can be 0 on first render before layout settles. Fall back to
-    // a sane default so the viewport canvas gets a real height.
-    const paneH = (previewEl && previewEl.clientHeight > 0) ? previewEl.clientHeight : 400;
-
-    let bw, bh, cssW, cssH, ds, visTop, visH;
-    if (previewFullFit) {
-      // Whole output fits the pane; downsample so the backing is small.
-      const fit = Math.min(paneW / outW, paneH / total);
-      ds = fit;
-      bw = Math.max(1, Math.round(outW * ds));
-      bh = Math.max(1, Math.round(total * ds));
-      cssW = bw; cssH = bh;
-      visTop = 0; visH = total;
-    } else {
-      const displayW = Math.min(paneW, outW);
-      const scale = displayW / outW;
-      ds = 1;                                 // width-fit: render at full resolution
-      visH = Math.max(1, Math.ceil((paneH + 2) / scale));
-      const scrollTop = previewEl ? previewEl.scrollTop : 0;
-      visTop = Math.max(0, scrollTop / scale);
-      bw = outW; bh = visH;
-      cssW = displayW; cssH = paneH;
-    }
-
-    if (shown.width !== bw || shown.height !== bh) {
-      shown.width = bw; shown.height = bh;
-    }
-    // Force the canvas CSS size to the viewport (override height:auto /
-    // maxWidth so our explicit sticky layout wins).
-    shown.style.width = cssW + 'px';
-    shown.style.height = cssH + 'px';
-    shown.style.maxWidth = 'none';
-    shown.style.maxHeight = 'none';
-    shown.style.position = 'sticky';
-    shown.style.top = '0';
-
-    const ctx = shown.getContext('2d');
-    ctx.clearRect(0, 0, bw, bh);
-    cropViewportCanvas(ctx, srcCanvas,
-      +t.cropA || 0, +t.cropB || 0, total, !!t.cropTile, t.cropTileDir, +t.cropD || 0,
-      isDarkening(t), +t.darkenD || 0, Math.max(0, Math.min(1, (+t.darkenOpacity || 0) / 100)),
-      visTop, visH, ds);
-    return visH;
+  // Bundle the crop/darken args cropViewportCanvas expects, from an op t.
+  function cropArgsFromT(t) {
+    return {
+      tailH: +t.cropA || 0, blank: +t.cropB || 0, total: Math.max(1, Math.round(+t.cropC || 32768)),
+      tile: !!t.cropTile, tileDir: t.cropTileDir, stretchH: +t.cropD || 0,
+      darkenOn: isDarkening(t), shift: +t.darkenD || 0,
+      darkenAlpha: Math.max(0, Math.min(1, (+t.darkenOpacity || 0) / 100)),
+    };
   }
 
-  // Size the stage (spacer) so the scrollbar reflects the full logical height,
-  // and re-measure the visible viewport scale (pane may have resized). Returns
-  // the displayed total CSS height. In full-fit the stage is exactly the pane
-  // height (no scrolling); in width-fit it is the full logical output height.
-  function layoutVirtualStage(stage, srcCanvas, total) {
+  // Paint the visible slice into the on-screen canvas, positioned absolutely
+  // inside the group at the slice's natural top. paneW/paneH/scale are passed
+  // in (already measured by apply) so we don't re-read layout.
+  function paintViewportFromTransform(canvas, previewEl, st, paneW, paneH, scale) {
+    const srcCanvas = st.vpSrc;
+    const ca = st.cropArgs;
+    if (!srcCanvas || !ca || paneW <= 0) return;
     const outW = srcCanvas.width;
-    const previewEl = stage.closest('.tint-preview');
-    const paneW = previewEl ? previewEl.clientWidth : outW;
-    const paneH = (previewEl && previewEl.clientHeight > 0) ? previewEl.clientHeight : 400;
-    let spacerH;
-    if (previewFullFit) {
-      const fit = Math.min(paneW / outW, paneH / total);
-      spacerH = total * fit;
-    } else {
-      const displayW = Math.min(paneW, outW);
-      const scale = displayW / outW;
-      spacerH = total * scale;
+    const total = st.total || ca.total;
+    // Where the group's top edge sits on screen, in screen px (mirrors apply).
+    const groupScreenTop = (paneH - total * scale) / 2 + st.oy;
+    const visTop = Math.max(0, Math.min(total, (0 - groupScreenTop) / scale));
+    const visBot = Math.max(0, Math.min(total, (paneH - groupScreenTop) / scale));
+    const visH = Math.max(1, Math.ceil(visBot - visTop));
+    // Backing resolution. When (nearly) the WHOLE output is visible — fit, or
+    // any zoom where the image fits the pane — rasterise the full canvas once at
+    // natural resolution (ds=1), so a tall cropC output displays complete and
+    // crisp (the CSS transform does the final shrink). Only when zoomed IN past
+    // the pane (a true partial viewport) do we downsample the slice (ds=scale) to
+    // keep the backing small. The whole-image test uses a 99% threshold so a few
+    // rows of float/rounding slack at the containment edge still count as whole.
+    const whole = visH >= total * 0.99;
+    const ds = whole ? 1 : Math.min(1, scale);
+    const bw = Math.max(1, Math.round(outW * ds));
+    const bh = Math.max(1, Math.round(visH * ds));
+
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw; canvas.height = bh;
     }
-    stage.style.height = spacerH + 'px';
-    return spacerH;
+    // Position the slice in the group's natural coordinate space: the group's
+    // transform scales it to the screen. width/height in natural px (outW/visH)
+    // so the slice aligns with the guide lines (which are also in natural space).
+    canvas.style.position = 'absolute';
+    canvas.style.left = '0';
+    canvas.style.top = visTop + 'px';
+    canvas.style.width = outW + 'px';
+    canvas.style.height = visH + 'px';
+    canvas.style.maxWidth = 'none';
+    canvas.style.maxHeight = 'none';
+    canvas.style.margin = '0';
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, bw, bh);
+    cropViewportCanvas(ctx, srcCanvas,
+      ca.tailH, ca.blank, total, ca.tile, ca.tileDir, ca.stretchH,
+      ca.darkenOn, ca.shift, ca.darkenAlpha,
+      visTop, visH, ds);
   }
 
   // Should this op's crop/darken preview be viewport-virtualized? Only when crop
@@ -931,26 +1236,6 @@
     if (!t || !t.cropEnabled || !img) return false;
     const cropOutH = Math.max(1, Math.round(+t.cropC || 32768));
     return cropOutH > VIRTUALIZE_THRESHOLD;
-  }
-
-  // Re-layout the spacer + repaint the viewport of an ALREADY-built virtualized
-  // preview (used by scroll, pane resize, and fit-toggle). No-op if the preview
-  // is not currently virtualized.
-  function repaintVirtual(previewEl) {
-    if (!vpActive) return false;
-    const shown = previewEl && previewEl.querySelector('.tint-preview__canvas');
-    const stage = previewEl && previewEl.querySelector('.tint-preview__stage');
-    if (!shown || !stage || !shown._vpSrc) return false;
-    const t = sel();
-    if (!t) return false;
-    const total = Math.max(1, Math.round(+t.cropC || 32768));
-    // Keep the scroll mode in sync with the current fit (applyPreviewFit is
-    // virtualization-aware and calls back into us, so set overflow directly).
-    previewEl.style.overflow = previewFullFit ? 'hidden' : 'auto';
-    layoutVirtualStage(stage, shown._vpSrc, total);
-    paintViewport(shown, shown._vpSrc, t, total);
-    relayoutGuideIndent(stage, t, total);
-    return true;
   }
 
   // Render one frame. Tint-only uses the WebGL path (fast, smooth live dragging).
@@ -1040,24 +1325,19 @@
       // refresh the guide lines in place so dragging crop/darken values tracks.
       if (live) {
         const liveCanvas = previewEl.querySelector('.tint-preview__canvas');
-        if (liveCanvas) {
-          // If the output is huge (shouldVirtualize) but the viewport-virtualized
-          // state isn't ready yet (e.g. cropC just crossed the threshold from a
-          // small value), do NOT fall through to drawProcessed — it would build
-          // an outW×cropC backing (fails / goes blank past the canvas size limit,
-          // ~65536). Force a full rebuild instead, which sets up virtualization.
-          if (shouldVirtualize(t, img) && !(vpActive && liveCanvas._vpSrc)) {
-            recomputePreview(false);
-            return;
-          }
-          // Virtualized live update: the source canvas is cached on the canvas
-          // element; just re-layout the spacer + repaint the viewport (cheap).
-          if (vpActive && liveCanvas._vpSrc && shouldVirtualize(t, img)) {
-            // If the tinted SOURCE changed (mode/source swap while crop is on),
-            // rebuild the cached source canvas before repainting. The tint COLOR
-            // is NOT in the sig: when tint is on and GL is available, the source
-            // is re-rasterised every paint via a uniform update (cheap), so a
-            // color drag repaints without rebuilding the (expensive) JS source.
+        const group = previewEl.querySelector('.tint-preview__group');
+        if (liveCanvas && group) {
+          const virtual = shouldVirtualize(t, img);
+          // If cropC just crossed the threshold (either direction), the on-screen
+          // group is the wrong kind (full-canvas vs slice). Force a full rebuild
+          // rather than mutating in place — drawProcessed would build an
+          // outW×cropC backing (blank past the canvas size limit) one way, and a
+          // slice canvas can't show a small full output the other.
+          if (virtual !== !!liveCanvas._vpSrc) { recomputePreview(false); return; }
+          if (virtual) {
+            // Rebuild the tinted SOURCE only when it changed (mode/source swap).
+            // The tint COLOR is NOT in the sig: with GL it is a uniform update
+            // each paint, so a color drag repaints without rebuilding the source.
             const sig = tintSourceSig(img, t);
             const glTint = t.tintEnabled && window.GlPreview;
             if (glTint || liveCanvas._vpSig !== sig) {
@@ -1065,135 +1345,81 @@
               liveCanvas._vpSig = sig;
             }
             const total = Math.max(1, Math.round(+t.cropC || 32768));
-            const stage = previewEl.querySelector('.tint-preview__stage');
-            if (stage) {
-              const guide = stage.querySelector('.tint-guide');
-              if (guide) guide.replaceWith(buildGuide(t, total, img.naturalHeight));
-              layoutVirtualStage(stage, liveCanvas._vpSrc, total);
-              paintViewport(liveCanvas, liveCanvas._vpSrc, t, total);
-              relayoutGuideIndent(stage, t, total);
+            TintTransform.configure(previewEl, { virtual: true, vpSrc: liveCanvas._vpSrc, total, cropArgs: cropArgsFromT(t) });
+            if (t.cropEnabled) {
+              const guide = previewEl.querySelector('.tint-guide');
+              const fresh = buildGuide(t, total, img.naturalHeight);
+              if (guide) guide.replaceWith(fresh); else previewEl.appendChild(fresh);
             }
-            return;
-          }
-          const outH = drawProcessed(liveCanvas, img, t, t.source);
-          if (t.cropEnabled) {
-            const stage = previewEl.querySelector('.tint-preview__stage');
-            if (stage) {
-              const guide = stage.querySelector('.tint-guide');
-              const total = outH || 1;
-              if (guide) {
-                const fresh = buildGuide(t, total, img.naturalHeight);
-                guide.replaceWith(fresh);
-              }
-              relayoutGuideIndent(stage, t, total);
+            TintTransform.refresh(previewEl);   // → apply → syncGuide + paintViewportFromTransform
+          } else {
+            // Non-virtualized: re-draw the full backing in place.
+            const outH = drawProcessed(liveCanvas, img, t, t.source);
+            TintTransform.configure(previewEl, { virtual: false });
+            if (t.cropEnabled) {
+              const guide = previewEl.querySelector('.tint-guide');
+              const fresh = buildGuide(t, outH || 1, img.naturalHeight);
+              if (guide) guide.replaceWith(fresh); else previewEl.appendChild(fresh);
             }
+            TintTransform.refresh(previewEl);
           }
-          // drawProcessed clears canvas maxHeight/maxWidth (and other fit styles)
-          // on every repaint; re-apply the fit so a full-fit preview stays fit
-          // instead of snapping back to width-fit while dragging values.
-          applyPreviewFit(liveCanvas, previewEl);
           return;
         }
       }
-      // Full rebuild of the preview DOM.
-      // Preserve the scroll position across the rebuild: innerHTML='' drops it.
-      // (previewFullFit is a closure var and survives, so only scrollTop needs
-      // saving. Width-fit is the only mode with a meaningful scroll offset.)
-      const savedScroll = previewEl.scrollTop;
+      // Full rebuild of the preview DOM into the unified group-transform model.
       // Release the previous canvas's GL renderer (if any) before dropping it.
       const prevCanvas = previewEl.querySelector('.tint-preview__canvas');
       if (prevCanvas && prevCanvas._glRenderer) { try { prevCanvas._glRenderer.destroy(); } catch (_) {} }
       previewEl.innerHTML = '';
-      const wrap = document.createElement('div');
-      wrap.className = 'tint-preview__wrap';
-      const stage = document.createElement('div');
-      stage.className = 'tint-preview__stage';
+      previewEl.style.overflow = 'hidden';
+      // A full rebuild is a fresh view (new op, or a source/size change like
+      // crossing the virtualization threshold): reset pan/zoom to fit so a
+      // prior op's custom/actual state can't carry over.
+      TintTransform.reset(previewEl);
       const shown = document.createElement('canvas');
       shown.className = 'tint-preview__canvas';
+      const group = document.createElement('div');
+      group.className = 'tint-preview__group';
 
-      // ── Virtualized crop/darken path: sticky viewport canvas + tall spacer. ──
-      // Renders only the visible output rows each frame (and on scroll), keeping
-      // the canvas2D backing small regardless of cropC. Falls back to the full
-      // canvas render below when the output fits the threshold (small cropC).
       if (shouldVirtualize(t, img)) {
-        vpActive = true;
+        // Virtualized: the group's natural height = total (cropC), but the canvas
+        // is only a viewport slice, re-rastered on pan/zoom by the engine. The
+        // tinted source is cached on the canvas; the engine reads it via state.
         const srcCanvas = buildTintedSource(img, t, shown);
         shown._vpSrc = srcCanvas;
         shown._vpSig = tintSourceSig(img, t);
         const total = Math.max(1, Math.round(+t.cropC || 32768));
-        previewEl.style.overflow = previewFullFit ? 'hidden' : 'auto';
-        stage.appendChild(shown);
-        const guide = buildGuide(t, total, img.naturalHeight);
-        stage.appendChild(guide);
-        wrap.appendChild(stage);
-        previewEl.appendChild(wrap);
-        // Paint must run AFTER the stage is in the DOM (paintViewport measures
-        // the pane). Spacer layout first so the scrollbar is correct.
-        layoutVirtualStage(stage, srcCanvas, total);
-        paintViewport(shown, srcCanvas, t, total);
-        relayoutGuideIndent(stage, t, total);
-        bindVirtualScroll(previewEl);
+        group.appendChild(shown);
+        previewEl.appendChild(group);
+        if (t.cropEnabled) previewEl.appendChild(buildGuide(t, total, img.naturalHeight));
+        TintTransform.configure(previewEl, { virtual: true, vpSrc: srcCanvas, total, cropArgs: cropArgsFromT(t) });
+        TintTransform.bind(previewEl);
+        TintTransform.refresh(previewEl);   // → apply → syncGuide + paintViewportFromTransform
         // On first open the pane may not have a measured height yet (clientHeight
-        // 0 → canvas painted at 0 height → sticky-scroll dead). Re-paint next
-        // frame once layout has settled.
-        requestAnimationFrame(() => {
-          if (vpActive && shown._vpSrc) {
-            layoutVirtualStage(stage, shown._vpSrc, total);
-            paintViewport(shown, shown._vpSrc, t, total);
-            relayoutGuideIndent(stage, t, total);
-            // Re-restore scrollTop once layout has fully settled (the spacer
-            // height set this frame defines the scrollable range).
-            if (!previewFullFit && savedScroll > 0) previewEl.scrollTop = savedScroll;
-          }
-        });
+        // 0 → empty slice). Re-refresh next frame once layout has settled.
+        requestAnimationFrame(() => { if (shown._vpSrc) TintTransform.refresh(previewEl); });
       } else {
-        vpActive = false;
+        // Non-virtualized: the canvas is the full processed output (backing =
+        // outW × outH), filling the group at natural size. The engine scales it.
         const outH = drawProcessed(shown, img, t, t.source);
-        applyPreviewFit(shown, previewEl);
-        stage.appendChild(shown);
-        // Percy LN guide lines: mark blank / top / extended-bottom heights.
-        if (t.cropEnabled) {
-          const total = outH || 1;
-          const guide = buildGuide(t, total, img.naturalHeight);
-          stage.appendChild(guide);
-        }
-        wrap.appendChild(stage);
-        previewEl.appendChild(wrap);
-        // Re-measure indents AFTER the stage is in the DOM, so the displayed
-        // height (post-fit) is real — otherwise getBoundingClientRect() returns 0
-        // and every label collapses onto one line.
-        if (t.cropEnabled) {
-          const total = outH || 1;
-          relayoutGuideIndent(stage, t, total);
-        }
+        shown.style.position = 'relative';
+        shown.style.display = 'block';
+        shown.style.margin = '0';
+        group.appendChild(shown);
+        previewEl.appendChild(group);
+        // Percy LN guide lines: a pane-level overlay (not inside the group), so
+        // zoom only moves them vertically — they span the full pane width.
+        if (t.cropEnabled) previewEl.appendChild(buildGuide(t, outH || 1, img.naturalHeight));
+        TintTransform.configure(previewEl, { virtual: false });
+        TintTransform.bind(previewEl);
+        TintTransform.refresh(previewEl);   // → apply → syncGuide positions the lines
       }
-      // Restore the scroll position now that the new DOM is attached. Force a
-      // reflow first so the scrollable range (spacer height, in virtual mode) is
-      // current — setting scrollTop before layout settles is silently dropped.
-      // The virtual path re-restores in its rAF once the spacer is final.
-      void previewEl.offsetHeight;
-      if (!previewFullFit && savedScroll > 0) previewEl.scrollTop = savedScroll;
       if (fadeOnChange) {
         previewEl.classList.remove(FADE);
         void previewEl.offsetWidth;
         previewEl.classList.add(FADE);
       }
     } catch (_) { /* ignore */ }
-  }
-
-  // Bind (once per scroll container) a passive scroll listener that repaints the
-  // virtualized viewport on a rAF. No-op when not virtualized or in full-fit.
-  function bindVirtualScroll(previewEl) {
-    if (!previewEl || previewEl._vpScrollBound) return;
-    previewEl._vpScrollBound = true;
-    previewEl.addEventListener('scroll', () => {
-      if (!vpActive || previewFullFit) return;
-      if (vpScrollFrame) return;
-      vpScrollFrame = requestAnimationFrame(() => {
-        vpScrollFrame = 0;
-        repaintVirtual(previewEl);
-      });
-    }, { passive: true });
   }
 
   // schedulePreview(live): live updates (color drag) are coalesced on a rAF and
@@ -2139,73 +2365,9 @@
     // Edge-fade overlays on the ops-list scroll viewport.
     window.setupEdgeFade(container.querySelector('.tint-ops'), container.querySelector('#tint-table-body-scroll'), undefined, '.op-row--head');
 
-    // Double-click (custom 250ms) toggles fit; drag-to-scroll (width-fit mode) pans vertically.
-    const previewEl = container.querySelector('#tint-preview');
-    if (previewEl && !previewEl._dblclickBound) {
-      previewEl._dblclickBound = true;
-      let lastClick = 0;
-      let dragStart = null;
-      let suppressClick = false;
-      previewEl.addEventListener('mousedown', (e) => {
-        if (e.target.closest('.tint-guide__label')) return;
-        if (previewFullFit) return; // no scroll in full-fit
-        dragStart = { y: e.clientY, top: previewEl.scrollTop, moved: false };
-        e.preventDefault();
-      });
-      document.addEventListener('mousemove', (e) => {
-        if (!dragStart) return;
-        const dy = e.clientY - dragStart.y;
-        if (Math.abs(dy) > 3) dragStart.moved = true;
-        previewEl.scrollTop = dragStart.top - dy;
-      });
-      document.addEventListener('mouseup', () => {
-        if (dragStart) {
-          if (dragStart.moved) suppressClick = true; // don't let the ensuing click count as a dblclick
-          dragStart = null;
-        }
-      });
-      previewEl.addEventListener('click', () => {
-        if (suppressClick) { suppressClick = false; return; }
-        const now = Date.now();
-        if (now - lastClick < 250) {
-          previewFullFit = !previewFullFit;
-          const canvas = previewEl.querySelector('.tint-preview__canvas');
-          if (canvas) applyPreviewFit(canvas, previewEl);
-          // Re-measure guide indents now that the canvas has its new display size.
-          // (Virtualized previews are fully re-laid-out inside applyPreviewFit →
-          // repaintVirtual, so skip the manual call there — canvas.height would be
-          // the viewport height, not the full logical height, in that mode.)
-          if (!vpActive) {
-            const stage = previewEl.querySelector('.tint-preview__stage');
-            const t = sel();
-            if (stage && t && t.cropEnabled) relayoutGuideIndent(stage, t, canvas.height);
-          }
-          lastClick = 0;
-        } else {
-          lastClick = now;
-        }
-      });
-      // Re-fit + re-layout guides when the preview pane resizes (splitter drag,
-      // window resize) so width/height-fit and label indents track live.
-      if (typeof ResizeObserver !== 'undefined' && !previewEl._resizeObserved) {
-        previewEl._resizeObserved = true;
-        let raf = 0;
-        const onResize = () => {
-          cancelAnimationFrame(raf);
-          raf = requestAnimationFrame(() => {
-            const canvas = previewEl.querySelector('.tint-preview__canvas');
-            if (!canvas) return;
-            applyPreviewFit(canvas, previewEl);
-            if (!vpActive) {
-              const stage = previewEl.querySelector('.tint-preview__stage');
-              const t = sel();
-              if (stage && t && t.cropEnabled) relayoutGuideIndent(stage, t, canvas.height);
-            }
-          });
-        };
-        new ResizeObserver(onResize).observe(previewEl);
-      }
-    }
+    // Preview pan/zoom/dblclick interactions are all bound lazily in
+    // recomputePreview → TintTransform.bind (both virtualized and non-virtualized
+    // share the group-transform engine), so there is nothing to wire here.
 
     bindStageHandlers();
   }

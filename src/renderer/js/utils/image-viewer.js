@@ -110,9 +110,13 @@ window.ImageViewer = (function () {
         st.scale = ns;
         st.mode = 'custom';
       } else {
+        // Natural-direction pan: scroll DOWN → content moves up → see lower
+        // content; scroll RIGHT (Ctrl+wheel) → content moves left → see right.
+        // (Matches browsers / PS; the sign flip vs the raw delta is because the
+        // apply() offset is canvas-position, not viewport-position.)
         const step = 40 * shift;
-        if (e.ctrlKey || e.metaKey) st.ox += (e.deltaY > 0 ? step : -step);
-        else st.oy += (e.deltaY > 0 ? step : -step);
+        if (e.ctrlKey || e.metaKey) st.ox -= (e.deltaY > 0 ? step : -step);
+        else st.oy -= (e.deltaY > 0 ? step : -step);
         clampPan(container, sourceCanvas, st.scale, st);
       }
       apply(container, sourceCanvas, st);
