@@ -106,7 +106,7 @@
         <div class="tint-divider" id="layer-divider"></div>
         <div class="tint-detail" style="flex:1 1 0; position:relative">
           ${hasSelection()
-            ? `<div class="tint-preview" id="layer-preview"><div class="tint-preview__empty">${i18n.t('edit.previewEmpty')}</div></div>
+            ? `<div class="tint-preview" id="layer-preview"></div>
                <div class="tint-stages" id="layer-stages">${renderStackDetail()}</div>`
             : `<div class="tint-empty-hint tint-preview--fade">
                  <div>${i18n.t('edit.hintAddSelect')}</div>
@@ -118,9 +118,9 @@
     bindHandlers();
     loadThumbnails();
     // Edge-fade overlays on the operation-list + layer sub-list scroll areas.
-    window.setupEdgeFade(container.querySelector('.tint-ops'), container.querySelector('#layer-table-body-scroll'));
+    window.setupEdgeFade(container.querySelector('.tint-ops'), container.querySelector('#layer-table-body-scroll'), undefined, '.op-row--head');
     const layerScroll = container.querySelector('#layer-rows-scroll');
-    if (layerScroll) window.setupEdgeFade(container.querySelector('.tint-stages'), layerScroll);
+    if (layerScroll) window.setupEdgeFade(container.querySelector('.tint-stages'), layerScroll, undefined, '.op-row--head');
     requestAnimationFrame(() => { recomputePreview(true); });
   }
 
@@ -135,27 +135,28 @@
       const selCls = isSel ? ' row--selected' : '';
       const bottomSrc = (s.layers && s.layers.length ? s.layers[s.layers.length - 1].source : '') || '';
       const count = (s.layers || []).length;
-      const label = s.destination ? pathBasename(s.destination) : (bottomSrc ? pathBasename(bottomSrc) : '');
-      return `<tr class="layerop-row${selCls}" data-idx="${idx}">
-        <td><span style="display:inline-flex;align-items:center;gap:6px"><span class="file-thumb" data-path="${escapeHtml(bottomSrc)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(bottomSrc, label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px;font-size:11px;line-height:28px">(${count})</span></span></td>
-        <td><input type="text" class="form-input layer-dest" data-idx="${idx}" value="${escapeHtml(s.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('layer.destPlaceholder')}"></td>
-        <td style="width:120px;text-align:center"><label class="toggle" style="flex:0 0 auto;margin:0 auto;justify-content:center">
+      // Label always shows the bottom layer's source — the destination is edited
+      // in its own column next to this, so echoing it here would be redundant.
+      const label = bottomSrc ? pathBasename(bottomSrc) : '';
+      return `<div class="op-row layerop-row${selCls}" data-idx="${idx}">
+        <div class="op-cell" data-col="file"><span style="display:inline-flex;align-items:center;gap:6px;min-width:0"><span class="file-thumb" data-path="${escapeHtml(bottomSrc)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(bottomSrc, label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px;font-size:11px;line-height:28px">(${count})</span></span></div>
+        <div class="op-cell" data-col="dest"><input type="text" class="form-input layer-dest" data-idx="${idx}" value="${escapeHtml(s.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('layer.destPlaceholder')}"></div>
+        <div class="op-cell" data-col="canvas"><label class="toggle" style="flex:0 0 auto">
           <input type="checkbox" class="layer-canvas-mode" data-idx="${idx}" ${s.canvasMode === 'max' ? 'checked' : ''}>
           <span class="toggle__slider"></span>
-        </label></td>
-      </tr>`;
+        </label></div>
+      </div>`;
     }).join('');
     return `
       <div class="files-body-table"><div class="table-wrap">
-        <table class="table ini-table layer-table layer-body-table">
-          <colgroup><col><col><col style="width:120px"></colgroup>
-          <thead><tr>
-            <th>${i18n.t('tint.colSource')}</th>
-            <th title="${escapeHtml(i18n.t('tint.colDestTitle'))}">${i18n.t('tint.colDest')}</th>
-            <th style="text-align:center;white-space:nowrap" title="${escapeHtml(i18n.t('layer.canvasSizeTitle'))}">${i18n.t('layer.canvasSizeCol')}</th>
-          </tr></thead>
-          <tbody>${bodyHtml}</tbody>
-        </table>
+        <div class="op-grid op-grid--layer">
+          <div class="op-row op-row--head">
+            <div class="op-cell op-cell--head" data-col="file">${i18n.t('tint.colSource')}</div>
+            <div class="op-cell op-cell--head" data-col="dest" title="${escapeHtml(i18n.t('tint.colDestTitle'))}">${i18n.t('tint.colDest')}</div>
+            <div class="op-cell op-cell--head" data-col="canvas" style="white-space:nowrap" title="${escapeHtml(i18n.t('layer.canvasSizeTitle'))}">${i18n.t('layer.canvasSizeCol')}</div>
+          </div>
+          ${bodyHtml}
+        </div>
       </div></div>`;
   }
 
@@ -174,15 +175,15 @@
     // reverse (bottom first) — see compositeCanvas / apply_layers.
     const rows = layers.map((l, k) => {
       const is2x = has2x(l.source);
-      return `<tr class="layer-row" data-idx="${k}">
-        <td><span class="file-thumb layer-thumb" data-path="${escapeHtml(l.source || '')}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(l.source || '', pathBasename(l.source))}</span></td>
-        <td><select class="form-input layer-blend" data-idx="${k}" style="width:110px;margin-left:-4px">${blendOpts(l.blendMode || 'normal')}</select></td>
-        <td style="width:48px;text-align:center"><label class="toggle${is2x ? '' : ' is-disabled'}" style="flex:0 0 auto;margin:0 auto">
+      return `<div class="op-row layer-row" data-idx="${k}">
+        <div class="op-cell" data-col="file"><span class="file-thumb layer-thumb" data-path="${escapeHtml(l.source || '')}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(l.source || '', pathBasename(l.source))}</span></div>
+        <div class="op-cell" data-col="mode"><select class="form-input layer-blend" data-idx="${k}" style="width:110px;margin-left:-4px">${blendOpts(l.blendMode || 'normal')}</select></div>
+        <div class="op-cell" data-col="exact"><label class="toggle${is2x ? '' : ' is-disabled'}" style="flex:0 0 auto">
           <input type="checkbox" class="layer-exact" data-idx="${k}" ${(is2x && l.exact) ? 'checked' : ''}${is2x ? '' : ' disabled'}>
           <span class="toggle__slider"></span>
-        </label></td>
-        <td style="width:36px;padding-left:4px;padding-right:0"><button type="button" class="btn btn--secondary btn--sm layer-flyout-btn" data-idx="${k}" title="${escapeHtml(i18n.t('layer.propsTitle'))}" style="padding:2px 6px;font-size:11px">☰</button></td>
-      </tr>`;
+        </label></div>
+        <div class="op-cell" data-col="props"><button type="button" class="btn btn--secondary btn--sm layer-flyout-btn" data-idx="${k}" title="${escapeHtml(i18n.t('layer.propsTitle'))}" style="padding:2px 6px;font-size:11px">☰</button></div>
+      </div>`;
     }).join('');
     return `
       <div style="padding:8px 0;display:flex;align-items:stretch;gap:8px">
@@ -194,16 +195,15 @@
       </div>
       <div class="files-table-body-scroll" id="layer-rows-scroll" style="max-height:300px;overflow-y:auto">
         <div class="files-body-table"><div class="table-wrap">
-          <table class="table ini-table layer-sub-table tint-body-table">
-            <colgroup><col><col><col style="width:48px"><col style="width:36px"></colgroup>
-            <thead><tr>
-              <th>${i18n.t('tint.colSource')}</th>
-              <th>${i18n.t('tint.colMode')}</th>
-              <th style="text-align:center;white-space:nowrap" title="${escapeHtml(i18n.t('tint.colExactTitle'))}">${i18n.t('tint.colExact')}</th>
-              <th style="padding-left:4px;padding-right:4px"></th>
-            </tr></thead>
-            <tbody>${rows || `<tr><td colspan="4" style="text-align:center;padding:12px;color:var(--text-muted);font-size:12px">${i18n.t('layer.noLayers')}</td></tr>`}</tbody>
-          </table>
+          <div class="op-grid op-grid--layersub">
+            <div class="op-row op-row--head">
+              <div class="op-cell op-cell--head" data-col="file">${i18n.t('tint.colSource')}</div>
+              <div class="op-cell op-cell--head" data-col="mode">${i18n.t('tint.colMode')}</div>
+              <div class="op-cell op-cell--head" data-col="exact" title="${escapeHtml(i18n.t('tint.colExactTitle'))}">${i18n.t('tint.colExact')}</div>
+              <div class="op-cell op-cell--head" data-col="props" style="padding-left:4px;padding-right:4px"></div>
+            </div>
+            ${rows || `<div class="op-cell op-cell--empty" style="text-align:center;padding:12px;color:var(--text-muted);font-size:12px">${i18n.t('layer.noLayers')}</div>`}
+          </div>
         </div></div>
       </div>`;
   }
@@ -244,7 +244,7 @@
     const previewExists = !!container.querySelector('#layer-preview');
     if (detail && previewExists !== hasSelection()) {
       detail.innerHTML = hasSelection()
-        ? `<div class="tint-preview" id="layer-preview"><div class="tint-preview__empty">${i18n.t('edit.previewEmpty')}</div></div>
+        ? `<div class="tint-preview" id="layer-preview"></div>
            <div class="tint-stages" id="layer-stages">${renderStackDetail()}</div>`
         : `<div class="tint-empty-hint tint-preview--fade">
              <div>${i18n.t('edit.hintAddSelect')}</div>
@@ -334,10 +334,12 @@
       const ops = container.querySelector('.tint-ops');
       divider.addEventListener('mousedown', (e) => {
         e.preventDefault();
-        const splitEl = container.querySelector('.layer-split');
+        const splitEl = container.querySelector('.tint-split');
         const rect = splitEl.getBoundingClientRect();
+        const startFrac = splitFraction;
+        const startX = e.clientX;
         const onMove = (ev) => {
-          const frac = Math.max(0.2, Math.min(0.8, (ev.clientX - rect.left) / rect.width));
+          const frac = Math.max(0.4, Math.min(0.6, startFrac + (ev.clientX - startX) / rect.width));
           splitFraction = frac;
           ops.style.flex = `0 0 ${(frac * 100).toFixed(1)}%`;
         };
@@ -392,6 +394,9 @@
       layerSel = OpTable.create({
         container: rowsScroll,
         rowSelector: '.layer-row',
+        // img/.file-thumb__icon stay in the selector: clicking a layer thumbnail
+        // re-sources that layer (bound separately below), it must NOT select the
+        // row — same arrangement as tint/file-copy.
         interactiveSelector: 'input, select, textarea, button, label, .toggle, .toggle__slider, .file-thumb__icon, img',
         deleteMimeType: 'application/layer-z',
         rowMembers: (row) => { const ri = parseInt(row.dataset.idx, 10); return isNaN(ri) ? [] : [ri]; },
@@ -409,6 +414,43 @@
       rowsScroll.querySelectorAll('.layer-row').forEach(r => layerSel.bindRow(r));
       layerSel.bindDeleteZone(stages.querySelector('#layer-row-delete-zone'));
     }
+
+    // Click a layer's thumbnail to re-source it (swap that layer's source PNG),
+    // same interaction as tint/file-copy. Only a click on the image/icon starts
+    // a re-source — the label/whitespace still selects the row. img/.file-thumb__icon
+    // are in layerSel's interactiveSelector so the row click is suppressed here.
+    stages.querySelectorAll('.layer-thumb').forEach(thumb => {
+      thumb.addEventListener('click', async (e) => {
+        if (!e.target.matches('img, .file-thumb__icon')) return;
+        if (!skinName()) { Toast.warning(i18n.t('file.selectSkinFirst')); return; }
+        if (fileDialogOpen) return;
+        const row = thumb.closest('.layer-row');
+        const k = row ? parseInt(row.dataset.idx, 10) : NaN;
+        if (isNaN(k)) return;
+        try {
+          fileDialogOpen = true;
+          const skPath = await skinPath() || '';
+          const result = await api.selectFile([{ name: 'PNG', extensions: ['png'] }], skPath);
+          if (!result.success || !result.data || !result.data.length) return;
+          const absPath = result.data[0];
+          let relPath = '';
+          if (skPath && absPath.toLowerCase().startsWith(skPath.toLowerCase())) {
+            relPath = absPath.slice(skPath.length).replace(/^[/\\]/, '');
+          }
+          if (!relPath) { Toast.warning(i18n.t('file.outsideSkin')); return; }
+          const arr = cur();
+          const stack = arr[selectedIdx()];
+          if (!stack || !stack.layers || !stack.layers[k]) return;
+          const oldSrc = stack.layers[k].source;
+          stack.layers[k] = { ...stack.layers[k], source: relPath };
+          applyLayersData(arr);
+          // Drop cached preview state for the old source so the preview reloads.
+          if (oldSrc !== relPath) sourceImgCache.delete(oldSrc);
+          thumbCache.delete(oldSrc);
+          render(container);
+        } finally { fileDialogOpen = false; }
+      });
+    });
 
     // Per-layer blend mode (inline dropdown — enhanced below).
     stages.querySelectorAll('.layer-blend').forEach(selEl => {
@@ -706,11 +748,18 @@
     const multi = opSel && opSel.getSelected().size > 1;
     if (multi) { previewEl.innerHTML = `<div class="tint-preview__empty">${i18n.t('layer.multiSelectHint')}</div>`; return; }
     if (!stack || !stack.layers || !stack.layers.length) {
-      previewEl.innerHTML = `<div class="tint-preview__empty">${i18n.t('edit.previewEmpty')}</div>`;
+      previewEl.innerHTML = ''; // empty stack → plain black backdrop, no text
       return;
     }
     try {
       const imgs = await Promise.all((stack.layers || []).map(l => getSourceImg(l.source)));
+      // Every layer's source missing → show the file-missing hint (mirrors tint's
+      // single-source previewMissing). A partial miss is fine: compositeCanvas
+      // just skips the null layers.
+      if (imgs.every(im => !im)) {
+        previewEl.innerHTML = `<div class="tint-preview__empty">${i18n.t('edit.previewMissing')}</div>`;
+        return;
+      }
       // Reuse tint-preview__wrap / tint-preview__canvas so the shared CSS
       // (margin-block:auto vertical centering, margin:0 auto, max-width, height:auto)
       // applies — keeps the preview centered & scaled exactly like tint.

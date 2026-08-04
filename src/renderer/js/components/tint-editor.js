@@ -226,7 +226,7 @@
         <div class="tint-divider" id="tint-divider"></div>
         <div class="tint-detail" style="flex:1 1 0">
           ${hasSelection()
-            ? `<div class="tint-preview" id="tint-preview"><div class="tint-preview__empty">${i18n.t('edit.previewEmpty')}</div></div>
+            ? `<div class="tint-preview" id="tint-preview"></div>
                <div class="tint-stages" id="tint-stages">${renderStages()}</div>`
             : `<div class="tint-empty-hint tint-preview--fade">
                  <div>${i18n.t('edit.hintAddSelect')}</div>
@@ -279,15 +279,14 @@
     const bodyHtml = plan.map(p => p.type === 'group' ? renderGroup(tints, p) : renderRow(tints[p.i], p.i, null)).join('');
     return `
       <div class="files-body-table"><div class="table-wrap">
-        <table class="table ini-table tint-table tint-body-table">
-          <colgroup><col><col><col style="width:120px"></colgroup>
-          <thead><tr>
-            <th>${i18n.t('tint.colSource')}</th>
-            <th title="${escapeHtml(i18n.t('tint.colDestTitle'))}">${i18n.t('tint.colDest')}</th>
-            <th title="${escapeHtml(i18n.t('tint.colExactTitle'))}">${i18n.t('tint.colExact')}</th>
-          </tr></thead>
-          <tbody>${bodyHtml}</tbody>
-        </table>
+        <div class="op-grid op-grid--tint">
+          <div class="op-row op-row--head">
+            <div class="op-cell op-cell--head" data-col="file">${i18n.t('tint.colSource')}</div>
+            <div class="op-cell op-cell--head" data-col="dest" title="${escapeHtml(i18n.t('tint.colDestTitle'))}">${i18n.t('tint.colDest')}</div>
+            <div class="op-cell op-cell--head" data-col="exact" title="${escapeHtml(i18n.t('tint.colExactTitle'))}">${i18n.t('tint.colExact')}</div>
+          </div>
+          ${bodyHtml}
+        </div>
       </div></div>`;
   }
 
@@ -305,15 +304,15 @@
     // when the @2x file is missing and Exact is off) — mirrors file-copy.
     // Non-@2x sources render a dimmed, disabled, unchecked toggle (not an empty cell).
     const is2x = has2x(t);
-    const exactCell = `<td><label class="toggle${is2x ? '' : ' is-disabled'}">
+    const exactCell = `<div class="op-cell" data-col="exact"><label class="toggle${is2x ? '' : ' is-disabled'}">
         <input type="checkbox" class="tint-exact-toggle" data-idx="${idx}" ${(is2x && t.exact) ? 'checked' : ''}${is2x ? '' : ' disabled'}>
         <span class="toggle__slider"></span>
-      </label></td>`;
-    return `<tr class="tint-row${selCls}" data-idx="${idx}"${parentAttr}${hidden}>
-      <td><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(src)}</span></td>
-      <td><input type="text" class="form-input tint-dest" data-idx="${idx}" value="${escapeHtml(t.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>
+      </label></div>`;
+    return `<div class="op-row tint-row${selCls}" data-idx="${idx}"${parentAttr}${hidden}>
+      <div class="op-cell" data-col="file"><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(src)}</span></div>
+      <div class="op-cell" data-col="dest"><input type="text" class="form-input tint-dest" data-idx="${idx}" value="${escapeHtml(t.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></div>
       ${exactCell}
-    </tr>`;
+    </div>`;
   }
 
   function renderGroup(tints, g) {
@@ -338,19 +337,19 @@
     const snap = _headerDestSnapshot[gid];
     const headerDest = (snap && snap.dest != null) ? snap.dest : (first.destination || '');
     const headerExact = (snap && snap.exact != null) ? snap.exact : !!first.exact;
-    const destCell = `<td><input type="text" class="form-input tint-dest tint-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></td>`;
+    const destCell = `<div class="op-cell" data-col="dest"><input type="text" class="form-input tint-dest tint-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('tint.destPlaceholder')}"></div>`;
     const fillBtn = `<button type="button" class="btn btn--secondary btn--sm tint-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap;margin-left:auto">${i18n.t('file.fillAll')}</button>`;
     const exactToggle = `<label class="toggle${groupHas2x ? '' : ' is-disabled'}" style="flex:0 0 auto">
         <input type="checkbox" class="tint-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${(groupHas2x && headerExact) ? 'checked' : ''}${groupHas2x ? '' : ' disabled'}>
         <span class="toggle__slider"></span>
       </label>`;
-    const exactCell = `<td><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">${exactToggle}${fillBtn}</div></td>`;
+    const exactCell = `<div class="op-cell" data-col="exact"><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">${exactToggle}${fillBtn}</div></div>`;
     const rows = [
-      `<tr class="tint-row tint-seq-group${expanded ? ' tint-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
-        <td><span style="display:flex;align-items:center;gap:6px;width:100%"><span class="file-thumb file-seq-resrc" data-group-resrc="${escapeHtml(gid)}" data-path="${escapeHtml(first.source || '')}" title="${escapeHtml(i18n.t('file.resrcGroupTitle'))}" style="display:inline-flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0">${thumbHtmlFor(first.source || '', label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
+      `<div class="op-row tint-row tint-seq-group${expanded ? ' tint-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
+        <div class="op-cell" data-col="file"><span style="display:flex;align-items:center;gap:6px;width:100%"><span class="file-thumb file-seq-resrc" data-group-resrc="${escapeHtml(gid)}" data-path="${escapeHtml(first.source || '')}" title="${escapeHtml(i18n.t('file.resrcGroupTitle'))}" style="display:inline-flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0">${thumbHtmlFor(first.source || '', label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></div>
         ${destCell}
         ${exactCell}
-      </tr>`,
+      </div>`,
       ...members.map((t, k) => renderRow(t, g.range[0] + k, gid))
     ];
     return rows.join('');
@@ -1030,7 +1029,7 @@
     const sp = stageParams();
     const t = (sp && sp !== anchor) ? { ...anchor, ...sp } : anchor;
     if (!t || !t.source) {
-      previewEl.innerHTML = `<div class="tint-preview__empty">${i18n.t('edit.previewEmpty')}</div>`;
+      previewEl.innerHTML = ''; // no source → plain black backdrop, no text
       return;
     }
     try {
@@ -1673,7 +1672,7 @@
     const previewExists = !!container.querySelector('#tint-preview');
     if (detail && previewExists !== hasSelection()) {
       detail.innerHTML = hasSelection()
-        ? `<div class="tint-preview" id="tint-preview"><div class="tint-preview__empty">${i18n.t('edit.previewEmpty')}</div></div>
+        ? `<div class="tint-preview" id="tint-preview"></div>
            <div class="tint-stages" id="tint-stages">${renderStages()}</div>`
         : `<div class="tint-empty-hint tint-preview--fade">
              <div>${i18n.t('edit.hintAddSelect')}</div>
@@ -2101,8 +2100,10 @@
         e.preventDefault();
         const splitEl = container.querySelector('.tint-split');
         const rect = splitEl.getBoundingClientRect();
+        const startFrac = splitFraction;
+        const startX = e.clientX;
         const onMove = (ev) => {
-          const frac = Math.max(0.2, Math.min(0.8, (ev.clientX - rect.left) / rect.width));
+          const frac = Math.max(0.4, Math.min(0.6, startFrac + (ev.clientX - startX) / rect.width));
           splitFraction = frac;
           ops.style.flex = `0 0 ${(frac * 100).toFixed(1)}%`;
         };
@@ -2136,7 +2137,7 @@
     bindTabCycle(container.querySelector('.tint-detail'));
 
     // Edge-fade overlays on the ops-list scroll viewport.
-    window.setupEdgeFade(container.querySelector('.tint-ops'), container.querySelector('#tint-table-body-scroll'));
+    window.setupEdgeFade(container.querySelector('.tint-ops'), container.querySelector('#tint-table-body-scroll'), undefined, '.op-row--head');
 
     // Double-click (custom 250ms) toggles fit; drag-to-scroll (width-fit mode) pans vertically.
     const previewEl = container.querySelector('#tint-preview');

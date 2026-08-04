@@ -725,7 +725,7 @@
     adjustFillButtons();
 
     // Edge-fade overlays (shared).
-    window.setupEdgeFade(container, container.querySelector('.files-table-body-scroll'));
+    window.setupEdgeFade(container, container.querySelector('.files-table-body-scroll'), undefined, '.op-row--head');
   }
 
   // Indices a row represents: a plain row → [idx]; a sequence-group header →
@@ -855,28 +855,28 @@
       // sources render a dimmed, disabled, unchecked toggle (not an empty cell) —
       // same as the tint editor.
       const is2x = has2x(op);
-      const exactCell = `<td><label class="toggle${is2x ? '' : ' is-disabled'}">
+      const exactCell = `<div class="op-cell" data-col="exact"><label class="toggle${is2x ? '' : ' is-disabled'}">
           <input type="checkbox" class="file-exact-toggle" data-idx="${idx}" ${(is2x && op.exact) ? 'checked' : ''}${is2x ? '' : ' disabled'}>
           <span class="toggle__slider"></span>
-        </label></td>`;
+        </label></div>`;
       if (op._type === 'copy') {
         const src = op.source || '';
         const cached = thumbHtmlFor(src, pathBasename(src));
-        return `<tr class="file-op-row" data-idx="${idx}" data-type="copy"${parentAttr}${hidden}>
-          <td><span class="tag tag--accent">${i18n.t('file.tagCopy')}</span></td>
-          <td><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
-          <td><input type="text" class="form-input copy-dest-input" data-idx="${idx}" value="${escapeHtml(op.destination)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>
+        return `<div class="op-row file-op-row" data-idx="${idx}" data-type="copy"${parentAttr}${hidden}>
+          <div class="op-cell" data-col="action"><span class="tag tag--accent">${i18n.t('file.tagCopy')}</span></div>
+          <div class="op-cell" data-col="file"><span class="file-thumb" data-path="${escapeHtml(src)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></div>
+          <div class="op-cell" data-col="dest"><input type="text" class="form-input copy-dest-input" data-idx="${idx}" value="${escapeHtml(op.destination)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></div>
           ${exactCell}
-        </tr>`;
+        </div>`;
       } else {
         const p = op.path || '';
         const cached = thumbHtmlFor(p, pathBasename(p), true);
-        return `<tr class="file-op-row file-delete-row" data-idx="${idx}" data-type="delete" data-delpath="${escapeHtml(p)}"${parentAttr}${hidden}>
-          <td><span class="tag tag--danger">${i18n.t('file.tagDelete')}</span></td>
-          <td><span class="file-thumb file-del-thumb" data-path="${escapeHtml(p)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></td>
-          <td style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</td>
+        return `<div class="op-row file-op-row file-delete-row" data-idx="${idx}" data-type="delete" data-delpath="${escapeHtml(p)}"${parentAttr}${hidden}>
+          <div class="op-cell" data-col="action"><span class="tag tag--danger">${i18n.t('file.tagDelete')}</span></div>
+          <div class="op-cell" data-col="file"><span class="file-thumb file-del-thumb" data-path="${escapeHtml(p)}" style="display:inline-flex;align-items:center;gap:6px">${cached}</span></div>
+          <div class="op-cell" data-col="dest" style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</div>
           ${exactCell}
-        </tr>`;
+        </div>`;
       }
     };
 
@@ -912,8 +912,8 @@
         headerDest = _headerTempSnapshot[gid];
       }
       const destCell = isCopy
-        ? `<td style="padding-right:12px"><input type="text" class="form-input copy-dest-input file-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} data-gid="${escapeHtml(gid)}" value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></td>`
-        : `<td style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</td>`;
+        ? `<div class="op-cell" data-col="dest" style="padding-right:12px"><input type="text" class="form-input copy-dest-input file-seq-dest" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${ghAttr} data-gid="${escapeHtml(gid)}" value="${escapeHtml(headerDest)}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('file.destPlaceholder')}"></div>`
+        : `<div class="op-cell" data-col="dest" style="color:var(--danger);font-size:12px">${i18n.t('file.removeLabel')}</div>`;
       // Group-level exact toggle (only if the group has @2x files) + fill button.
       const fillBtn = `<button type="button" class="btn btn--secondary btn--sm file-seq-fill-btn" data-seq-key="${escapeHtml(g.key)}" title="${escapeHtml(i18n.t('file.fillAllTitle'))}" data-full="${escapeHtml(i18n.t('file.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap;margin-left:auto">${i18n.t('file.fillAll')}</button>`;
       // Group-level exact toggle: enabled only when the group has @2x files;
@@ -922,17 +922,17 @@
           <input type="checkbox" class="file-seq-exact-toggle" data-seq-key="${escapeHtml(g.key)}" ${ghAttr} ${(groupHas2x && headerExact) ? 'checked' : ''}${groupHas2x ? '' : ' disabled'}>
           <span class="toggle__slider"></span>
         </label>`;
-      const exactCell = `<td><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">
+      const exactCell = `<div class="op-cell" data-col="exact"><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">
           ${exactToggle}
           ${fillBtn}
-        </div></td>`;
+        </div></div>`;
       const rows = [
-        `<tr class="file-op-row file-seq-group${expanded ? ' file-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
-          <td><span class="tag ${tagCls}" style="cursor:pointer">${i18n.t(tagKey)}</span></td>
-          <td><span style="display:flex;align-items:center;gap:6px;width:100%">${isCopy ? `<span class="file-thumb file-seq-resrc" data-group-resrc="${escapeHtml(gid)}" data-path="${escapeHtml(first.source || '')}" title="${escapeHtml(i18n.t('file.resrcGroupTitle'))}" style="display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0">${thumbHtmlFor(first.source || '', label)}</span>` : `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0">${escapeHtml(label)}</span>`}<span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></td>
+        `<div class="op-row file-op-row file-seq-group${expanded ? ' file-seq-group--expanded' : ''}" data-seq-key="${escapeHtml(g.key)}" data-idx="G-${escapeHtml(g.key)}" ${rangeAttr} ${gidAttr}>
+          <div class="op-cell" data-col="action"><span class="tag ${tagCls}" style="cursor:pointer">${i18n.t(tagKey)}</span></div>
+          <div class="op-cell" data-col="file"><span style="display:flex;align-items:center;gap:6px;width:100%">${isCopy ? `<span class="file-thumb file-seq-resrc" data-group-resrc="${escapeHtml(gid)}" data-path="${escapeHtml(first.source || '')}" title="${escapeHtml(i18n.t('file.resrcGroupTitle'))}" style="display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0">${thumbHtmlFor(first.source || '', label)}</span>` : `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0">${escapeHtml(label)}</span>`}<span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px">(${members.length})</span></span></div>
           ${destCell}
           ${exactCell}
-        </tr>`,
+        </div>`,
         ...members.map((op, k) => renderRow(op, g.range[0] + k, gid))
       ];
       return rows.join('');
@@ -941,24 +941,16 @@
     return `
       <div class="files-body-table">
         <div class="table-wrap">
-          <table class="table ini-table files-single-table">
-            <colgroup>
-              <col style="width:72px">
-              <col>
-              <col>
-              <col style="width:120px">
-            </colgroup>
-            ${plan.length > 0 ? `<thead><tr>
-              <th data-col="action" style="white-space:nowrap">${i18n.t('file.colAction')}</th>
-              <th>${i18n.t('file.colFile')}</th>
-              <th title="${escapeHtml(i18n.t('file.colDestTitle'))}">${i18n.t('file.colDest')}</th>
-              <th title="${escapeHtml(i18n.t('file.colExactTitle'))}" style="white-space:nowrap">${i18n.t('file.colExact')}</th>
-            </tr></thead>` : ''}
-            <tbody>
+          <div class="op-grid op-grid--filecopy">
+            ${plan.length > 0 ? `<div class="op-row op-row--head">
+              <div class="op-cell op-cell--head" data-col="action" style="white-space:nowrap">${i18n.t('file.colAction')}</div>
+              <div class="op-cell op-cell--head" data-col="file">${i18n.t('file.colFile')}</div>
+              <div class="op-cell op-cell--head" data-col="dest" title="${escapeHtml(i18n.t('file.colDestTitle'))}">${i18n.t('file.colDest')}</div>
+              <div class="op-cell op-cell--head" data-col="exact" title="${escapeHtml(i18n.t('file.colExactTitle'))}" style="white-space:nowrap">${i18n.t('file.colExact')}</div>
+            </div>` : ''}
             ${plan.map(p => p.type === 'group' ? renderGroup(p) : renderRow(fileOps[p.i], p.i, null)).join('')}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
       </div>
     `;
   }

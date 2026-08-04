@@ -927,7 +927,7 @@
     adjustFillButtons();
 
     // Edge-fade overlays (shared).
-    window.setupEdgeFade(container, container.querySelector('.ini-table-body-scroll'));
+    window.setupEdgeFade(container, container.querySelector('.ini-table-body-scroll'), undefined, '.op-row--head');
 
     // Restore Section/Key/ManiaKeys AFTER all event handlers are bound (so the
     // dispatched 'change' sets currentFields; without it key validation fails).
@@ -1200,20 +1200,13 @@
     return `
       <div class="ini-body-table">
         <div class="table-wrap">
-          <table class="table ini-table">
-            <colgroup>
-              <col style="width:72px">
-              <col style="width:120px">
-              <col style="width:240px">
-              <col>
-            </colgroup>
-            ${iniEdits.length > 0 ? `<thead><tr>
-              <th data-col="action" style="white-space:nowrap">${i18n.t('ini.colAction')}</th>
-              <th data-col="section" style="white-space:nowrap">${i18n.t('ini.colSection')}</th>
-              <th style="white-space:nowrap">${i18n.t('ini.colKey')}</th>
-              <th>${i18n.t('ini.colValue')}</th>
-            </tr></thead>` : ''}
-            <tbody>
+          <div class="op-grid op-grid--ini">
+            ${iniEdits.length > 0 ? `<div class="op-row op-row--head">
+              <div class="op-cell op-cell--head" data-col="action" style="white-space:nowrap">${i18n.t('ini.colAction')}</div>
+              <div class="op-cell op-cell--head" data-col="section" style="white-space:nowrap">${i18n.t('ini.colSection')}</div>
+              <div class="op-cell op-cell--head" data-col="key" style="white-space:nowrap">${i18n.t('ini.colKey')}</div>
+              <div class="op-cell op-cell--head" data-col="value">${i18n.t('ini.colValue')}</div>
+            </div>` : ''}
             ${rowPlan.map(plan => {
               if (plan.kind === 'single') {
                 const edit = plan.edit || iniEdits[plan.index];
@@ -1223,12 +1216,12 @@
                 const cnLabel = INI_FIELD_LABELS.fieldLabel(field || { key: edit.key });
                 const rowTitle = field ? `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(field) + ' (' + field.key + ')')}"` : '';
                 if (edit._delete) {
-                  return `<tr class="ini-edit-row ini-delete-row" data-idx="${idx}" ${rowTitle}>
-                    <td><span class="tag tag--danger">${i18n.t('ini.tagDelete')}</span></td>
-                    <td><span class="tag">${sectionLabel(edit)}</span></td>
-                    <td><span class="ini-key-name">${escapeHtml(edit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(cnLabel)}</span></td>
-                    <td style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</td>
-                  </tr>`;
+                  return `<div class="op-row ini-edit-row ini-delete-row" data-idx="${idx}" ${rowTitle}>
+                    <div class="op-cell" data-col="action"><span class="tag tag--danger">${i18n.t('ini.tagDelete')}</span></div>
+                    <div class="op-cell" data-col="section"><span class="tag">${sectionLabel(edit)}</span></div>
+                    <div class="op-cell" data-col="key"><span class="ini-key-name">${escapeHtml(edit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(cnLabel)}</span></div>
+                    <div class="op-cell" data-col="value" style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</div>
+                  </div>`;
                 }
                 const isListMania = field && field.type === 'list' && edit.section === 'Mania' && edit.maniaKeys != null && edit.maniaKeys > 1;
                 const listFillBtn = isListMania
@@ -1239,16 +1232,16 @@
                   ? `<button type="button" class="btn btn--secondary btn--sm ini-center-btn" data-idx="${idx}" title="${i18n.t('ini.centerTitle')}" data-full="${escapeHtml(i18n.t('ini.center'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('ini.center')}</button>`
                   : '';
                 const valueCell = isListMania
-                  ? `<td style="display:flex;align-items:center;gap:8px;padding-right:12px"><span style="flex:1;min-width:0">${renderValueInput(type, edit, idx, field)}</span>${listFillBtn}</td>`
+                  ? `<div class="op-cell" data-col="value" style="display:flex;align-items:center;gap:8px;padding-right:12px"><span style="flex:1;min-width:0">${renderValueInput(type, edit, idx, field)}</span>${listFillBtn}</div>`
                   : isCenterable
-                    ? `<td style="display:flex;align-items:center;gap:8px;padding-right:12px"><span style="flex:1;min-width:0">${renderValueInput(type, edit, idx, field)}</span>${centerBtn}</td>`
-                    : `<td>${renderValueInput(type, edit, idx, field)}</td>`;
-                return `<tr class="ini-edit-row" data-idx="${idx}" ${rowTitle}>
-                  <td><span class="tag tag--accent">${i18n.t('ini.tagModify')}</span></td>
-                  <td><span class="tag">${sectionLabel(edit)}</span></td>
-                  <td><span class="ini-key-name">${escapeHtml(edit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(cnLabel)}</span></td>
+                    ? `<div class="op-cell" data-col="value" style="display:flex;align-items:center;gap:8px;padding-right:12px"><span style="flex:1;min-width:0">${renderValueInput(type, edit, idx, field)}</span>${centerBtn}</div>`
+                    : `<div class="op-cell" data-col="value">${renderValueInput(type, edit, idx, field)}</div>`;
+                return `<div class="op-row ini-edit-row" data-idx="${idx}" ${rowTitle}>
+                  <div class="op-cell" data-col="action"><span class="tag tag--accent">${i18n.t('ini.tagModify')}</span></div>
+                  <div class="op-cell" data-col="section"><span class="tag">${sectionLabel(edit)}</span></div>
+                  <div class="op-cell" data-col="key"><span class="ini-key-name">${escapeHtml(edit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(cnLabel)}</span></div>
                   ${valueCell}
-                </tr>`;
+                </div>`;
               }
 
               // Collapsed perColumn group (modify, delete, or mixed)
@@ -1270,15 +1263,15 @@
               const groupDataIdx = `G-${groupId}`;
               const expanded = expandedSeqGroups.has(groupId);
 
-              let html = `<tr class="ini-edit-row ini-collapsed-row${expanded ? ' ini-collapsed-row--expanded' : ''}" data-gid="${escapeHtml(groupId)}" data-group="${escapeHtml(syncKey)}" data-group-indices="${escapeHtml(JSON.stringify(plan.indices))}" data-idx="${escapeHtml(groupDataIdx)}" ${rowTitle}>
-                <td><span class="tag ini-group-toggle" style="background:rgba(102,153,255,0.15);color:#69f;cursor:pointer">${i18n.t('ini.tagGroup')}</span></td>
-                <td><span class="tag">${sectionLabel(firstEdit)}</span></td>
-                <td><span class="ini-key-name">${escapeHtml(templateKey)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(fieldCn)}</span></td>
-                <td style="display:flex;align-items:center;gap:8px;padding-right:12px">
+              let html = `<div class="op-row ini-edit-row ini-collapsed-row${expanded ? ' ini-collapsed-row--expanded' : ''}" data-gid="${escapeHtml(groupId)}" data-group="${escapeHtml(syncKey)}" data-group-indices="${escapeHtml(JSON.stringify(plan.indices))}" data-idx="${escapeHtml(groupDataIdx)}" ${rowTitle}>
+                <div class="op-cell" data-col="action"><span class="tag ini-group-toggle" style="background:rgba(102,153,255,0.15);color:#69f;cursor:pointer">${i18n.t('ini.tagGroup')}</span></div>
+                <div class="op-cell" data-col="section"><span class="tag">${sectionLabel(firstEdit)}</span></div>
+                <div class="op-cell" data-col="key"><span class="ini-key-name">${escapeHtml(templateKey)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(fieldCn)}</span></div>
+                <div class="op-cell" data-col="value" style="display:flex;align-items:center;gap:8px;padding-right:12px">
                   <span style="flex:1;min-width:0">${hasModify ? renderValueInput(firstType, (!expanded && _headerTempSnapshot[groupId] != null ? { ...firstEdit, value: _headerTempSnapshot[groupId] } : firstEdit), plan.indices[0], firstField, `data-group-header="1" data-group="${escapeHtml(syncKey)}"`) : `<span style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</span>`}</span>
                   ${hasModify ? `<button type="button" class="btn btn--secondary btn--sm ini-fill-btn" data-gid="${escapeHtml(groupId)}" data-group="${escapeHtml(syncKey)}" title="${i18n.t('ini.fillAllTitle')}" data-full="${escapeHtml(i18n.t('ini.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('ini.fillAll')}</button>` : ''}
-                </td>
-              </tr>`;
+                </div>
+              </div>`;
 
               // Sub-rows — visibility follows the group's expand state.
               const subHide = expanded ? '' : ' style="display:none"';
@@ -1288,26 +1281,25 @@
                 const subType = subField?.type || 'string';
                 const subTitle = subField ? `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(subField) + ' (' + subField.key + ')')}"` : '';
                 if (subEdit._delete) {
-                  html += `<tr class="ini-edit-row ini-sub-row ini-delete-row" data-idx="${subIdx}" data-gid="${escapeHtml(groupId)}" data-group-parent="${escapeHtml(groupId)}"${subHide} ${subTitle}>
-                    <td><span class="tag tag--danger">${i18n.t('ini.tagDelete')}</span></td>
-                    <td><span class="tag">${sectionLabel(subEdit)}</span></td>
-                    <td><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></td>
-                    <td style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</td>
-                  </tr>`;
+                  html += `<div class="op-row ini-edit-row ini-sub-row ini-delete-row" data-idx="${subIdx}" data-gid="${escapeHtml(groupId)}" data-group-parent="${escapeHtml(groupId)}"${subHide} ${subTitle}>
+                    <div class="op-cell" data-col="action"><span class="tag tag--danger">${i18n.t('ini.tagDelete')}</span></div>
+                    <div class="op-cell" data-col="section"><span class="tag">${sectionLabel(subEdit)}</span></div>
+                    <div class="op-cell" data-col="key"><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></div>
+                    <div class="op-cell" data-col="value" style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</div>
+                  </div>`;
                 } else {
-                  html += `<tr class="ini-edit-row ini-sub-row" data-idx="${subIdx}" data-gid="${escapeHtml(groupId)}" data-group-parent="${escapeHtml(groupId)}"${subHide} ${subTitle}>
-                    <td><span class="tag tag--accent">${i18n.t('ini.tagModify')}</span></td>
-                    <td><span class="tag">${sectionLabel(subEdit)}</span></td>
-                    <td><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></td>
-                    <td>${renderValueInput(subType, subEdit, subIdx, subField)}</td>
-                  </tr>`;
+                  html += `<div class="op-row ini-edit-row ini-sub-row" data-idx="${subIdx}" data-gid="${escapeHtml(groupId)}" data-group-parent="${escapeHtml(groupId)}"${subHide} ${subTitle}>
+                    <div class="op-cell" data-col="action"><span class="tag tag--accent">${i18n.t('ini.tagModify')}</span></div>
+                    <div class="op-cell" data-col="section"><span class="tag">${sectionLabel(subEdit)}</span></div>
+                    <div class="op-cell" data-col="key"><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span style="color:var(--text-muted);font-size:11px">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></div>
+                    <div class="op-cell" data-col="value">${renderValueInput(subType, subEdit, subIdx, subField)}</div>
+                  </div>`;
                 }
               }
               return html;
             }).join('')}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
       </div>
     `;
   }
