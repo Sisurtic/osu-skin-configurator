@@ -657,6 +657,14 @@ fn apply_layers(skin_path: &str, stack: &Value) -> Result<(), String> {
 // `t` = blend strength (layer opacity × layer alpha) — the blend is lerped by t.
 fn blend_rgb(b: &image::Rgba<u8>, s: &image::Rgba<u8>, mode: &str, t: f64) -> (f64, f64, f64) {
     let f = |c: u8| c as f64;
+    // A fully-transparent base carries no color (its RGB is 0,0,0). Feeding that
+    // into multiply/darken/hue/… would pull every translucent source pixel toward
+    // black. Treat a transparent base as "no backdrop" → the layer shows its own
+    // color, same as 'normal'. (normal already ignores base RGB, so this is a
+    // no-op for it, but unifies the path for every other mode.)
+    if b[3] == 0 {
+        return (f(s[0]), f(s[1]), f(s[2]));
+    }
     let bf = (f(b[0]), f(b[1]), f(b[2]));           // base 0..255
     let n = |v: f64| v / 255.0;                       // → 0..1
     let bn = (n(bf.0), n(bf.1), n(bf.2));
