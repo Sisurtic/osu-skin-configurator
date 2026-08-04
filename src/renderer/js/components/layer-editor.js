@@ -435,19 +435,19 @@
         if (isNaN(k)) return;
         try {
           fileDialogOpen = true;
-          const skPath = await skinPath() || '';
-          const result = await api.selectFile([{ name: 'PNG', extensions: ['png'] }], skPath);
-          if (!result.success || !result.data || !result.data.length) return;
-          const absPath = result.data[0];
-          let relPath = '';
-          if (skPath && absPath.toLowerCase().startsWith(skPath.toLowerCase())) {
-            relPath = absPath.slice(skPath.length).replace(/^[/\\]/, '');
-          }
-          if (!relPath) { Toast.warning(i18n.t('file.outsideSkin')); return; }
           const arr = cur();
           const stack = arr[selectedIdx()];
           if (!stack || !stack.layers || !stack.layers[k]) return;
           const oldSrc = stack.layers[k].source;
+          // SourcePicker opens the dialog in the CURRENT layer source's folder
+          // (not always the skin root) and returns skin-relative paths with the
+          // outside-skin guard built in — same path tint/file-copy use.
+          const picked = await window.SourcePicker.pickMulti({
+            getSkinPath: () => skinPath(),
+            currentSource: oldSrc,
+          });
+          if (!picked.length) return;
+          const relPath = picked[0];
           stack.layers[k] = { ...stack.layers[k], source: relPath };
           applyLayersData(arr);
           // Drop cached preview state for the old source so the preview reloads.
