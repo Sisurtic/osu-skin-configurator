@@ -1278,7 +1278,7 @@
           const parentId = parent ? parent.id : null;
           const newRootId = await duplicateSubtree(src, parentId, groups, skin, true, gidMap, pidMap);
           if (newRootId != null) {
-            groupOk++; lastNewId = { kind: "group", id: newRootId };
+            groupOk++; lastNewId = { kind: "group", id: newRootId, parentId };
             // A table-type root owns expanded/rowSelection/activations buckets —
             // clone them (translated) to the new root after the subtree is built.
             if (src.type === 'table') clonePairs.push({ src: gid, dst: newRootId });
@@ -1307,7 +1307,7 @@
         const saveResult = await api.savePreset(skin, null, data);
         if (saveResult.success) {
           if (srcParent !== null) await api.movePresetGroup(skin, saveResult.data, srcParent);
-          presetCopied++; lastNewId = { kind: "preset", id: saveResult.data };
+          presetCopied++; lastNewId = { kind: "preset", id: saveResult.data, parentId: srcParent };
         }
       }
     }
@@ -1329,14 +1329,38 @@
       } catch { /* non-fatal: tables just won't carry over */ }
     }
     await refreshSkinData(skin);
-    // Focus the last duplicated item.
+    // Focus the last duplicated item — select it like a click (Selection.setSingle
+    // + state) and expand its ancestor chain so it's visible. Mirrors
+    // createGroupWithSelected; without this a copy inside a collapsed parent is
+    // created but never shown/located.
     if (lastNewId) {
       if (lastNewId.kind === "group") {
+        Selection.setSingle('group', lastNewId.id);
         state.setMultiple({ selectedPreset: null, selectedGroup: lastNewId.id, presetDirty: false });
       } else {
+        Selection.setSingle('preset', lastNewId.id);
         state.setMultiple({ selectedPreset: lastNewId.id, selectedGroup: null });
       }
       updateGroupSelectionHighlights();
+      // Expand collapsed ancestors of the copy's parent so the new item is in view.
+      {
+        const freshGroups = state.get('groups') || [];
+        const toExpand = [];
+        let curParent = lastNewId.parentId;
+        const guard = new Set();
+        while (curParent != null && !guard.has(curParent)) {
+          guard.add(curParent);
+          const g = freshGroups.find(x => x.id === curParent);
+          if (!g) break;
+          if (g.collapsed) toExpand.push(curParent);
+          const ancestor = freshGroups.find(x => x.children && x.children.some(c => c.type === 'group' && c.id === curParent));
+          curParent = ancestor ? ancestor.id : null;
+        }
+        if (toExpand.length) {
+          await api.setGroupsCollapsedBatch(skin, toExpand, false);
+          await refreshSkinData(skin);
+        }
+      }
     }
 
     // Toast: summarize combined result.

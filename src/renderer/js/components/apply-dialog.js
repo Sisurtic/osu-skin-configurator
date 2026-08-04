@@ -149,7 +149,7 @@
         presetDataList.push({
           id,
           meta: result.data.meta || {},
-          actions: result.data.actions || { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] },
+          actions: result.data.actions || { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [], fileLayers: [] },
         });
       }
     }
@@ -167,7 +167,7 @@
       const u = collectApplyUnits ? collectApplyUnits(gid) : { presetIds: new Set(), groupIds: new Set([gid]) };
       const applyCount = u.presetIds.size + u.groupIds.size;
       // Merge own actions of every group in the unit set (root + selected subs).
-      const merged = { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [] };
+      const merged = { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [], fileLayers: [] };
       for (const sgid of u.groupIds) {
         const sg = groups.find(x => x.id === sgid);
         const sa = sg?.actions;
@@ -176,6 +176,7 @@
           if (Array.isArray(sa.fileCopies)) merged.fileCopies.push(...sa.fileCopies);
           if (Array.isArray(sa.fileDeletes)) merged.fileDeletes.push(...sa.fileDeletes);
           if (Array.isArray(sa.fileTints)) merged.fileTints.push(...sa.fileTints);
+          if (Array.isArray(sa.fileLayers)) merged.fileLayers.push(...sa.fileLayers);
         }
       }
       // Load each selected preset's actions and merge.
@@ -187,6 +188,7 @@
           if (Array.isArray(pa.fileCopies)) merged.fileCopies.push(...pa.fileCopies);
           if (Array.isArray(pa.fileDeletes)) merged.fileDeletes.push(...pa.fileDeletes);
           if (Array.isArray(pa.fileTints)) merged.fileTints.push(...pa.fileTints);
+          if (Array.isArray(pa.fileLayers)) merged.fileLayers.push(...pa.fileLayers);
         }
       }
       groupDataList.push({ id: gid, meta, actions: merged, isGroup: true, applyCount });
