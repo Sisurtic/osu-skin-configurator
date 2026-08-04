@@ -489,6 +489,22 @@
     });
   }
 
+  // Clear the internal op-table selection of every operation-list editor. Called
+  // on skin/preset switch so a stale anchor (pointing at the previous data) can't
+  // index the wrong row and leave the preview blank until a manual click.
+  function clearAllEditorSelections() {
+    ['TintEditor', 'LayerEditor', 'FileCopyEditor', 'IniEditor'].forEach(name => {
+      const ed = window[name];
+      if (!ed) return;
+      try {
+        // LayerEditor has a two-level selection; clearAllSelections clears both
+        // (its clearSelection peels one level for Esc). Other editors are flat.
+        if (typeof ed.clearAllSelections === 'function') ed.clearAllSelections();
+        else if (typeof ed.clearSelection === 'function') ed.clearSelection();
+      } catch (_) {}
+    });
+  }
+
   state.on('selectedSkin', async (skinName) => {
     if (window.ColorPicker) window.ColorPicker.closeAll();
     // Different skins can share the same relative image paths (e.g. cursor.png)
@@ -537,6 +553,10 @@
         // Drop the multi-select sets too (their --multi-selected highlight is
         // independent of selectedPreset and would otherwise persist).
         if (window.Selection && typeof window.Selection.clear === 'function') window.Selection.clear();
+        // Clear each editor's internal op-table selection too: it belongs to the
+        // previous skin's data (a stale anchor indexes the wrong row after the
+        // data swap, leaving the preview blank until a manual click).
+        clearAllEditorSelections();
       }
       if (main) main.classList.remove('main-content--exit');
       playEnterAnim(main, 'main-content--enter');
@@ -546,6 +566,10 @@
 
   state.on('selectedPreset', (presetId) => {
     if (window.ColorPicker) window.ColorPicker.closeAll();
+    // The previous preset's op-table selection (which row was highlighted /
+    // previewed) is stale for this preset — clear it so editors default to a
+    // clean state (and re-pick the first row on their next render).
+    clearAllEditorSelections();
     // Only switch the view here; the preset-editor's own selectedPreset
     // listener does the render + enter animation (calling renderCurrentView
     // too would render with stale editData mid-async-load → double anim).

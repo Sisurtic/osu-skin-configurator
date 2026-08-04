@@ -866,6 +866,12 @@
       if (layerSel && layerSel.getSelected().size > 0) { layerSel.clearSelection(); return; }
       if (opSel) opSel.clearSelection();
     },
+    // Clear BOTH layers at once (unlike clearSelection's Esc-style peeling).
+    // Used on skin/preset switch where every stale selection must go.
+    clearAllSelections: () => {
+      if (layerSel) layerSel.clearSelection();
+      if (opSel) opSel.clearSelection();
+    },
     invalidateCache: () => { thumbCache.clear(); sourceImgCache.clear(); },
   };
 })();
