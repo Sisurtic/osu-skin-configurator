@@ -285,8 +285,31 @@
         const arr = cur();
         if (!arr[idx]) return;
         let val = input.value.trim().replace(/^["']|["']$/g, '');
+        // If absolute path (any drive letter + :\ or /), convert to skin-relative.
+        // Mirrors file-copy/tint: strip the skin root, warn + clear if outside.
+        if (/^[a-zA-Z]:[\\/]?/.test(val)) {
+          const sp = await skinPath();
+          if (sp) {
+            const skNorm = sp.replace(/\\/g, '/').toLowerCase();
+            const valNorm = val.replace(/\\/g, '/').toLowerCase();
+            if (valNorm.startsWith(skNorm)) {
+              val = val.replace(/\\/g, '/').slice(sp.length).replace(/^\//, '');
+            } else {
+              Toast.warning(i18n.t('file.destOutsideSkin'));
+              val = '';
+            }
+          }
+          val = val.replace(/\\/g, '/');
+          val = OpTable.appendSrcExt(val);
+          input.value = val;
+          arr[idx] = { ...arr[idx], destination: val };
+          applyLayersData(arr);
+          return;
+        }
+        // Already relative: normalize separators + strip suffix.
         val = val.replace(/\\/g, '/');
         val = OpTable.appendSrcExt(val);
+        if (val !== input.value) input.value = val;
         arr[idx] = { ...arr[idx], destination: val };
         applyLayersData(arr);
       });
