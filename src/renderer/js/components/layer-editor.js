@@ -74,6 +74,12 @@
         onSelectionChange: ({ anchor }) => {
           const moved = anchor !== lastAnchor;
           lastAnchor = anchor;
+          // Switching stacks: reset the viewer (back to centered fit) so the new
+          // composite isn't shown at the previous stack's pan/zoom.
+          if (moved) {
+            const el = container && container.querySelector('#layer-preview');
+            if (el && window.ImageViewer) window.ImageViewer.reset(el);
+          }
           refreshDetailAndList(moved);
         },
         applyDelete: (indicesDesc) => applyDeleteOps(indicesDesc),
@@ -760,22 +766,12 @@
         previewEl.innerHTML = `<div class="tint-preview__empty">${i18n.t('edit.previewMissing')}</div>`;
         return;
       }
-      // Reuse tint-preview__wrap / tint-preview__canvas so the shared CSS
-      // (margin-block:auto vertical centering, margin:0 auto, max-width, height:auto)
-      // applies — keeps the preview centered & scaled exactly like tint.
-      let wrap = previewEl.querySelector('.tint-preview__wrap');
-      if (!wrap) {
-        previewEl.innerHTML = '';
-        wrap = document.createElement('div');
-        wrap.className = 'tint-preview__wrap';
-        previewEl.appendChild(wrap);
-      } else {
-        wrap.innerHTML = '';
-      }
+      // Composite into a fresh canvas at natural resolution, then hand it to the
+      // ImageViewer (pan/zoom/double-click-fit). The viewer owns placement; the
+      // fade effect still drives off #layer-preview.
       const canvas = document.createElement('canvas');
-      canvas.className = 'tint-preview__canvas';
       compositeCanvas(canvas, stack, imgs);
-      wrap.appendChild(canvas);
+      window.ImageViewer.mount(previewEl, canvas);
       if (fadeOnChange) {
         previewEl.classList.remove(FADE);
         void previewEl.offsetWidth;

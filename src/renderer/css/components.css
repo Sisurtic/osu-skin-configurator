@@ -2478,6 +2478,27 @@ tr[data-group-parent] .file-thumb__icon {
    tall crop outputs). Override the shared .tint-preview overflow. */
 #tab-layer .tint-preview { overflow: hidden; }
 #tab-layer .tint-preview__canvas { max-height: 100%; object-fit: contain; }
+/* ImageViewer zoom/state badge (top-right of the layer preview). */
+.iv-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 5;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  user-select: none;
+}
+#layer-preview canvas {
+  border: 1px solid var(--border);
+  box-sizing: content-box;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  will-change: transform;
+}
 /* Blend-mode column: width + nudge are inline on the <select> so the Dropdown
    overlay's trigger (which copies the select's inline style) inherits them —
    otherwise the trigger would resize with the selected label and jump. */
