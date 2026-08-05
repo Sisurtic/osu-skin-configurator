@@ -28,10 +28,28 @@ Relative to the v1.1.1 release. Covers all changes since the v1.1.1 version bump
 - **Esc selection** fixed: now correctly clears after add (was blocked by empty selection set + focusable target check).
 - **Switching skins** clears selection (selectedPreset/group → null, multi-select cleared).
 
+### Per-skin theming & metadata
+- **Per-skin accent hue**: each skin can set its own accent color via a new dialog (opened from the edit-mode "current skin" name). The whole UI recolors live as you drag a dashed hue strip (12° steps); `--accent-hue` is the single source of truth, every accent shade derives from it, and `applyAccent()` only sets that one variable. Persists in the skin's own `config.osp`.
+- **Two custom text lines + a link URL** per skin, shown as a right-aligned card in the use-mode preset header. When a link is set, the whole card is clickable (opens in the external browser via `tauri-plugin-opener`); the card's vertical bar highlights on hover.
+- **Row-activation source highlighting**: the option that fires an activation binding (the one the user picked) is now visually marked (accent hue −20°) alongside the activated target. Tracked by option key so nested-table rowKey drift can't drop the highlight.
+- **Skin-name settings button**: the edit-mode current-skin name is now a clickable button (hover highlight) that opens the metadata dialog; overflow shows a title tooltip.
+
+### Color system & UI polish
+- **All colors centralized in variables.css** as hsl; derived accent hues (`--group-tag` +60°, `--shortcut` +20°, `--source` −20°) follow the per-skin hue. Semantic colors tuned for higher saturation so they stay distinct from accent even on hue collision.
+- **Skin list / hover square corners**; current-skin header matches the editor tab-bar height (`--tab-height`); op-table selected rows keep an accent tint on hover (`--accent-bg-hover`) instead of wiping to gray.
+- **Toolbar path click opens the folder picker directly** (the intermediate "path is set" settings screen was removed).
+- **Edit-mode tab bar: wheel cycles tabs** when hovered, stops at edges.
+
 ## Fixes
 - presetDirty cleared when deleting the edited preset/group.
 - Tab labels shortened (INI/文件/图像).
 - Window minWidth bumped to 1140 so columns aren't crushed.
+- **Switching the osu! folder path now refreshes editors** (previously they kept showing the old path's skin data; the `osuPath` listener now resets `selectedSkin`, tripping the full clear branch).
+- **Language switch no longer drops the selected skin** (`rerenderAll` re-fired `osuPath` unchanged → destructive reset ran; guarded with an equality check).
+- **Language switch no longer reloads the skin list** — `rerenderAll` drops the `skins` re-fire and calls a new `SkinList.refreshLabels()` that updates only i18n text in place.
+- **Skin metadata persistence**: `save_config` was hand-rolling the JSON and dropped the new `accentHue`/`customText1`/`customText2`/`skinLink` fields — now written; `scan_skin` no longer deletes `config.osp` when only metadata is set.
+- **Sidebar divider**: removed the double 1px border between the current-skin header and presets (rendered as 2px).
+- **Close button**: hover fill uses `--danger-important` (wins over decorum's injected `rgba(255,0,0,0.7) !important`); icon thickened via `-webkit-text-stroke` (icon fonts have no bold glyph).
 
 ## Refactor & Cleanup
 - Shared `utils/edge-fade.js` (was inlined in 3 editors).
