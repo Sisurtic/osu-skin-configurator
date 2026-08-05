@@ -288,7 +288,14 @@
             tableExpandedChildren: presetsResult.data.tableExpandedChildren || {},
             tableRowSelection: presetsResult.data.tableRowSelection || {},
             tableActivations: presetsResult.data.tableActivations || {},
+            skinMeta: {
+              accentHue: presetsResult.data.accentHue ?? null,
+              customText1: presetsResult.data.customText1 || '',
+              customText2: presetsResult.data.customText2 || '',
+              skinLink: presetsResult.data.skinLink || '',
+            },
           });
+          if (typeof window.applyAccent === 'function') window.applyAccent(presetsResult.data.accentHue ?? null);
         }
       }
     } catch (err) {
@@ -510,6 +517,19 @@
     });
   }
 
+  // Apply a per-skin accent hue to the whole UI. hue is 0..360 (or null to
+  // restore the default 140° lazer green). Every accent shade in variables.css
+  // derives from --accent-hue, so setting this one variable cascades to all
+  // ~60 accent consumers (buttons, selection, tags, cursor particles, …).
+  window.applyAccent = function (hue) {
+    const root = document.documentElement.style;
+    if (hue === null || hue === undefined || isNaN(hue)) {
+      root.removeProperty('--accent-hue'); // fall back to :root default (140)
+      return;
+    }
+    root.setProperty('--accent-hue', String(((hue % 360) + 360) % 360));
+  };
+
   // Clear the internal op-table selection of every operation-list editor. Called
   // on skin/preset switch so a stale anchor (pointing at the previous data) can't
   // index the wrong row and leave the preview blank until a manual click.
@@ -540,6 +560,8 @@
     state.set('tableExpandedChildren', {});
     state.set('tableRowSelection', {});
     state.set('tableActivations', {});
+      state.set('skinMeta', null);
+      if (typeof window.applyAccent === 'function') window.applyAccent(null);
       updateToolbarButtons();
       renderCurrentView();
       return;
@@ -570,7 +592,14 @@
           selectedPreset: null,
           selectedGroup: null,
           multiSelectActive: false,
+          skinMeta: {
+            accentHue: result.data.accentHue ?? null,
+            customText1: result.data.customText1 || '',
+            customText2: result.data.customText2 || '',
+            skinLink: result.data.skinLink || '',
+          },
         });
+        if (typeof window.applyAccent === 'function') window.applyAccent(result.data.accentHue ?? null);
         // Drop the multi-select sets too (their --multi-selected highlight is
         // independent of selectedPreset and would otherwise persist).
         if (window.Selection && typeof window.Selection.clear === 'function') window.Selection.clear();
@@ -892,6 +921,17 @@
     if (appMode === 'edit' && selectedSkin) {
       headerSection.style.display = '';
       headerName.textContent = selectedSkin;
+      // Show the full name on hover only when it's truncated (ellipsis).
+      headerName.title = headerName.scrollWidth > headerName.clientWidth ? selectedSkin : '';
+      // Click the skin name to open the per-skin metadata dialog (accent hue +
+      // custom text). Handler is idempotent — re-binding is cheap and avoids
+      // losing it when the name span is re-rendered.
+      headerName.style.cursor = 'pointer';
+      headerName.onclick = () => {
+        if (window.SkinMetaDialog && typeof window.SkinMetaDialog.open === 'function') {
+          window.SkinMetaDialog.open();
+        }
+      };
     } else {
       headerSection.style.display = 'none';
     }
@@ -989,7 +1029,7 @@
           : i18n.t('mode.labelUse');
         return `
         <tr class="shortcut-row" data-id="${escapeHtml(s.id)}">
-          <td class="col-shortcut"><code style="background:var(--bg-tertiary);padding:2px 8px;border-radius:var(--radius-sm);font-size:12px;color:var(--accent);white-space:nowrap">${escapeHtml(s.key)}</code></td>
+          <td class="col-shortcut"><code style="font-family:inherit;font-weight:600;background:var(--bg-tertiary);padding:2px 8px;border-radius:var(--radius-sm);font-size:12px;color:var(--accent);white-space:nowrap">${escapeHtml(s.key)}</code></td>
           <td style="font-size:12px;color:var(--text-secondary)">${escapeHtml(s.desc)}</td>
           <td style="font-size:11px;color:var(--text-muted)">${escapeHtml(modeLabel)}</td>
         </tr>
@@ -1161,7 +1201,7 @@
               <tbody id="shortcuts-tbody-global">
                 ${rows.map((r, i) => `
                   <tr class="shortcut-row${globalSelected.has(r.key) ? ' row--selected' : ''}" data-sel-key="${escapeHtml(r.key)}" data-row-index="${i}">
-                    <td class="col-shortcut"><code style="background:var(--bg-tertiary);padding:2px 8px;border-radius:var(--radius-sm);font-size:12px;color:var(--shortcut);white-space:nowrap">${escapeHtml(r.shortcut)}</code></td>
+                    <td class="col-shortcut"><code style="font-family:inherit;font-weight:600;background:var(--bg-tertiary);padding:2px 8px;border-radius:var(--radius-sm);font-size:12px;color:var(--shortcut);white-space:nowrap">${escapeHtml(r.shortcut)}</code></td>
                     <td class="col-name" style="font-size:12px;color:var(--text-secondary)">${escapeHtml(r.name)}</td>
                     <td style="font-size:11px;color:var(--text-muted)">${escapeHtml(r.type === 'group' ? i18n.t('dialog.globalTypeTable') : i18n.t('dialog.globalTypePreset'))}</td>
                   </tr>

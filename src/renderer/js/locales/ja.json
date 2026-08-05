@@ -51,6 +51,15 @@
     "labelEdit": "編集",
     "labelUse": "使用"
   },
+  "skinMeta": {
+    "title": "スキン設定",
+    "hue": "アクセント色",
+    "text1": "カスタムテキスト 1",
+    "text2": "カスタムテキスト 2",
+    "link": "リンク",
+    "saved": "スキン設定を保存しました",
+    "saveFailed": "保存に失敗しました"
+  },
   "dialog": {
     "unsavedSwitch": "現在のプリセットは未保存です。保存して切り替えますか?",
     "unsavedSwitchGroup": "現在のグループは未保存です。保存して切り替えますか?",

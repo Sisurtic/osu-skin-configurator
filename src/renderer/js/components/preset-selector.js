@@ -21,6 +21,7 @@
   let _suppressRender = false;
   let _justToggledGid = null;
   let _animDepthBase = 0;
+  let _accentHue = 140; // base hue for group underline gradients (per-skin)
   // When set, adds this as a base offset to all new-row animation delays.
   // Used to insert a gap between old rows disappearing and new rows entering
   // when switching child table groups.
@@ -37,6 +38,9 @@
   // block). _activationDisabledByRow: rowKey → Set of disabled option keys (render).
   // Both recomputed every render / click.
   const _activationLockedRows = new Set();
+  // Option keys that are activation sources currently firing a binding.
+  // The selected option matching one of these gets the --source highlight.
+  const _activationSrcOptions = new Set();
   const _activationDisabledByRow = new Map();
   // rowKey → Set of individually-disabled option keys (DISABLE-effect targets).
   const _activationDisabledSingles = new Map();
@@ -65,6 +69,9 @@
     const groups = state.get('groups') || [];
     const rootChildren = state.get('rootChildren') || [];
     const activePresets = state.get('activePresets') || {};
+    // Base hue for group underline gradients: the per-skin accent hue (default
+    // 140° lazer green) so the depth color bands follow the active theme.
+    _accentHue = (state.get('skinMeta') && state.get('skinMeta').accentHue != null) ? state.get('skinMeta').accentHue : 140;
 
     if (!skin) {
       // No skin selected: the welcome page (view-welcome) is shown on top via
@@ -157,6 +164,7 @@
     const _expanded = state.get('tableExpandedChildren') || {};
     const _rowSel = state.get('tableRowSelection') || {};
     _activationLockedRows.clear();
+    _activationSrcOptions.clear();
     _activationDisabledByRow.clear();
     _activationDisabledSingles.clear();
     for (const g of groups) {
@@ -164,6 +172,7 @@
       const selCopy = { ...(_rowSel[g.id] || {}) };
       const act = computeActivationTargets(g.id, groups, _expanded, selCopy, _activations);
       for (const rk of act.lockedValue.keys()) _activationLockedRows.add(rk);
+      for (const ok of act.firedSrcOptions) _activationSrcOptions.add(ok);
       for (const [rk, set] of act.disabledOptions) _activationDisabledByRow.set(rk, set);
       for (const [rk, set] of act.disabledSingles) _activationDisabledSingles.set(rk, set);
     }
@@ -194,7 +203,27 @@
     }
 
     let html = '<div class="preset-selector"><div class="preset-selector__header">';
+    html += '<div class="preset-selector__heading">';
     html += `<h3>${i18n.t('selector.heading')}</h3><span style="font-size:12px;color:var(--text-muted)">${i18n.t('selector.headingHint')}</span>`;
+    html += '</div>';
+    // Per-skin custom text card (set via the skin-meta dialog): two right-aligned
+    // text lines with a vertical bar on the right and a left-fading shadow under
+    // the text. When a link URL is set, the whole card is clickable (opens in the
+    // external browser) and the bar highlights on hover.
+    const skinMeta = state.get('skinMeta') || {};
+    const t1 = skinMeta.customText1 || '';
+    const t2 = skinMeta.customText2 || '';
+    const link = skinMeta.skinLink || '';
+    if (t1 || t2) {
+      const clickable = !!link;
+      html += `<div class="preset-selector__skin-meta${clickable ? ' is-link' : ''}"${clickable ? ` data-link="${escapeHtml(link).replace(/"/g, '&quot;')}"` : ''}>`;
+      html += '<div class="preset-selector__skin-meta-text">';
+      if (t1) html += `<div data-text="${escapeHtml(t1).replace(/"/g, '&quot;')}" data-full="${escapeHtml(t1).replace(/"/g, '&quot;')}">${escapeHtml(t1)}</div>`;
+      if (t2) html += `<div data-text="${escapeHtml(t2).replace(/"/g, '&quot;')}" data-full="${escapeHtml(t2).replace(/"/g, '&quot;')}">${escapeHtml(t2)}</div>`;
+      html += '</div>';
+      html += '<div class="preset-selector__skin-meta-bar"></div>';
+      html += '</div>';
+    }
     html += '</div>';
     html += '<div class="preset-selector__body"><div class="preset-selector__list">';
 
@@ -270,6 +299,24 @@
     }
 
     viewEl.innerHTML = html;
+    // Set title only on the skin-meta lines that actually overflow (ellipsis),
+    // matching the skin-name behavior in app.js updateSkinHeader.
+    viewEl.querySelectorAll('.preset-selector__skin-meta-text > div[data-full]').forEach(el => {
+      el.title = el.scrollWidth > el.clientWidth ? (el.dataset.full || '') : '';
+    });
+    // Click the skin-meta card to open its link in the external browser.
+    viewEl.querySelectorAll('.preset-selector__skin-meta.is-link').forEach(el => {
+      el.addEventListener('click', () => {
+        let url = el.dataset.link;
+        if (!url) return;
+        // opener.openUrl needs a full URL; prepend https:// for bare domains.
+        if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = 'https://' + url;
+        const T = window.__TAURI__;
+        if (T && T.opener && T.opener.openUrl) T.opener.openUrl(url);
+        else if (window.shell && window.shell.open) window.shell.open(url);
+        else window.open(url, '_blank');
+      });
+    });
     if (savedPreviewHtml) {
       const newPreview = viewEl.querySelector('#preset-preview-panel');
       if (newPreview) newPreview.innerHTML = savedPreviewHtml;
@@ -671,9 +718,12 @@
         const actRows = fp.actRows;
         const curDisabled = fp.curDisabled;
         const curSingles = fp.curSingles;
-        // Sync this gid subtree's locked/disabled state into the flat maps.
+        const curSrcOptions = fp.curSrcOptions;
+        // Sync this gid subtree's locked/disabled/source state into the flat maps.
         _activationLockedRows.clear();
         for (const rk of actRows) _activationLockedRows.add(rk);
+        _activationSrcOptions.clear();
+        for (const ok of curSrcOptions) _activationSrcOptions.add(ok);
         _activationDisabledByRow.clear();
         for (const [rk, set] of curDisabled) _activationDisabledByRow.set(rk, set);
         _activationDisabledSingles.clear();
@@ -964,6 +1014,7 @@
         opt.classList.toggle('preset-group__table-option--selected', isSel);
       }
       opt.classList.toggle('preset-group__table-option--activated', isSel && !!dis);
+      opt.classList.toggle('preset-group__table-option--source', isSel && _activationSrcOptions.has(key));
       opt.classList.toggle('preset-group__table-option--disabled', !isSel && !!dis && isSelDisKey(dis, kind === 'group' ? 'group:' + opt.dataset.childGroupId : Number(opt.dataset.presetId)));
     });
   }
@@ -992,7 +1043,7 @@
     //   SELECT target's siblings — the whole row locked).
     // out.disabledSingles: rowKey → Set of option keys to disable individually
     //   (DISABLE-effect targets — only that option, not its siblings).
-    const out = { lockedValue: new Map(), disabledOptions: new Map(), disabledSingles: new Map(), needsReset: new Set() };
+    const out = { lockedValue: new Map(), disabledOptions: new Map(), disabledSingles: new Map(), needsReset: new Set(), firedSrcOptions: new Set() };
     const g = groups.find(x => x.id === gid);
     if (!g) return out;
     const bySrc = (activations && activations[gid]) || null;
@@ -1000,12 +1051,16 @@
     const rows = collectTableRows(g, groups, expanded, 0, null);
     const renderedSet = new Set(rows.map(r => r.rowKey));
     const rowByKey = new Map(rows.map(r => [r.rowKey, r]));
-    // A source fires when any visible row's sel equals a srcOptionKey.
+    // A source fires when any visible row's sel equals a srcOptionKey. Record
+    // the option key so render can highlight the matching selected option.
     const firedSrcKeys = new Set();
     for (const r of rows) {
       const v = sel[r.rowKey];
       if (v == null) continue;
-      if (Object.prototype.hasOwnProperty.call(bySrc, String(v))) firedSrcKeys.add(String(v));
+      if (Object.prototype.hasOwnProperty.call(bySrc, String(v))) {
+        firedSrcKeys.add(String(v));
+        out.firedSrcOptions.add(String(v));
+      }
     }
     for (const srcKey of firedSrcKeys) {
       for (const t of (bySrc[srcKey] || [])) {
@@ -1049,6 +1104,7 @@
     let actRows = new Set(prevLocked || []);
     let curDisabled = new Map();
     let curSingles = new Map();
+    let curSrcOptions = new Set();
     let changed = true;
     let guard = 0;
     while (changed) {
@@ -1095,6 +1151,7 @@
       actRows = new Set(want.keys());
       curDisabled = act.disabledOptions;
       curSingles = act.disabledSingles;
+      curSrcOptions = act.firedSrcOptions;
       // (d) seed + expand.
       const rows = collectTableRows(groups.find(x => x.id === gid), groups, expanded, 0, null);
       for (const row of rows) {
@@ -1116,7 +1173,7 @@
         }
       }
     }
-    return { actRows, curDisabled, curSingles };
+    return { actRows, curDisabled, curSingles, curSrcOptions };
   }
 
   // After bindings change in the editor, re-run the activation fixed point for
@@ -1225,7 +1282,9 @@
             const name = p.meta?.name || i18n.t('preset.fallbackName', { id: opt.id });
             const isSelected = rowSel[row.rowKey] === opt.id;
             const isDisabled = !!(isSelDisKey(_dis, opt.id) || isSelDisKey(_singles, opt.id));
-            html += `<span class="preset-group__table-option${isSelected ? ' preset-group__table-option--selected' : ''}${isSelected && _dis ? ' preset-group__table-option--activated' : ''}${isDisabled ? ' preset-group__table-option--disabled' : ''}${_newlyDisabledOptKeys.has(row.rowKey + '\x00' + opt.id) ? ' preset-group__table-option--disable-pulse' : ''}${_newlyUndisabledOptKeys.has(row.rowKey + '\x00' + opt.id) ? ' preset-group__table-option--enable-pulse' : ''}"
+            const optKey = opt.kind === 'group' ? 'group:' + opt.id : opt.id;
+            const isSrc = isSelected && _activationSrcOptions.has(optKey);
+            html += `<span class="preset-group__table-option${isSelected ? ' preset-group__table-option--selected' : ''}${isSelected && _dis ? ' preset-group__table-option--activated' : ''}${isSrc ? ' preset-group__table-option--source' : ''}${isDisabled ? ' preset-group__table-option--disabled' : ''}${_newlyDisabledOptKeys.has(row.rowKey + '\x00' + opt.id) ? ' preset-group__table-option--disable-pulse' : ''}${_newlyUndisabledOptKeys.has(row.rowKey + '\x00' + opt.id) ? ' preset-group__table-option--enable-pulse' : ''}"
               data-table-row="${gid}" data-row-key="${escapeHtml(row.rowKey)}" data-kind="preset" data-preset-id="${opt.id}">${escapeHtml(name)}</span>`;
           } else {
             // group-tag option: a nested table group.
@@ -1234,7 +1293,8 @@
             const isExpanded = (expanded[ownerGid2] || new Set()).has(opt.id);
             const isRowSelected = rowSel[row.rowKey] === groupKey;
             const isDisabled = !!(isSelDisKey(_dis, groupKey) || isSelDisKey(_singles, groupKey));
-            html += `<span class="preset-group__table-option preset-group__table-option--group-tag${(isExpanded && isRowSelected) ? ' preset-group__table-option--group-tag--expanded' : ''}${isRowSelected && _dis ? ' preset-group__table-option--activated' : ''}${isDisabled ? ' preset-group__table-option--disabled' : ''}${_newlyDisabledOptKeys.has(row.rowKey + '\x00' + groupKey) ? ' preset-group__table-option--disable-pulse' : ''}${_newlyUndisabledOptKeys.has(row.rowKey + '\x00' + groupKey) ? ' preset-group__table-option--enable-pulse' : ''}"
+            const isSrc = isRowSelected && _activationSrcOptions.has(groupKey);
+            html += `<span class="preset-group__table-option preset-group__table-option--group-tag${(isExpanded && isRowSelected) ? ' preset-group__table-option--group-tag--expanded' : ''}${isRowSelected && _dis ? ' preset-group__table-option--activated' : ''}${isSrc ? ' preset-group__table-option--source' : ''}${isDisabled ? ' preset-group__table-option--disabled' : ''}${_newlyDisabledOptKeys.has(row.rowKey + '\x00' + groupKey) ? ' preset-group__table-option--disable-pulse' : ''}${_newlyUndisabledOptKeys.has(row.rowKey + '\x00' + groupKey) ? ' preset-group__table-option--enable-pulse' : ''}"
               data-table-row="${gid}" data-row-key="${escapeHtml(row.rowKey)}" data-kind="group" data-child-group-id="${opt.id}">${escapeHtml(opt.name)}</span>`;
           }
         }
@@ -1255,7 +1315,7 @@
     const count = countAllPresets(group, allGroups);
     let html = `<div class="preset-group" style="--depth:${depth}">`;
     html += `<div class="preset-group__header ${isCollapsed ? 'preset-group__header--collapsed' : ''} ${depth > 0 ? 'preset-group__header--nested' : ''}" data-group-id="${group.id}" data-row-key="g:${group.id}">
-      ${(!isCollapsed) ? `<div class="preset-group__header-underline${isAnim ? ' preset-group__header-underline--anim' : ''}" style="${isAnim ? `animation-delay:${(depth - _animDepthBase) * 40}ms;` : ''}background:linear-gradient(90deg, hsl(${140 + depth * 25}deg,60%,65%), hsl(${160 + depth * 25}deg,60%,45%))"></div>` : ''}
+      ${(!isCollapsed) ? `<div class="preset-group__header-underline${isAnim ? ' preset-group__header-underline--anim' : ''}" style="${isAnim ? `animation-delay:${(depth - _animDepthBase) * 40}ms;` : ''}background:linear-gradient(90deg, hsl(${_accentHue + depth * 25}deg,60%,65%), hsl(${_accentHue + 20 + depth * 25}deg,60%,45%))"></div>` : ''}
       <span class="preset-tree__collapse-icon">${isCollapsed ? '▶' : '▼'}</span>
       <span class="preset-group__label">${escapeHtml(group.name)}</span>
       ${count > 0 ? `<span class="preset-group__count">[${count}]</span>` : ''}

@@ -51,6 +51,15 @@
     "labelEdit": "편집",
     "labelUse": "사용"
   },
+  "skinMeta": {
+    "title": "스킨 설정",
+    "hue": "강조색",
+    "text1": "사용자 텍스트 1",
+    "text2": "사용자 텍스트 2",
+    "link": "링크",
+    "saved": "스킨 설정이 저장되었습니다",
+    "saveFailed": "저장 실패"
+  },
   "dialog": {
     "unsavedSwitch": "현재 프리셋이 저장되지 않았습니다. 저장 후 전환할까요?",
     "unsavedSwitchGroup": "현재 그룹이 저장되지 않았습니다. 저장 후 전환할까요?",

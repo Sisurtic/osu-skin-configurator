@@ -10,7 +10,7 @@
     if (!particlesEl) return;
     particlesEl.innerHTML = '';
     // Equilateral triangles pointing up, fixed green, random size + opacity.
-    const GREEN = 'var(--accent-light)';
+    const GREEN = 'var(--accent-hover)';
     const N = 42;
     for (let i = 0; i < N; i++) {
       const s = document.createElement('span');

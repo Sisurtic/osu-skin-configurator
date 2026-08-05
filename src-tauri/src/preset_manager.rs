@@ -77,13 +77,24 @@ pub struct Config {
     /// See docs/row-activation-design.md.
     #[serde(rename = "tableActivations", default)]
     pub table_activations: Value,
+    /// Per-skin accent hue (0..360). None = default lazer green (140°).
+    #[serde(rename = "accentHue", default)]
+    pub accent_hue: Option<f64>,
+    /// Per-skin custom free-text lines shown in the skin-meta dialog.
+    #[serde(rename = "customText1", default)]
+    pub custom_text1: Option<String>,
+    #[serde(rename = "customText2", default)]
+    pub custom_text2: Option<String>,
+    /// Per-skin link URL; the skin-meta card in use mode is clickable when set.
+    #[serde(rename = "skinLink", default)]
+    pub skin_link: Option<String>,
 }
 
 fn d1() -> i64 { 1 }
 
 impl Config {
     fn empty() -> Self {
-        Config { next_preset_id: 1, next_group_id: 1, root_children: vec![], groups: vec![], presets: vec![], table_expanded_children: json!({}), table_row_selection: json!({}), table_activations: json!({}) }
+        Config { next_preset_id: 1, next_group_id: 1, root_children: vec![], groups: vec![], presets: vec![], table_expanded_children: json!({}), table_row_selection: json!({}), table_activations: json!({}), accent_hue: None, custom_text1: None, custom_text2: None, skin_link: None }
     }
 }
 
@@ -169,6 +180,10 @@ pub fn load_config(skin_path: &str) -> Config {
         table_expanded_children: v.get("tableExpandedChildren").cloned().unwrap_or_else(|| json!({})),
         table_row_selection: v.get("tableRowSelection").cloned().unwrap_or_else(|| json!({})),
         table_activations: v.get("tableActivations").cloned().unwrap_or_else(|| json!({})),
+        accent_hue: v.get("accentHue").and_then(|x| x.as_f64()),
+        custom_text1: v.get("customText1").and_then(|x| x.as_str()).map(|s| s.to_string()),
+        custom_text2: v.get("customText2").and_then(|x| x.as_str()).map(|s| s.to_string()),
+        skin_link: v.get("skinLink").and_then(|x| x.as_str()).map(|s| s.to_string()),
     }
 }
 
@@ -211,6 +226,10 @@ fn save_config(skin_path: &str, cfg: &Config) -> Result<(), String> {
     if !cfg.table_activations.is_null() && cfg.table_activations.as_object().is_some_and(|o| !o.is_empty()) {
         v.insert("tableActivations".into(), cfg.table_activations.clone());
     }
+    if let Some(h) = cfg.accent_hue { v.insert("accentHue".into(), json!(h)); }
+    if let Some(s) = &cfg.custom_text1 { v.insert("customText1".into(), json!(s)); }
+    if let Some(s) = &cfg.custom_text2 { v.insert("customText2".into(), json!(s)); }
+    if let Some(s) = &cfg.skin_link { v.insert("skinLink".into(), json!(s)); }
     // Compact (non-pretty) serialization keeps config.osp small — the file is
     // machine-only; readers use unwrap_or defaults for any omitted keys.
     let s = serde_json::to_string(&Value::Object(v))
@@ -579,9 +598,12 @@ fn clone_table_state_for_groups_cfg(
 
 pub fn scan_skin(skin_path: &str) -> Value {
     let cfg = load_config(skin_path);
-    // Self-clean: if both presets and groups are empty, the config.osp is a
-    // dead husk left by a full deletion — remove it so the skin folder is clean.
-    if cfg.presets.is_empty() && cfg.groups.is_empty() {
+    // Self-clean: if both presets and groups are empty AND no per-skin metadata
+    // is set, the config.osp is a dead husk left by a full deletion — remove it
+    // so the skin folder is clean.
+    if cfg.presets.is_empty() && cfg.groups.is_empty()
+        && cfg.accent_hue.is_none() && cfg.custom_text1.is_none() && cfg.custom_text2.is_none() && cfg.skin_link.is_none()
+    {
         let _ = fs::remove_file(config_path(skin_path));
     }
     let preset_summaries: Vec<Value> = cfg.presets.iter().map(|p| {
@@ -609,6 +631,10 @@ pub fn scan_skin(skin_path: &str) -> Value {
         "tableExpandedChildren": cfg.table_expanded_children,
         "tableRowSelection": cfg.table_row_selection,
         "tableActivations": cfg.table_activations,
+        "accentHue": cfg.accent_hue,
+        "customText1": cfg.custom_text1,
+        "customText2": cfg.custom_text2,
+        "skinLink": cfg.skin_link,
     })
 }
 
@@ -780,6 +806,18 @@ pub fn set_table_state(skin_path: &str, expanded: &Value, row_selection: &Value,
     cfg.table_expanded_children = expanded.clone();
     cfg.table_row_selection = row_selection.clone();
     cfg.table_activations = activations.clone();
+    save_config(skin_path, &cfg)
+}
+
+/// Persist per-skin metadata: accent hue (0..360 or None for default), two
+/// free-text lines, and an optional link URL. Empty strings are stored as None
+/// to keep config.osp compact (same convention as set_group_description).
+pub fn set_skin_meta(skin_path: &str, accent_hue: Option<f64>, text1: &str, text2: &str, link: &str) -> Result<(), String> {
+    let mut cfg = load_config(skin_path);
+    cfg.accent_hue = accent_hue;
+    cfg.custom_text1 = if text1.is_empty() { None } else { Some(text1.to_string()) };
+    cfg.custom_text2 = if text2.is_empty() { None } else { Some(text2.to_string()) };
+    cfg.skin_link = if link.is_empty() { None } else { Some(link.to_string()) };
     save_config(skin_path, &cfg)
 }
 
@@ -1066,6 +1104,10 @@ mod compact_tests {
             table_expanded_children: table_exp,
             table_row_selection: table_sel,
             table_activations: json!({}),
+            accent_hue: None,
+            custom_text1: None,
+            custom_text2: None,
+            skin_link: None,
         }
     }
 
@@ -1111,6 +1153,10 @@ mod compact_tests {
                     ]
                 }
             }),
+            accent_hue: None,
+            custom_text1: None,
+            custom_text2: None,
+            skin_link: None,
         };
         compact_ids(&mut c);
         // After compaction: only group 11 remains → renumbered to 1; preset 100 → 1.
@@ -1266,6 +1312,10 @@ mod compact_tests {
             table_expanded_children: exp,
             table_row_selection: sel,
             table_activations: act,
+            accent_hue: None,
+            custom_text1: None,
+            custom_text2: None,
+            skin_link: None,
         }
     }
 

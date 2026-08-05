@@ -1264,7 +1264,7 @@
               const expanded = expandedSeqGroups.has(groupId);
 
               let html = `<div class="op-row ini-edit-row ini-collapsed-row${expanded ? ' ini-collapsed-row--expanded' : ''}" data-gid="${escapeHtml(groupId)}" data-group="${escapeHtml(syncKey)}" data-group-indices="${escapeHtml(JSON.stringify(plan.indices))}" data-idx="${escapeHtml(groupDataIdx)}" ${rowTitle}>
-                <div class="op-cell" data-col="action"><span class="tag ini-group-toggle" style="background:var(--info-bg);color:var(--info-strong);cursor:pointer">${i18n.t('ini.tagGroup')}</span></div>
+                <div class="op-cell" data-col="action"><span class="tag ini-group-toggle" style="background:var(--group-tag-bg);color:var(--group-tag);cursor:pointer">${i18n.t('ini.tagGroup')}</span></div>
                 <div class="op-cell" data-col="section"><span class="tag">${sectionLabel(firstEdit)}</span></div>
                 <div class="op-cell" data-col="key"><span class="ini-key-name">${escapeHtml(templateKey)}</span> <span class="ini-key-desc">${escapeHtml(fieldCn)}</span></div>
                 <div class="op-cell" data-col="value" style="display:flex;align-items:center;gap:8px;padding-right:12px">

@@ -51,6 +51,15 @@
     "labelEdit": "Edit",
     "labelUse": "Use"
   },
+  "skinMeta": {
+    "title": "Skin settings",
+    "hue": "Accent color",
+    "text1": "Custom text 1",
+    "text2": "Custom text 2",
+    "link": "Link",
+    "saved": "Skin settings saved",
+    "saveFailed": "Save failed"
+  },
   "dialog": {
     "unsavedSwitch": "The current preset is unsaved. Save before switching?",
     "unsavedSwitchGroup": "The current group is unsaved. Save before switching?",

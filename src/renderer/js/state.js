@@ -64,3 +64,4 @@ state.set('tableExpandedChildren', {}); // { [parentGid]: Set<childGid> } expand
 state.set('tableRowSelection', {});     // { [gid]: { [rowKey]: presetId | 'group:<id>' } }
 state.set('appMode', 'use');
 state.set('presetDirty', false);
+state.set('skinMeta', null);  // {accentHue, customText1, customText2} for the selected skin

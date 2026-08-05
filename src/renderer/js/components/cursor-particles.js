@@ -5,7 +5,7 @@
   let layer = null;
   let lastX = null, lastY = null, lastT = 0;
   let spawnAccum = 0;
-  const GREEN = 'var(--accent-light)';
+  const GREEN = 'var(--accent-hover)';
   const MAX_PARTICLES = 18;  // hard cap to prevent flooding
 
   function ensureLayer() {

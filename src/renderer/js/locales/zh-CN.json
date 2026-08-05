@@ -51,6 +51,15 @@
     "labelEdit": "编辑",
     "labelUse": "使用"
   },
+  "skinMeta": {
+    "title": "皮肤设置",
+    "hue": "强调色",
+    "text1": "自定义文本 1",
+    "text2": "自定义文本 2",
+    "link": "链接",
+    "saved": "皮肤设置已保存",
+    "saveFailed": "保存失败"
+  },
   "dialog": {
     "unsavedSwitch": "当前预设尚未保存，是否保存后切换？",
     "unsavedSwitchGroup": "当前分组尚未保存，是否保存后切换？",

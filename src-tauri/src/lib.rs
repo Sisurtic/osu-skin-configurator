@@ -290,6 +290,14 @@ fn set_table_state(app: AppHandle, skin_name: String, expanded: Value, row_selec
         Err(e) => wrap_err(&e),
     }
 }
+#[tauri::command]
+fn skin_set_meta(app: AppHandle, skin_name: String, accent_hue: Option<f64>, text1: String, text2: String, link: String) -> Value {
+    let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
+    match preset_manager::set_skin_meta(&sp, accent_hue, &text1, &text2, &link) {
+        Ok(_) => wrap_ok(json!(true)),
+        Err(e) => wrap_err(&e),
+    }
+}
 
 // Parse a { "oldId": newId } JSON object (keys/values numeric, possibly stringified)
 // into HashMap<i64,i64>. Used by clone_table_state_for_groups to carry the
@@ -740,7 +748,7 @@ pub fn run() {
             osu_auto_detect, osu_get_path, osu_get_last_skin, osu_set_last_skin, osu_set_path,
             skins_scan, skins_read_ini, skins_get_path,
             presets_scan, presets_load, presets_save, presets_delete, presets_delete_multiple, presets_apply, presets_apply_multiple,
-            groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_set_collapsed_batch, groups_delete_recursive, groups_set_shortcut, groups_set_description, groups_set_preview, groups_set_actions, groups_apply, groups_flatten_subgroups, set_table_state, clone_table_state_for_groups,
+            groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_set_collapsed_batch, groups_delete_recursive, groups_set_shortcut, groups_set_description, groups_set_preview, groups_set_actions, groups_apply, groups_flatten_subgroups, set_table_state, skin_set_meta, clone_table_state_for_groups,
             image_get_preview,
             shortcuts_load, shortcuts_save,
             global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_bind_batch, global_shortcuts_reload,

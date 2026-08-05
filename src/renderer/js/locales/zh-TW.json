@@ -51,6 +51,15 @@
     "labelEdit": "編輯",
     "labelUse": "使用"
   },
+  "skinMeta": {
+    "title": "皮膚設定",
+    "hue": "強調色",
+    "text1": "自訂文字 1",
+    "text2": "自訂文字 2",
+    "link": "連結",
+    "saved": "皮膚設定已儲存",
+    "saveFailed": "儲存失敗"
+  },
   "dialog": {
     "unsavedSwitch": "目前預設尚未儲存,是否儲存後切換?",
     "unsavedSwitchGroup": "目前分組尚未儲存,是否儲存後切換?",

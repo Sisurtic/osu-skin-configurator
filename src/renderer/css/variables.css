@@ -1,47 +1,64 @@
+@property --skin-meta-wipe {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 100%;
+}
+
 :root {
+  /* Text */
+  --text-primary: hsl(0, 0%, 91%);
+  --text-secondary: hsl(0, 0%, 69%);
+  --text-muted: hsl(0, 0%, 44%);
+
   /* Background */
-  --bg-primary: #1a1a1a;
-  --bg-secondary: #252528;
-  --bg-tertiary: #303036;
-  --bg-hover: #35353a;
-  --bg-active: #3a3a40;
+  --bg-primary: hsl(0, 0%, 10%);
+  --bg-secondary: hsl(240, 5%, 15%);
+  --bg-tertiary: hsl(240, 8%, 20%);
+  --bg-hover: hsl(240, 6%, 22%);
+  --bg-active: hsl(240, 5%, 24%);
   --bg-canvas: hsl(0, 0%, 7%);
 
-  /* Accent (osu!lazer green) */
-  --accent: #66cc88;
-  --accent-hover: #88dda0;
-  --accent-dim: #448855;
-  --accent-bg: rgba(102, 204, 136, 0.12);
-  --accent-bg-strong: rgba(102, 204, 136, 0.18);
-  --accent-light: hsl(140, 60%, 75%);
+  /* Accent — single source of truth: --accent-hue. Every accent shade derives
+     from it, so changing one variable (here or via applyAccent in JS) recolors
+     the whole UI consistently. Default 140° = osu!lazer green. */
+  --accent-hue: 140;
+  --accent: hsl(var(--accent-hue), 60%, 65%);
+  --accent-hover: hsl(var(--accent-hue), 60%, 75%);
+  --accent-dim: hsl(var(--accent-hue), 80%, 75%);
+  --accent-bg: hsla(var(--accent-hue), 60%, 65%, 0.1);
+  --accent-bg-strong: hsla(var(--accent-hue), 60%, 65%, 0.2);
+  --accent-bg-hover: hsl(var(--accent-hue), 15%, 18%);
+  /* Derived accent hues for specific tags: checkbox-group tag (+60°), shortcut
+     badge (+20°), activation source (−20°). All follow the per-skin accent hue. */
+  --group-tag: hsl(calc(var(--accent-hue) + 60), 60%, 75%);
+  --group-tag-bg: hsla(calc(var(--accent-hue) + 60), 60%, 75%, 0.1);
+  --shortcut: hsl(calc(var(--accent-hue) + 20), 60%, 75%);
+  --shortcut-soft: hsl(calc(var(--accent-hue) + 20), 60%, 65%);
+  --shortcut-bg: hsla(calc(var(--accent-hue) + 20), 60%, 65%, 0.15);
+  --shortcut-border: hsla(calc(var(--accent-hue) + 20), 60%, 65%, 0.45);
+  --source: hsl(calc(var(--accent-hue) - 20), 80%, 75%);
 
-  /* Text */
-  --text-primary: #e8e8e8;
-  --text-secondary: #b0b0b0;
-  --text-muted: #707070;
+  /* Decorative — dark text on accent fills */
+  --on-accent: hsl(0, 0%, 10%);
 
-  /* Semantic */
-  --danger: #e55a5a;
-  --danger-bg: rgba(229, 90, 90, 0.12);
-  --warning: #e0a040;
-  --warning-strong: #e8c878;
-  --success: #66cc88;
-  --info: #55aadd;
-  --info-strong: #6699ff;
-  --info-bg: rgba(102, 153, 255, 0.15);
+  /* Semantic — higher saturation than --accent so they stay distinct even when
+     accent hue lands on the same color. UI also encodes them with borders /
+     icons / bars so hue overlap never fully merges them. */
+  --danger: hsl(0, 80%, 65%);
+  --danger-bg: hsla(0, 80%, 65%, 0.1);
+  --warning: hsl(45, 80%, 65%);
+  --warning-strong: hsl(45, 80%, 75%);
+  --success: hsl(120, 80%, 65%);
+  --info: hsl(200, 80%, 65%);
 
-  /* Decorative — on-accent text + shortcut badge */
-  --on-accent: #1a1a1a;
-  --shortcut: #ffe600;
-  --shortcut-soft: #ded77a;
-  --shortcut-bg: rgba(221, 205, 120, 0.14);
-  --shortcut-border: rgba(222, 206, 122, 0.45);
+  /* Border & overlay */
+  --border: hsl(240, 4%, 24%);
+  --border-light: hsl(240, 5%, 28%);
+  --overlay-hover: hsla(0, 0%, 100%, 0.08);
+  --overlay-soft: hsla(0, 0%, 100%, 0.05);
+  --overlay-modal: hsla(0, 0%, 0%, 0.55);
 
-  /* Border & Radius */
-  --border: #3a3a3e;
-  --border-light: #45454a;
-  --overlay-hover: rgba(255, 255, 255, 0.08);
-  --overlay-soft: rgba(255, 255, 255, 0.05);
+  /* Radius */
   --radius: 8px;
   --radius-sm: 4px;
   --radius-lg: 12px;
@@ -50,13 +67,13 @@
   --sidebar-width: 280px;
   --titlebar-height: 36px;
   --toolbar-height: 48px;
+  --tab-height: 39px; /* editor tab bar + current-skin header share this */
 
   /* Shadows */
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
-  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
-  --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.5);
-  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.5);
-  --overlay-modal: rgba(0, 0, 0, 0.55);
+  --shadow-md: 0 4px 12px hsla(0, 0%, 0%, 0.4);
+  --shadow-lg: 0 8px 24px hsla(0, 0%, 0%, 0.5);
+  --shadow-pop: 0 4px 20px hsla(0, 0%, 0%, 0.5);
+  --shadow-modal: 0 20px 60px hsla(0, 0%, 0%, 0.5);
 
   /* Transitions */
   --transition-fast: 0.15s ease;
