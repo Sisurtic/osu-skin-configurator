@@ -270,46 +270,53 @@
     content.addEventListener('animationend', () => content.classList.remove('main-content--enter'), { once: true });
   }
   function bindTabs() {
-    viewEl.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        if (state.get('multiSelectActive')) return;
-        // Plain groups can only use the basic tab.
-        if (viewEl.querySelector('.tabs').classList.contains('tabs--disabled') && tab.dataset.tab !== 'basic') return;
-        // Switching tabs invalidates any open color picker (it belongs to the
-        // previous tab's editor).
-        if (window.ColorPicker) window.ColorPicker.closeAll();
-        viewEl.querySelectorAll('.tab').forEach(t => t.classList.remove('tab--active'));
-        viewEl.querySelectorAll('.tab-content').forEach(c => c.classList.remove('tab-content--active'));
-        tab.classList.add('tab--active');
-        const targetId = `tab-${tab.dataset.tab}`;
-        const targetEl = document.getElementById(targetId);
-        targetEl.classList.add('tab-content--active');
-        // Scale-fade the newly shown content in (same feel as the preset selector).
-        targetEl.classList.remove('main-content--enter');
-        void targetEl.offsetWidth;
-        targetEl.classList.add('main-content--enter');
-        targetEl.addEventListener('animationend', () => targetEl.classList.remove('main-content--enter'), { once: true });
-        // Move the sliding underline to the clicked tab.
-        moveTabIndicator(tab);
-        // Switching to the ini/files tab makes it visible (clientWidth > 0);
-        // apply column widths + re-trigger edge-fade now that the container
-        // has a real size.
-        if (tab.dataset.tab === 'ini' && window.IniEditor && window.IniEditor.layoutColumns) {
-          window.IniEditor.layoutColumns(targetEl);
-        } else if (tab.dataset.tab === 'files' && window.FileCopyEditor && window.FileCopyEditor.layoutColumns) {
-          window.FileCopyEditor.layoutColumns(targetEl);
-        } else if (tab.dataset.tab === 'tint' && window.TintEditor && window.TintEditor.layoutColumns) {
-          window.TintEditor.layoutColumns(targetEl);
-        } else if (tab.dataset.tab === 'layer' && window.LayerEditor && window.LayerEditor.layoutColumns) {
-          window.LayerEditor.layoutColumns(targetEl);
-        }
-        // Re-trigger scroll event on next frame so edge-fade overlays
-        // re-calculate position (getBoundingClientRect needs visible layout).
-        requestAnimationFrame(() => {
-          const scroll = targetEl.querySelector('.ini-table-body-scroll, .files-table-body-scroll');
-          if (scroll) scroll.dispatchEvent(new Event('scroll'));
-        });
+    const tabsEl = viewEl.querySelector('.tabs');
+    const tabs = () => Array.from(viewEl.querySelectorAll('.tab'));
+
+    // Core: activate one tab. Shared by click, wheel, and keyboard.
+    function activateTab(tab) {
+      if (!tab) return;
+      if (state.get('multiSelectActive')) return;
+      // Plain groups can only use the basic tab.
+      if (tabsEl.classList.contains('tabs--disabled') && tab.dataset.tab !== 'basic') return;
+      // Switching tabs invalidates any open color picker (it belongs to the
+      // previous tab's editor).
+      if (window.ColorPicker) window.ColorPicker.closeAll();
+      viewEl.querySelectorAll('.tab').forEach(t => t.classList.remove('tab--active'));
+      viewEl.querySelectorAll('.tab-content').forEach(c => c.classList.remove('tab-content--active'));
+      tab.classList.add('tab--active');
+      const targetId = `tab-${tab.dataset.tab}`;
+      const targetEl = document.getElementById(targetId);
+      targetEl.classList.add('tab-content--active');
+      // Scale-fade the newly shown content in (same feel as the preset selector).
+      targetEl.classList.remove('main-content--enter');
+      void targetEl.offsetWidth;
+      targetEl.classList.add('main-content--enter');
+      targetEl.addEventListener('animationend', () => targetEl.classList.remove('main-content--enter'), { once: true });
+      // Move the sliding underline to the activated tab.
+      moveTabIndicator(tab);
+      // Switching to the ini/files tab makes it visible (clientWidth > 0);
+      // apply column widths + re-trigger edge-fade now that the container
+      // has a real size.
+      if (tab.dataset.tab === 'ini' && window.IniEditor && window.IniEditor.layoutColumns) {
+        window.IniEditor.layoutColumns(targetEl);
+      } else if (tab.dataset.tab === 'files' && window.FileCopyEditor && window.FileCopyEditor.layoutColumns) {
+        window.FileCopyEditor.layoutColumns(targetEl);
+      } else if (tab.dataset.tab === 'tint' && window.TintEditor && window.TintEditor.layoutColumns) {
+        window.TintEditor.layoutColumns(targetEl);
+      } else if (tab.dataset.tab === 'layer' && window.LayerEditor && window.LayerEditor.layoutColumns) {
+        window.LayerEditor.layoutColumns(targetEl);
+      }
+      // Re-trigger scroll event on next frame so edge-fade overlays
+      // re-calculate position (getBoundingClientRect needs visible layout).
+      requestAnimationFrame(() => {
+        const scroll = targetEl.querySelector('.ini-table-body-scroll, .files-table-body-scroll');
+        if (scroll) scroll.dispatchEvent(new Event('scroll'));
       });
+    }
+
+    tabs().forEach(tab => {
+      tab.addEventListener('click', () => activateTab(tab));
 
       tab.addEventListener('keydown', (e) => {
         if (e.key === 'Tab' && !e.shiftKey) {
@@ -325,6 +332,23 @@
         }
       });
     });
+
+    // Wheel over the tab bar cycles tabs (only while the bar is interactive —
+    // the cursor changes to pointer there). Skips disabled (plain-group) and
+    // empty states where tab cycling is meaningless.
+    if (tabsEl) {
+      tabsEl.addEventListener('wheel', (e) => {
+        if (tabsEl.classList.contains('tabs--empty')) return;
+        const list = tabs().filter(t => !t.classList.contains('tab--disabled') || t.classList.contains('tab--active'));
+        if (list.length < 2) return;
+        const curIdx = list.findIndex(t => t.classList.contains('tab--active'));
+        const dir = e.deltaY > 0 ? 1 : -1;
+        const nextIdx = curIdx + dir;
+        if (nextIdx < 0 || nextIdx >= list.length) return; // edge: stop, don't wrap
+        e.preventDefault();
+        activateTab(list[nextIdx]);
+      }, { passive: false });
+    }
   }
 
   function renderBasicTab() {

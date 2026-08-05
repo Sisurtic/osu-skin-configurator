@@ -46,6 +46,7 @@
      icons / bars so hue overlap never fully merges them. */
   --danger: hsl(0, 80%, 65%);
   --danger-bg: hsla(0, 80%, 65%, 0.1);
+  --danger-important: hsl(0, 90%, 55%);
   --warning: hsl(45, 80%, 65%);
   --warning-strong: hsl(45, 80%, 75%);
   --success: hsl(120, 80%, 65%);

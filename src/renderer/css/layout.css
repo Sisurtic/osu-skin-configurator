@@ -76,8 +76,11 @@ button.decorum-tb-btn:hover {
   color: var(--text-primary);
 }
 button#decorum-tb-close:hover {
-  background: var(--danger);
-  color: var(--on-accent);
+  background: var(--danger-important) !important;
+  color: var(--text-primary) !important;
+  /* Icon font (Segoe Fluent Icons) has no real bold glyph; fake it with a
+     stroke. font-weight barely changes it. */
+  -webkit-text-stroke: 1px var(--text-primary);
 }
 
 /* ── Toolbar ── */
@@ -216,7 +219,6 @@ button#decorum-tb-close:hover {
 .sidebar__section--presets {
   flex: 0 0 auto;
   max-height: 40%;
-  border-top: 1px solid var(--border);
 }
 .sidebar__section--skin-header {
   flex: 0 0 auto;

@@ -357,7 +357,7 @@
   // re-translate) and re-fire only display-only keys.
   function rerenderAll() {
     i18n.applyStatic();
-    const keys = ['skins', 'osuPath', 'presetDirty', 'activePresets', 'activeTableGroups',
+    const keys = ['osuPath', 'presetDirty', 'activePresets', 'activeTableGroups',
                   'presets', 'groups', 'rootChildren'];
     const updates = {};
     for (const k of keys) {
@@ -372,8 +372,10 @@
     // covered by state subscriptions.
     updateModeButton();
     updateToolbarButtons();
-    if (window.SkinList && typeof window.SkinList.render === 'function') {
-      window.SkinList.render(state.get('skins') || [], state.get('selectedSkin'));
+    // Skin list: refresh only i18n labels in place — don't rebuild the DOM
+    // (a full SkinList.render would visibly reload the list).
+    if (window.SkinList && typeof window.SkinList.refreshLabels === 'function') {
+      window.SkinList.refreshLabels();
     }
   }
 
