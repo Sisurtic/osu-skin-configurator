@@ -28,6 +28,13 @@ Relative to the v1.1.1 release. Covers all changes since the v1.1.1 version bump
 - **Esc selection** fixed: now correctly clears after add (was blocked by empty selection set + focusable target check).
 - **Switching skins** clears selection (selectedPreset/group → null, multi-select cleared).
 
+### Pan/zoom preview engine (tint + layer)
+- **TintTransform pan/zoom engine** replaces the old scroll model for the tint preview: fit=containment, viewport-clamped panning, virtualized slicing (whole-tile culling), guide windowing at the viewport level. Layer editor isolated behind `#tab-tint` scoping.
+- **Layer composite preview** gains a pan/zoom image viewer (same engine family) for inspecting the stacked output.
+
+### Update flow
+- **Update check opens the external browser** to the release page instead of an in-app download + exe-replace flow (the bundled downloader was removed).
+
 ### Per-skin theming & metadata
 - **Per-skin accent hue**: each skin can set its own accent color via a new dialog (opened from the edit-mode "current skin" name). The whole UI recolors live as you drag a dashed hue strip (12° steps); `--accent-hue` is the single source of truth, every accent shade derives from it, and `applyAccent()` only sets that one variable. Persists in the skin's own `config.osp`.
 - **Two custom text lines + a link URL** per skin, shown as a right-aligned card in the use-mode preset header. When a link is set, the whole card is clickable (opens in the external browser via `tauri-plugin-opener`); the card's vertical bar highlights on hover.
@@ -44,6 +51,12 @@ Relative to the v1.1.1 release. Covers all changes since the v1.1.1 version bump
 - presetDirty cleared when deleting the edited preset/group.
 - Tab labels shortened (INI/文件/图像).
 - Window minWidth bumped to 1140 so columns aren't crushed.
+- **Layer transparent base** no longer tints translucent pixels black (alpha math fixed).
+- **Layer dest path** normalized the same way as file-copy/tint (trailing-slash / case handling).
+- **Layer re-source** opens in the layer's current source folder (was opening at root).
+- **Apply dialog**: layer action counts fixed; duplicate preset/group now correctly located.
+- **Color-picker trigger highlight** clears on internal close paths (Esc / outside-click) instead of sticking.
+- **INI key cell**: shrunk the key-description font and added key/desc spacing so the two read as distinct.
 - **Switching the osu! folder path now refreshes editors** (previously they kept showing the old path's skin data; the `osuPath` listener now resets `selectedSkin`, tripping the full clear branch).
 - **Language switch no longer drops the selected skin** (`rerenderAll` re-fired `osuPath` unchanged → destructive reset ran; guarded with an equality check).
 - **Language switch no longer reloads the skin list** — `rerenderAll` drops the `skins` re-fire and calls a new `SkinList.refreshLabels()` that updates only i18n text in place.
@@ -55,3 +68,4 @@ Relative to the v1.1.1 release. Covers all changes since the v1.1.1 version bump
 - Shared `utils/edge-fade.js` (was inlined in 3 editors).
 - Removed probe-based column-width pipelines (file-copy/ini) — single table + auto/fixed layout handles it.
 - Sticky thead + drag auto-scroll in OpTable (container-level, 2× fade-height zones).
+- **Operation lists migrated to CSS Grid** (`op-row`/`op-cell`), replacing the old `<table>` layout; toggle + row-highlight styles unified across editors.
