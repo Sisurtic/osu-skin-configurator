@@ -99,7 +99,7 @@ button#decorum-tb-close:hover {
   align-items: center;
   gap: 8px;
 }
-/* 工具栏图标按钮:统一紧凑 padding,三个图标间距一致 */
+/* Toolbar icon buttons: uniform compact padding, equal spacing across the three icons */
 .toolbar__icon-btn {
   display: inline-flex;
   align-items: center;
@@ -298,8 +298,11 @@ button#decorum-tb-close:hover {
   animation: main-content-enter 0.2s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 @keyframes main-content-enter {
-  from { opacity: 0; transform: scale(0.985); }
-  to   { opacity: 1; transform: scale(1); }
+  /* opacity stays 1 throughout — animating it from 0 causes a black flash on
+     the empty tab-content area (INI/files lower half) during the transparent
+     start frame. The scale alone gives enough enter feedback. */
+  from { transform: scale(0.985); }
+  to   { transform: scale(1); }
 }
 /* Scale-fade the main area out (e.g. before loading a new skin's data). */
 .main-content--exit {

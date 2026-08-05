@@ -78,12 +78,14 @@
       const opt = selectEl.querySelector(`option[value="${CSS.escape(v)}"]`);
       if (opt) label = opt.textContent;
     }
-    const lab = trigger.querySelector('.dd-trigger__label');
     const empty = !v;
-    if (lab) {
-      lab.textContent = empty ? (selectEl._ddPlaceholder || '') : label;
-      lab.style.opacity = empty ? '0.5' : '';
+    // Update the bare text node (trigger.firstChild). Empty state dims the text
+    // via `color` (not opacity) so the border stays normal — matches how an
+    // <input> placeholder is gray text, not a grayed-out control.
+    if (trigger.firstChild && trigger.firstChild.nodeType === Node.TEXT_NODE) {
+      trigger.firstChild.nodeValue = empty ? (selectEl._ddPlaceholder || '') : label;
     }
+    trigger.style.color = empty ? 'var(--text-muted)' : '';
     trigger.dataset.value = v;
   }
 
@@ -94,6 +96,27 @@
     pop.className = 'dd-menu';
     pop.innerHTML = buildItems(selectEl, selectEl._ddGroups);
     document.body.appendChild(pop);
+
+    // When the dropdown opts in to inline wheel cycling, also handle wheel on
+    // the open menu (it's appended to body, so the trigger's listener can't
+    // catch it). Stop at the edges — no wrap.
+    if (selectEl._ddWheelInline) {
+      pop.addEventListener('wheel', e => {
+        e.preventDefault();
+        const vals = (selectEl._ddGroups ? selectEl._ddGroups.flat() :
+          [...selectEl.querySelectorAll('option')].map(o => [o.value, o.textContent]));
+        if (!vals.length) return;
+        const cur = vals.findIndex(([v]) => v === selectEl.value);
+        const dir = e.deltaY > 0 ? 1 : -1;
+        let n = cur + dir;
+        if (n < 0 || n >= vals.length) return;
+        const v = vals[n][0];
+        if (v !== selectEl.value) {
+          selectEl.value = v;
+          selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }, { passive: false });
+    }
 
     const current = selectEl.value;
     [...pop.querySelectorAll('.dd-menu__item')].forEach(it => {
@@ -203,7 +226,16 @@
       trigger.className = 'form-input dd-trigger' + (selectEl.className.includes('tint-mode') ? ' tint-mode' : '');
       // Carry over caller styling (flex, min-width, max-width) from the select.
       trigger.style.cssText = origStyle + ';display:flex;align-items:center;justify-content:space-between;gap:6px;text-align:left;cursor:pointer';
-      trigger.innerHTML = `<span class="dd-trigger__label"></span><span class="dd-trigger__caret" style="font-size:10px;opacity:.6">▼</span>`;
+      // Label text is a bare text node (not a span) so it renders like an
+      // <input> value/placeholder instead of a nested element. The caret span
+      // is pushed to the right via margin-left:auto (trigger is flex).
+      trigger.textContent = '';
+      trigger.appendChild(document.createTextNode(''));
+      const caret = document.createElement('span');
+      caret.className = 'dd-trigger__caret';
+      caret.style.cssText = 'font-size:10px;opacity:.6;margin-left:auto';
+      caret.textContent = '▼';
+      trigger.appendChild(caret);
       // Copy data-* that callers may read off the select (e.g. data-idx, data-group-header).
       for (const a of selectEl.attributes) {
         if (a.name.startsWith('data-')) trigger.setAttribute(a.name, a.value);
@@ -223,22 +255,26 @@
       });
 
       if (opts.wheelInline) {
-        trigger.addEventListener('wheel', e => {
-          if (document.querySelector('.dd-menu')) return; // popover handles wheel
+        selectEl._ddWheelInline = true;
+        // Wheel cycles the selected option (collapsed state). The open menu
+        // binds its own wheel handler in open() since it's appended to body.
+        const onWheel = e => {
           e.preventDefault();
           const vals = (selectEl._ddGroups ? selectEl._ddGroups.flat() :
             [...selectEl.querySelectorAll('option')].map(o => [o.value, o.textContent]));
+          if (!vals.length) return;
           const cur = vals.findIndex(([v]) => v === selectEl.value);
           const dir = e.deltaY > 0 ? 1 : -1;
           let n = cur + dir;
-          if (n < 0) n = vals.length - 1;
-          if (n >= vals.length) n = 0;
+          // Stop at the edges — don't wrap.
+          if (n < 0 || n >= vals.length) return;
           const v = vals[n][0];
           if (v !== selectEl.value) {
             selectEl.value = v;
             selectEl.dispatchEvent(new Event('change', { bubbles: true }));
           }
-        }, { passive: false });
+        };
+        trigger.addEventListener('wheel', onWheel, { passive: false });
       }
     },
     closeAll,

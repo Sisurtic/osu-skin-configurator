@@ -111,28 +111,26 @@
           </div>
 
           <div style="display:flex;margin-bottom:8px;gap:8px;align-items:center">
-            <!-- Section列 -->
+            <!-- Section column -->
             <select class="form-input" id="ini-section-select" style="flex-shrink:0;min-width:100px">
               <option value="" selected>${i18n.t('ini.selectSection')}</option>
               ${INI_SECTIONS.map(s => `<option value="${s}">${s}</option>`).join('')}
             </select>
-            <!-- Keys 输入：Section 与 Key 之间，带间距 -->
+            <!-- Keys input: between Section and Key, with spacing -->
             <div id="ini-mania-keys-row" style="display:none;white-space:nowrap;flex-shrink:0">
               <span style="font-size:12px;color:var(--text-muted);margin-right:4px">Keys:</span>
               <input type="number" class="form-input" id="ini-mania-keys-custom" placeholder="${i18n.t('ini.keysPlaceholder')}" min="1" max="18" style="width:70px">
             </div>
-            <!-- Key列 flex -->
-            <div style="flex:1;min-width:0;display:flex;gap:4px;align-items:center">
+            <!-- Key column + action buttons: single flex with one gap so
+                 key→add and add→delete spacing are identical. -->
+            <div style="flex:1;min-width:0;display:flex;gap:8px;align-items:center">
               <div class="ini-combo" style="flex:1;min-width:0">
                 <input type="text" class="form-input" id="ini-key-input"
                        placeholder="${i18n.t('ini.keySearchPlaceholder')}" autocomplete="off" disabled>
                 <div class="ini-combo__dropdown" id="ini-key-dropdown"></div>
               </div>
-            </div>
-            <!-- 按钮紧挨键名右侧 -->
-            <div style="flex-shrink:0;display:flex;gap:8px;margin-left:8px">
-              <button class="btn btn--primary btn--sm" id="btn-add-ini" style="font-size:11px;padding:4px 6px">${i18n.t('ini.add')}</button>
-              <button class="btn btn--danger btn--sm" id="btn-delete-ini" style="font-size:11px;padding:4px 6px" title="${i18n.t('ini.deleteKeyTitle')}">${i18n.t('ini.deleteBtn')}</button>
+              <button class="btn btn--primary btn--sm" id="btn-add-ini" style="font-size:11px;padding:4px 6px;flex-shrink:0">${i18n.t('ini.add')}</button>
+              <button class="btn btn--danger btn--sm" id="btn-delete-ini" style="font-size:11px;padding:4px 6px;flex-shrink:0" title="${i18n.t('ini.deleteKeyTitle')}">${i18n.t('ini.deleteBtn')}</button>
             </div>
           </div>
 
@@ -511,7 +509,7 @@
       const type = (field && field.type) || 'string';
       return (type === 'rgb' || type === 'rgba') ? 'color' : type;
     }
-    // Sync a value edit to other selected rows of the same type (同类项). Updates
+    // Sync a value edit to other selected rows of the same type (same-type items). Updates
     // data + each sibling's DOM in-place (no render → preserves focus/selection).
     // `field` selects the DOM update: 'value'→.value (text/number/color box),
     // 'toggle'→.checked, 'section'→<select>.value. Optional `color` restyles a
@@ -798,7 +796,7 @@
       });
     });
     // Expand/collapse a perColumn group. Triggered by double-clicking the row
-    // OR single-clicking the group tag (the "分组" badge in the Action column).
+    // OR single-clicking the group tag (the "group" badge in the Action column).
     // State lives in the module-level expandedSeqGroups Set (keyed by gid); the
     // DOM display/class follow as a consequence.
     function toggleGroupExpansion(row) {
@@ -1314,7 +1312,7 @@
         </label>`;
       case 'section': {
         const opts = field?.options || [];
-        return `<select class="form-input ini-value-section" data-idx="${i}"${x} style="width:100%;max-width:200px">
+        return `<select class="form-input ini-value-section" data-idx="${i}"${x} style="width:100%">
           ${opts.map(o => `<option value="${o.value}" ${edit.value === o.value ? 'selected' : ''}>${INI_FIELD_LABELS.optionLabel(field, o)}</option>`).join('')}
         </select>`;
       }

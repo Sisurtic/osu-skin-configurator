@@ -1,6 +1,6 @@
 // GitHub release update check.
 //
-// On startup (and via the info dialog's "检查更新" button) we ask the Rust
+// On startup (and via the info dialog's "Check for updates" button) we ask the Rust
 // backend whether a newer release exists on GitHub. If so, the title bar's
 // left dot gains a gradient + breathing-glow animation; clicking it downloads
 // the installer and runs it (in-place upgrade). Everything fails silent.

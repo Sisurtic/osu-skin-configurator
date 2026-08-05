@@ -1,4 +1,4 @@
-// Image editor — 图像编辑 tab.
+// Image editor — image editing tab.
 // Left: operations list (source + destination per row, drag-to-delete).
 // Right: live canvas preview of the selected row + stage controls (tint → crop → darken).
 // Each stage is toggled by a clickable header (green underline when enabled).
@@ -726,11 +726,11 @@
 
   // One hue per guide kind, so each line+label reads as a distinct color band.
   const GUIDE_COLORS = {
-    blank:   '#4aa3ff', // blue   — 留白
-    top:     '#36d399', // green  — 面尾
-    ext:     '#c084fc', // purple — 面身
-    stretch: '#f472b6', // pink   — 拉伸高度
-    darken:  '#fb923c', // orange — 暗化偏移
+    blank:   '#4aa3ff', // blue   — blank spacing
+    top:     '#36d399', // green  — top (tail)
+    ext:     '#c084fc', // purple — body (extended region)
+    stretch: '#f472b6', // pink   — stretch height
+    darken:  '#fb923c', // orange — darken offset
   };
 
   // A horizontal guide line at natural output row `row` (0..total), tinted
@@ -753,13 +753,13 @@
 
   // Build the guide-lines container (positions only; indent recomputed on layout).
   // Layout of the cropped output (height = total = outH):
-  //   0 .. blank              留白 (blank spacing)
-  //   blank .. blank+tailH    面尾 (top content)
-  //   blank+tailH .. total    面身 (bottom, stretched/tiled) — anchored to bottom
+  //   0 .. blank              blank spacing
+  //   blank .. blank+tailH    top (tail content)
+  //   blank+tailH .. total    body (bottom, stretched/tiled) — anchored to bottom
   // Guide lines:
-  //   留白     at blank              (blank's bottom = split point)
-  //   面尾     at blank + tailH      (tail's bottom)
-  //   暗化偏移 at 面尾 + shift        (offset from the 面尾 line)
+  //   blank spacing  at blank              (blank's bottom = split point)
+  //   top (tail)     at blank + tailH      (tail's bottom)
+  //   darken offset  at top + shift        (offset from the tail line)
   function buildGuide(t, total, srcH) {
     const tailH = Math.min(Math.max(0, Math.round(+t.cropA || 0)), total);
     const blank = Math.max(0, Math.round(+t.cropB || 0));
@@ -782,7 +782,7 @@
       { row: 0, label: i18n.t('edit.guideExt') + ' ' + total, color: GUIDE_COLORS.ext, above: true },
     ];
     if (b > 0) {
-      // 拉伸 line at pinOutTop: above is the stretched middle, below is 1:1 bottom.
+      // stretch line at pinOutTop: above is the stretched middle, below is 1:1 bottom.
       lines.push({ row: pinOutTop, label: i18n.t('edit.guideStretch') + ' ' + b, color: GUIDE_COLORS.stretch, above: false });
     }
     if (darkening) {
@@ -1027,7 +1027,7 @@
     }
     baseCtx.clearRect(0, 0, dw, visH * ds);
 
-    // --- TAIL (面尾): output [blank, blank+tailSrcH) ← source [0, tailSrcH) 1:1 ---
+    // --- TAIL (top): output [blank, blank+tailSrcH) ← source [0, tailSrcH) 1:1 ---
     if (tailSrcH > 0) {
       const tailOutTop = blank;
       const tailOutBot = Math.min(total, blank + tailSrcH);
@@ -1040,7 +1040,7 @@
       }
     }
 
-    // --- BODY (面身): output [y0, total) ← source [tailSrcH, srcH) ---
+    // --- BODY (body): output [y0, total) ← source [tailSrcH, srcH) ---
     if (bodySrcH > 0) {
       const bodyOutTop = y0;
       const bodyOutBot = total;
@@ -1085,7 +1085,7 @@
           }
         } else {
           // Three-segment model (mirrors cropCanvas):
-          //   src [0, tailSrcH)       → out [0, bodyOutTop)      1:1  (面尾, drawn above)
+          //   src [0, tailSrcH)       → out [0, bodyOutTop)      1:1  (top/tail, drawn above)
           //   src [tailSrcH, midBot) → out [bodyOutTop, pinOutTop) STRETCHED (middle b)
           //   src [midBot, h)         → out [pinOutTop, total)   1:1  (bottom, anchored)
           // b = cropD is the SOURCE height of the stretched middle; the output gap
@@ -1564,9 +1564,9 @@
     const out = document.createElement('canvas');
     out.width = w; out.height = total;
     const ctx = out.getContext('2d');
-    // Tail (面尾) placed at y = blank.
+    // Tail (top) placed at y = blank.
     if (tailSrcH > 0 && blank < total) ctx.drawImage(src, 0, 0, w, tailSrcH, 0, blank, w, tailSrcH);
-    // Body (面身) extended into (blank + tailSrcH .. total).
+    // Body (body) extended into (blank + tailSrcH .. total).
     if (bodySrcH > 0) {
       const y0 = blank + tailSrcH;
       const remain = total - y0;
@@ -1581,17 +1581,17 @@
             while (y < total) { ctx.drawImage(src, 0, tailSrcH, w, bodySrcH, 0, y, w, bodySrcH); y += bodySrcH; }
           }
         } else {
-          // Three-segment model. The source is split into TOP (面尾, height a),
-          // MIDDLE (拉伸源, height b = cropD), BOTTOM (面身底部, the rest); the
+          // Three-segment model. The source is split into TOP (tail, height a),
+          // MIDDLE (stretch source, height b = cropD), BOTTOM (body bottom, the rest); the
           // output mirrors TOP and BOTTOM 1:1 (top-aligned / bottom-aligned) and
           // STRETCHES the middle to fill the gap between them:
-          //   src [0, tailSrcH)              → out [0, y0)            1:1  (面尾, drawn above)
+          //   src [0, tailSrcH)              → out [0, y0)            1:1  (tail, drawn above)
           //   src [tailSrcH, midBot)        → out [y0, pinOutTop)    STRETCHED (middle b)
           //   src [midBot, h)                → out [pinOutTop, total) 1:1  (bottom, anchored)
           // where midBot = tailSrcH + b and pinOutTop = total - (h - midBot).
           // b is the SOURCE height of the stretched middle (NOT the output gap);
           // the gap is implicit (total - srcH + b). When b=0 the middle is empty,
-          // so the gap is filled by copying the tail's LAST source row (面尾底行)
+          // so the gap is filled by copying the tail's LAST source row (tail bottom row)
           // stretched across the whole gap — no blank region is left.
           const b = Math.min(Math.max(0, stretchH), bodySrcH); // middle source height
           const midBot = tailSrcH + b;                         // middle source bottom
@@ -1801,10 +1801,10 @@
     if (!op.cropEnabled) return op;
     const outH = Math.max(0, Math.floor(+op.cropC || 0));
     const tailH = Math.max(0, Math.floor(+op.cropA || 0));
-    // 切割高度 (cropA) + 拉伸高度 (cropD) must not exceed the source height:
+    // cut height (cropA) + stretch height (cropD) must not exceed the source height:
     // both come from the source (tail top + stretched middle), so a+b ≤ srcH.
     const srcCap = (srcH != null && srcH > 0) ? srcH : Infinity;
-    // 留白高度 (cropB) and 投影距离 (darkenD) are NOT clamped to outH — they are
+    // blank height (cropB) and shadow distance (darkenD) are NOT clamped to outH — they are
     // allowed to push content below the canvas (off the bottom). Only cropA/cropC/
     // cropD are constrained.
     if (changedKey === 'cropA') {

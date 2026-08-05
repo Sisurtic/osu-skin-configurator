@@ -395,12 +395,12 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
         let y0 = blank + tail_h; // body starts at this output row
         let tile = op.crop_tile;
         let tile_up = op.crop_tile_dir == "up";
-        // Three-segment model. The source is split into TOP (面尾, height tail_h),
-        // MIDDLE (拉伸源, height b = cropD), BOTTOM (the rest). The output places
+        // Three-segment model. The source is split into TOP (LN tail, height tail_h),
+        // MIDDLE (stretch source, height b = cropD), BOTTOM (the rest). The output places
         // TOP 1:1 at the top, BOTTOM 1:1 anchored to the output bottom, and
         // STRETCHES the middle to fill the gap between them. cropD is the SOURCE
         // height of the stretched middle (NOT the output gap); the gap is implicit.
-        // When cropD==0 the middle is empty and the whole 面身 is 1:1 anchored to
+        // When cropD==0 the middle is empty and the whole LN body is 1:1 anchored to
         // the bottom.
         let b = (op.crop_d.round().max(0.0) as u64).min(body_src_h as u64) as usize; // middle src h
         let mid_bot = tail_h + b;                       // middle source bottom

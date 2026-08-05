@@ -60,29 +60,6 @@
       setTimeout(() => { enterLocked = false; }, totalMs);
     }
 
-    // Refresh only the i18n-driven text (preset-count badges + empty state)
-    // WITHOUT rebuilding the DOM. Used by language switch so the list doesn't
-    // visibly reload.
-    function refreshLabels() {
-      listEl.querySelectorAll('.skin-item').forEach(item => {
-        const skin = allSkins.find(s => s.name === item.dataset.skin);
-        const badge = item.querySelector('.skin-item__badge');
-        const txt = (skin && skin.presetCount > 0) ? i18n.t('skinlist.presetCount', { count: skin.presetCount }) : '';
-        if (badge) { if (txt) badge.textContent = txt; else badge.remove(); }
-        else if (txt) {
-          const span = document.createElement('span');
-          span.className = 'skin-item__badge';
-          span.textContent = txt;
-          item.appendChild(span);
-        }
-      });
-      const emptyDesc = listEl.querySelector('.empty-state__desc');
-      if (emptyDesc) {
-        const query = ((searchInput && searchInput.value) || '').toLowerCase();
-        emptyDesc.textContent = query ? i18n.t('skinlist.noMatch') : i18n.t('skinlist.notFound');
-      }
-    }
-
     // Click handlers
     listEl.querySelectorAll('.skin-item').forEach(item => {
       item.addEventListener('click', () => {
@@ -130,6 +107,29 @@
   // and its animation gets masked by the body fade-in).
   function replayEnter() {
     render(allSkins, state.get('selectedSkin'), true);
+  }
+
+  // Refresh only the i18n-driven text (preset-count badges + empty state)
+  // WITHOUT rebuilding the DOM. Used by language switch so the list doesn't
+  // visibly reload.
+  function refreshLabels() {
+    listEl.querySelectorAll('.skin-item').forEach(item => {
+      const skin = allSkins.find(s => s.name === item.dataset.skin);
+      const badge = item.querySelector('.skin-item__badge');
+      const txt = (skin && skin.presetCount > 0) ? i18n.t('skinlist.presetCount', { count: skin.presetCount }) : '';
+      if (badge) { if (txt) badge.textContent = txt; else badge.remove(); }
+      else if (txt) {
+        const span = document.createElement('span');
+        span.className = 'skin-item__badge';
+        span.textContent = txt;
+        item.appendChild(span);
+      }
+    });
+    const emptyDesc = listEl.querySelector('.empty-state__desc');
+    if (emptyDesc) {
+      const query = ((searchInput && searchInput.value) || '').toLowerCase();
+      emptyDesc.textContent = query ? i18n.t('skinlist.noMatch') : i18n.t('skinlist.notFound');
+    }
   }
 
   window.SkinList = { render, replayEnter, refreshLabels };

@@ -151,14 +151,13 @@ select.form-input {
    The native <select> stays as the hidden value SOT; a <button> trigger is
    overlaid via Dropdown.enhance (utils/dropdown.js). ── */
 button.form-input.dd-trigger { appearance: none; }
-.dd-trigger__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
 .dd-trigger__caret { flex: 0 0 auto; }
 .dd-menu {
   position: absolute;
   z-index: 300;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow-md);
   padding: 4px 0;
   max-height: 320px;
@@ -2334,7 +2333,7 @@ tr[data-group-parent] .file-thumb__icon {
 
 /* ini columns: action | section | key | value. action/section/key fixed;
    value is the flex column (grows with the window, shrinks when tight). */
-.op-grid--ini .op-row { grid-template-columns: 72px 120px minmax(0,240px) minmax(120px,1fr); }
+.op-grid--ini .op-row { grid-template-columns: 72px 120px minmax(120px,1fr) minmax(120px,1fr); }
 .op-grid--ini .op-cell[data-col=action],
 .op-grid--ini .op-cell[data-col=key] { overflow: hidden; text-overflow: clip; white-space: nowrap; }
 .op-grid--ini .op-cell[data-col=section] { white-space: nowrap; }

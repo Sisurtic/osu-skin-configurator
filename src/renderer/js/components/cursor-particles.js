@@ -29,7 +29,7 @@
     const s = document.createElement('span');
     // Wider size range for variety: some tiny, some medium.
     const size = 3 + Math.floor(Math.random() * 8);
-    // Very low opacity — barely visible, "若隐若现".
+    // Very low opacity — barely visible, "faintly discernible".
     const opacity = (0.015 + Math.random() * 0.035).toFixed(3);
     // Random scatter around cursor, not exactly at cursor.
     const offsetX = (Math.random() - 0.5) * 30;

@@ -1,6 +1,6 @@
 // Apply confirmation dialog — shows summary then applies
 (function () {
-  // Compact three-label summary, e.g. "INI 编辑×3, 文件移动×1, 图像编辑×2".
+  // Compact three-label summary, e.g. "INI edits×3, file moves×1, image edits×2".
   // Used by both the per-preset cards and the success toast so they match.
   function summaryText(ini, file, tint, layer) {
     const parts = [];
@@ -197,7 +197,7 @@
     // Only abort if BOTH lists are empty: a group-only apply (no loose presets)
     // is valid — its preset data comes from state.groups via groupDataList, and
     // the backend apply_group loads the subtree. Aborting on empty presetDataList
-    // alone made checkbox-group-only applies fail with "无法加载预设数据".
+    // alone made checkbox-group-only applies fail with "Unable to load preset data".
     if (presetDataList.length === 0 && groupDataList.length === 0) {
       Toast.error(i18n.t('apply.loadPresetFailed'));
       return;

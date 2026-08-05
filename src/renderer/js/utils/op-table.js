@@ -386,7 +386,7 @@
     return (p || '').split(/[/\\]/).pop() || p;
   }
 
-  // ── Sequence-frame (动画序列帧) helpers ──
+  // ── Sequence-frame (animation sequence frames) helpers ──
   // osu! animation frames come in two naming styles (the trailing @2x HD marker
   // and the extension are ALWAYS ignored when classifying):
   //   • "-N" style: foo-0, foo-1, foo-2 …  (the overwhelming majority)

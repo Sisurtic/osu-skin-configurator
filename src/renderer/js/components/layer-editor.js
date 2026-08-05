@@ -1,4 +1,4 @@
-// Layer compositing editor — 图层 tab.
+// Layer compositing editor — layer tab.
 // Left: layer-stack operation list (each row = one composite output, drag-to-reorder/delete).
 // Right: the selected stack's layer sub-list (per-layer blend/exact/flyout) + composite preview.
 //
