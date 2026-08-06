@@ -90,7 +90,12 @@
           sel = false;
         } else if (selectedIndices.size === 0) {
           // Empty-set rule (tint preview): highlight only the anchor row.
-          sel = A.rowAnchor(row) === anchorIndex;
+          // Prefer the last-clicked row by identity: a group header and the
+          // group's first member share the same anchor index, so an anchor-only
+          // match would highlight BOTH (Ctrl-clicking either to deselect → the
+          // other wrongly lights up). Falling back to the anchor match keeps the
+          // pre-bind / programmatic-set case working.
+          sel = lastClickedRow ? (row === lastClickedRow) : (A.rowAnchor(row) === anchorIndex);
         } else {
           sel = members.every(m => selectedIndices.has(m));
         }

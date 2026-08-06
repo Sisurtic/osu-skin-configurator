@@ -97,31 +97,56 @@
     pop.innerHTML = buildItems(selectEl, selectEl._ddGroups);
     document.body.appendChild(pop);
 
-    // When the dropdown opts in to inline wheel cycling, also handle wheel on
-    // the open menu (it's appended to body, so the trigger's listener can't
-    // catch it). Stop at the edges — no wrap.
-    if (selectEl._ddWheelInline) {
-      pop.addEventListener('wheel', e => {
-        e.preventDefault();
-        const vals = (selectEl._ddGroups ? selectEl._ddGroups.flat() :
-          [...selectEl.querySelectorAll('option')].map(o => [o.value, o.textContent]));
-        if (!vals.length) return;
-        const cur = vals.findIndex(([v]) => v === selectEl.value);
-        const dir = e.deltaY > 0 ? 1 : -1;
-        let n = cur + dir;
-        if (n < 0 || n >= vals.length) return;
-        const v = vals[n][0];
-        if (v !== selectEl.value) {
-          selectEl.value = v;
-          selectEl.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      }, { passive: false });
+    // The flat list of [value,label] options, in menu order. Dividers are
+    // skipped because they aren't .dd-menu__item elements.
+    function valueList() {
+      return selectEl._ddGroups ? selectEl._ddGroups.flat() :
+        [...selectEl.querySelectorAll('option')].map(o => [o.value, o.textContent]);
     }
+
+    // Re-stamp which menu row is the current value, and park is-hover on it.
+    // Called after a wheel change that doesn't rebuild the menu, so the open
+    // list tracks the selection instead of freezing on the opened row.
+    function refreshSelected() {
+      const cur = selectEl.value;
+      items().forEach(i => i.classList.toggle('is-selected', i.dataset.value === cur));
+      const el = pop.querySelector(`.dd-menu__item[data-value="${CSS.escape(cur)}"]`);
+      if (el) { setHighlight(el); el.scrollIntoView({ block: 'nearest' }); }
+    }
+    // Expose so the trigger's wheel handler can sync this menu when the value
+    // changes while the pointer is over the trigger (not the popover).
+    pop._refreshSelected = refreshSelected;
+
+    // Wheel on the OPEN menu cycles the value (the menu is appended to body,
+    // so the trigger's collapsed-wheel listener can't catch it). This runs for
+    // every enhanced dropdown, regardless of wheelInline — once the menu is
+    // open, scrolling should step the selection and the highlight follows.
+    // Stop at the edges — no wrap.
+    pop.addEventListener('wheel', e => {
+      e.preventDefault();
+      const vals = valueList();
+      if (!vals.length) return;
+      const cur = vals.findIndex(([v]) => v === selectEl.value);
+      const dir = e.deltaY > 0 ? 1 : -1;
+      let n = cur + dir;
+      if (n < 0 || n >= vals.length) return;
+      const v = vals[n][0];
+      if (v !== selectEl.value) {
+        selectEl.value = v;
+        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+        refreshSelected();
+      }
+    }, { passive: false });
 
     const current = selectEl.value;
     [...pop.querySelectorAll('.dd-menu__item')].forEach(it => {
       if (it.dataset.value === current) it.classList.add('is-selected');
     });
+    // Scroll the selected row into view on open (otherwise a long list opens
+    // at the top and the current value — the thing the user most wants to see
+    // — sits off-screen). 'nearest' avoids jumping when it's already visible.
+    const selOnOpen = pop.querySelector('.dd-menu__item.is-selected');
+    if (selOnOpen) selOnOpen.scrollIntoView({ block: 'nearest' });
 
     // Anchor left-aligned with the trigger, width-matched. Flips ABOVE the
     // trigger when there isn't room below (e.g. rows near the bottom of the
@@ -168,7 +193,6 @@
       const it = e.target.closest('.dd-menu__item');
       if (it) commit(it.dataset.value);
     });
-    // Wheel scrolls the menu list natively (no highlight cycling).
     function onKey(e) {
       // Let global shortcuts (Ctrl+E mode toggle, Ctrl+S save, 1-4 tab switch)
       // pass through, but close the dropdown so it doesn't linger after the
@@ -256,26 +280,32 @@
 
       if (opts.wheelInline) {
         selectEl._ddWheelInline = true;
-        // Wheel cycles the selected option (collapsed state). The open menu
-        // binds its own wheel handler in open() since it's appended to body.
-        const onWheel = e => {
-          e.preventDefault();
-          const vals = (selectEl._ddGroups ? selectEl._ddGroups.flat() :
-            [...selectEl.querySelectorAll('option')].map(o => [o.value, o.textContent]));
-          if (!vals.length) return;
-          const cur = vals.findIndex(([v]) => v === selectEl.value);
-          const dir = e.deltaY > 0 ? 1 : -1;
-          let n = cur + dir;
-          // Stop at the edges — don't wrap.
-          if (n < 0 || n >= vals.length) return;
-          const v = vals[n][0];
-          if (v !== selectEl.value) {
-            selectEl.value = v;
-            selectEl.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-        };
-        trigger.addEventListener('wheel', onWheel, { passive: false });
       }
+      // Wheel on the trigger cycles the selected option. Runs for EVERY
+      // enhanced dropdown (not just wheelInline): when the menu is CLOSED this
+      // is the only way to wheel-cycle; when OPEN, the menu's own wheel handler
+      // covers the popover, and this covers the trigger itself (the popover is
+      // appended to body, so pointer over the trigger won't reach it). After a
+      // change, sync the open menu's highlight if one is showing.
+      const onWheel = e => {
+        e.preventDefault();
+        const vals = (selectEl._ddGroups ? selectEl._ddGroups.flat() :
+          [...selectEl.querySelectorAll('option')].map(o => [o.value, o.textContent]));
+        if (!vals.length) return;
+        const cur = vals.findIndex(([v]) => v === selectEl.value);
+        const dir = e.deltaY > 0 ? 1 : -1;
+        let n = cur + dir;
+        // Stop at the edges — don't wrap.
+        if (n < 0 || n >= vals.length) return;
+        const v = vals[n][0];
+        if (v !== selectEl.value) {
+          selectEl.value = v;
+          selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+          const menu = document.querySelector('.dd-menu');
+          if (menu && typeof menu._refreshSelected === 'function') menu._refreshSelected();
+        }
+      };
+      trigger.addEventListener('wheel', onWheel, { passive: false });
     },
     closeAll,
   };

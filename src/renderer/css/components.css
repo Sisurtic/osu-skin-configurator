@@ -2337,8 +2337,13 @@ tr[data-group-parent] .file-thumb__icon {
 .op-grid--ini .op-cell[data-col=action],
 .op-grid--ini .op-cell[data-col=key] { overflow: hidden; text-overflow: clip; white-space: nowrap; }
 .op-grid--ini .op-cell[data-col=section] { white-space: nowrap; }
-.op-grid--ini .op-cell[data-col=value] { padding-right: 0; }
 .op-grid--ini .op-cell[data-col=value] .form-input { width: 100%; min-width: 0; }
+/* The rgb/rgba color row and path-input row are wrapper divs (not .form-input),
+   so the width:100% rule above doesn't reach them — make them fill the cell so
+   the color text input stretches right and the path picker button sits at the
+   right edge. */
+.op-grid--ini .op-cell[data-col=value] .color-row,
+.op-grid--ini .op-cell[data-col=value] .path-input-row { width: 100%; }
 
 /* layer outer columns: file | dest | canvas. Same as tint (file/dest split,
    canvas fixed). */

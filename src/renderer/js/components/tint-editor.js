@@ -2448,9 +2448,14 @@
       window.Dropdown.enhance(modeSel, { groups, wheelInline: !modeSel.disabled });
       modeSel.addEventListener('change', () => {
         applyToTargets({ mode: modeSel.value });
-        // Re-render the stage so the swatch reflects the new mode (e.g. hue-shift
-        // shows the shifted-base-red preview vs a normal mode's color swatch).
-        refreshDetailAndList(true);
+        // Update the swatch in place to reflect the new mode (hue-shift shows
+        // the shifted-base-red preview; other modes show the tint color). Mode
+        // controls nothing else in the stage UI, so there's no need to rebuild.
+        // Rebuilding would swap out the <select> mid-interaction and orphan the
+        // open dropdown menu — same reason the color picker updates live.
+        const t = stageParams();
+        if (sw && t) sw.style.background = t.mode === 'hue-shift' ? hueShiftPreviewCss(t) : colorToCss(t.color);
+        schedulePreview(false);
       });
     }
     // Crop inputs.
