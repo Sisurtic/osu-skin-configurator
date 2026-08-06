@@ -21,12 +21,16 @@ Relative to the v1.1.1 release. Covers all changes since the v1.1.1 version bump
 - **Composite preview** (canvas2D, centered fit). Rust `apply_layers` backend with pixel-vs-pixel blend compositing.
 - Full action-category round-trip (fileLayers): store → save → load → apply → copy/paste.
 - Apply dialog counts (groupLayer/itemLayer).
+- **Per-layer tinting (Stage-1)**: each layer can carry a tint (solid-color blend or hue-shift), applied to that layer's own pixels before compositing. The tint pipeline (`apply_tint_stage1`) is shared with the standalone tint tab, so the two stay pixel-identical. No crop/darken — those remain tint-tab-only.
+- **Layer view ↔ Tint view toggle**: the "图层视图 / 着色视图" button (or clicking the sub-list header) flips all rows between the normal columns (file / blend / exact) and the tint columns (file / swatch + tint-mode). The swatch opens the full tint picker (rgba for solid modes, PS adjust for hue-shift), so the 3 hue-shift sliders live in the picker — rows always stay 4 columns.
+- **Right-click a layer toggles its tint** on/off; an accent edge marker shows tint state in both views. Tint mode list is unified with the tint tab (incl. `replace`); default mode `normal`.
 
 ### Editor infrastructure
 - **Single-table refactor**: tint/file/ini/layer editors merged their header + body tables into one (thead+tbody). Auto layout (layer) or fixed layout (tint/file/ini) per table. Sticky thead with outline-based edge coverage. Shared `utils/edge-fade.js`.
 - **Edge-fade overlays** repositioned below the sticky thead.
 - **Esc selection** fixed: now correctly clears after add (was blocked by empty selection set + focusable target check).
 - **Switching skins** clears selection (selectedPreset/group → null, multi-select cleared).
+- **Shared `utils/tint-pipeline.js`**: the tint color math (tintCanvas, HSL helpers, GL tinted-source, MODE_GROUPS) extracted from tint-editor's private closure so the layer editor reuses it without duplicating ~250 lines of pixel math.
 
 ### Pan/zoom preview engine (tint + layer)
 - **TintTransform pan/zoom engine** replaces the old scroll model for the tint preview: fit=containment, viewport-clamped panning, virtualized slicing (whole-tile culling), guide windowing at the viewport level. Layer editor isolated behind `#tab-tint` scoping.
@@ -63,6 +67,10 @@ Relative to the v1.1.1 release. Covers all changes since the v1.1.1 version bump
 - **Skin metadata persistence**: `save_config` was hand-rolling the JSON and dropped the new `accentHue`/`customText1`/`customText2`/`skinLink` fields — now written; `scan_skin` no longer deletes `config.osp` when only metadata is set.
 - **Sidebar divider**: removed the double 1px border between the current-skin header and presets (rendered as 2px).
 - **Close button**: hover fill uses `--danger-important` (wins over decorum's injected `rgba(255,0,0,0.7) !important`); icon thickened via `-webkit-text-stroke` (icon fonts have no bold glyph).
+- **Dropdown menu** (custom select overlay): switched to `position: fixed` so it anchors to the trigger's viewport coordinates exactly (no offset-parent drift, no titlebar offset); closes on ancestor scroll so it never desyncs from a scrolling trigger. Wheel cycling still stops at edges.
+- **INI multi-select section sync**: editing one row's section dropdown now updates the others' visible labels. `applyToData` wrote `select.value` but the Dropdown trigger label listens for `change`, so the value landed in the store (and the "synced" toast fired) without the UI reflecting it — now dispatches `change` after writing.
+- **Layer preview fit mode**: the canvas right edge was clipped at the container boundary. The 1px `border` + content-box drew outside `canvas.width`, which `fitScale` didn't account for; switched the border to `outline` (no layout space) so the edge is never clipped and no gap appears.
+- **i18n**: "调色" → "着色" across the tint tab (heading, tag, stage label, 6 locales); layer tab gains tint/layer-view headers. Edit-mode tab bar now cycles on **Shift + wheel** (plain wheel scrolls).
 
 ## Refactor & Cleanup
 - Shared `utils/edge-fade.js` (was inlined in 3 editors).
