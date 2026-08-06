@@ -2264,8 +2264,7 @@ tr[data-group-parent] .file-thumb__icon {
 :is(#tab-tint,#tab-layer) .stage:not(.stage--active) .tint-color-swatch,
 :is(#tab-tint,#tab-layer) .stage:not(.stage--active) .form-input,
 :is(#tab-tint,#tab-layer) .stage:not(.stage--active) .crop-tile-dir,
-:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .tint-mode,
-:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .dd-trigger {
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .tint-mode {
   cursor: default;
 }
 :is(#tab-tint,#tab-layer) .stage:not(.stage--active) .tint-color-swatch:hover {
