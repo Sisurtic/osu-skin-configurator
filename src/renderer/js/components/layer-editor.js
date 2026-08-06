@@ -115,8 +115,7 @@
             ? `<div class="tint-preview" id="layer-preview"></div>
                <div class="tint-stages" id="layer-stages">${renderStackDetail()}</div>`
             : `<div class="tint-empty-hint tint-preview--fade">
-                 <div>${i18n.t('edit.hintAddSelect')}</div>
-                 <div>${i18n.t('edit.hintApply')}</div>
+                 <div>${i18n.t('layer.hintSelect')}</div>
                </div>`}
         </div>
       </div>
@@ -199,6 +198,7 @@
           ${i18n.t('layer.dragToDelete')}
         </div>
       </div>
+      ${rows ? `
       <div class="files-table-body-scroll" id="layer-rows-scroll" style="max-height:300px;overflow-y:auto">
         <div class="files-body-table"><div class="table-wrap">
           <div class="op-grid op-grid--layersub">
@@ -208,10 +208,10 @@
               <div class="op-cell op-cell--head" data-col="exact" title="${escapeHtml(i18n.t('tint.colExactTitle'))}">${i18n.t('tint.colExact')}</div>
               <div class="op-cell op-cell--head" data-col="props" style="padding-left:4px;padding-right:4px"></div>
             </div>
-            ${rows || `<div class="op-cell op-cell--empty" style="text-align:center;padding:12px;color:var(--text-muted);font-size:12px">${i18n.t('layer.noLayers')}</div>`}
+            ${rows}
           </div>
         </div></div>
-      </div>`;
+      </div>` : ''}`;
   }
 
   // Blend-mode options. Layers reuse tint's mode names (tint.mode_*) + 'normal'.
@@ -253,8 +253,7 @@
         ? `<div class="tint-preview" id="layer-preview"></div>
            <div class="tint-stages" id="layer-stages">${renderStackDetail()}</div>`
         : `<div class="tint-empty-hint tint-preview--fade">
-             <div>${i18n.t('edit.hintAddSelect')}</div>
-             <div>${i18n.t('edit.hintApply')}</div>
+             <div>${i18n.t('layer.hintSelect')}</div>
            </div>`;
     } else {
       const stages = container.querySelector('#layer-stages');
@@ -760,7 +759,7 @@
     const multi = opSel && opSel.getSelected().size > 1;
     if (multi) { previewEl.innerHTML = `<div class="tint-preview__empty">${i18n.t('layer.multiSelectHint')}</div>`; return; }
     if (!stack || !stack.layers || !stack.layers.length) {
-      previewEl.innerHTML = ''; // empty stack → plain black backdrop, no text
+      previewEl.innerHTML = `<div class="tint-preview__empty">${i18n.t('layer.noLayers')}</div>`;
       return;
     }
     try {

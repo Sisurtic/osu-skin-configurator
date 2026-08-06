@@ -2296,7 +2296,7 @@ tr[data-group-parent] .file-thumb__icon {
 .op-row { display: grid; align-items: stretch; }
 .op-cell { padding: 8px 12px; min-width: 0; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; }
 .op-row:last-child .op-cell { border-bottom: none; }
-.op-row:hover .op-cell { background: var(--bg-hover); }
+.op-row:not(.op-row--head):hover .op-cell { background: var(--bg-hover); }
 /* A selected op-row keeps an accent-tinted background on hover (the cell-level
    bg-hover above would otherwise wipe the row's selection tint). */
 .op-row.row--selected:hover .op-cell { background: var(--accent-bg-hover); }
@@ -2625,9 +2625,18 @@ tr[data-group-parent] .file-thumb__icon {
 #layer-preview canvas {
   border: 1px solid var(--border);
   box-sizing: content-box;
-  box-shadow: var(--shadow-pop);
+  /* will-change keeps the transformed canvas on its own compositor layer so
+     rapid pan/zoom (frequent left/top/transform writes) doesn't smear. Keep it:
+     removing it reintroduces drag ghosts on normal-sized boards. */
   will-change: transform;
+  box-shadow: var(--shadow-pop);
 }
+/* When the board is scaled up well past its natural size (small boards in fit
+   view), transform also scales the box-shadow's blur radius — a 20px blur at
+   scale 300 becomes a ~6000px GPU surface that smashes the compositor into
+   black-flicker. ImageViewer adds this class once scale exceeds a threshold,
+   dropping the shadow (the border still reads as an edge). */
+#layer-preview canvas.iv-noshadow { box-shadow: none; }
 /* Blend-mode column: width + nudge are inline on the <select> so the Dropdown
    overlay's trigger (which copies the select's inline style) inherits them —
    otherwise the trigger would resize with the selected label and jump. */

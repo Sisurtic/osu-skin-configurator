@@ -50,6 +50,12 @@ window.ImageViewer = (function () {
     canvas.style.transform = `scale(${scale})`;
     canvas.style.maxWidth = 'none';
     canvas.style.maxHeight = 'none';
+    // Drop the box-shadow once the board is scaled well past natural size: the
+    // shadow's blur radius is scaled by transform too, so a small board at a
+    // large fit-scale would balloon into a giant GPU surface and smash the
+    // compositor (black flicker). 4× keeps the shadow for normal boards while
+    // killing it for tiny ones blown up to fill the pane.
+    canvas.classList.toggle('iv-noshadow', scale > 4);
     if (st.badge) st.badge.textContent = badgeText(st);
   }
 
@@ -156,6 +162,22 @@ window.ImageViewer = (function () {
     container.addEventListener('mousedown', onDown);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
+
+    // Re-center on resize (window drag, pane flex-grow, etc.). In fit mode the
+    // scale is recomputed for the new pane size; in a custom/actual view the
+    // held scale + ox/oy are kept — apply() re-anchors to the pane center, so
+    // the board stays where it was RELATIVE to the center instead of drifting.
+    const onResize = () => {
+      if (st.mode === 'fit' || st.scale == null) st.scale = fitScale(sourceCanvas, container);
+      clampPan(container, sourceCanvas, st.scale, st);
+      apply(container, sourceCanvas, st);
+    };
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(onResize);
+      ro.observe(container);
+    } else {
+      window.addEventListener('resize', onResize);
+    }
   }
 
   function reset(container) {
