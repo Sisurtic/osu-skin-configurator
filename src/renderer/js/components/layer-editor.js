@@ -248,7 +248,7 @@
     return `<div class="op-row layer-row${tintOn ? ' layer-row--tinton' : ''}" data-idx="${k}">
       <div class="op-cell" data-col="file"><span class="file-thumb layer-thumb" data-path="${escapeHtml(l.source || '')}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(l.source || '', pathBasename(l.source))}</span></div>
       <div class="op-cell" data-col="tint" style="display:flex;align-items:center;gap:8px;min-width:0">
-        <button type="button" class="tint-color-swatch layer-tint-swatch" data-idx="${k}"${tintOn ? '' : ' disabled'} style="width:24px;height:24px;border-radius:4px;border:1px solid var(--border);background:${swatchBg};flex:0 0 auto;cursor:pointer"></button>
+        <button type="button" class="tint-color-swatch layer-tint-swatch" data-idx="${k}"${tintOn ? '' : ' disabled'} style="width:24px;height:24px;border-radius:4px;border:1px solid var(--border);background:${swatchBg};flex:0 0 auto;cursor:${tintOn ? 'pointer' : 'default'}"></button>
         <select class="form-input layer-tint-mode" data-idx="${k}"${tintOn ? '' : ' disabled'} style="flex:1;min-width:0">${tintModeOpts(l.mode || 'normal')}</select>
       </div>
     </div>`;

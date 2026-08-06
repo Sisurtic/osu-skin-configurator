@@ -348,8 +348,10 @@
 
   // ── Stage controls (right panel, under preview; no fade) ──
   // field() returns a label+input row aligned in a 2-col grid for vertical alignment.
-  function field(label, inner, hint) {
-    const hintAttr = hint ? ` title="${escapeHtml(hint)}"` : '';
+  // `enabled` (default true): when false, the field is disabled — drop the hint
+  // title (no tooltip on inert controls).
+  function field(label, inner, hint, enabled = true) {
+    const hintAttr = (hint && enabled) ? ` title="${escapeHtml(hint)}"` : '';
     return `<div class="stage__field"${hintAttr}><span class="stage__field-label">${escapeHtml(label)}</span><span class="stage__field-input">${inner}</span></div>`;
   }
   // Darkening is a derived sub-state of the crop stage: active only when crop is
@@ -385,14 +387,14 @@
           </span>
         </div>`)}
       ${stageBlock('percy', cropOn, i18n.t('edit.stagePercy'), `
-        ${field(i18n.t('edit.cropA') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-a"${dis(cropOn)} value="${t.cropA || 0}">`, i18n.t('edit.cropAHint'))}
-        ${field(i18n.t('edit.cropD') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-d"${dis(cropOn)} value="${t.cropD || 0}">`, i18n.t('edit.cropDHint'))}
-        ${field(i18n.t('edit.cropB') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-b"${dis(cropOn)} value="${t.cropB || 0}">`, i18n.t('edit.cropBHint'))}
-        ${field(i18n.t('edit.cropC') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-c"${dis(cropOn)} value="${t.cropC || 32768}">`, i18n.t('edit.cropCHint'))}
-        ${field(i18n.t('edit.cropTile'), `<div style="display:flex;align-items:center;gap:6px;width:100%;min-height:32px"><label class="toggle crop-tile-toggle${cropOn ? '' : ' is-disabled'}"><input type="checkbox" class="crop-tile"${dis(cropOn)} ${t.cropTile ? 'checked' : ''}><span class="toggle__slider"></span></label><button type="button" class="crop-tile-dir${tileDirCls}"${dis(cropOn)} title="${escapeHtml(tileDirTitle)}">${tileDirIcon}</button></div>`)}
+        ${field(i18n.t('edit.cropA') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-a"${dis(cropOn)} value="${t.cropA || 0}">`, i18n.t('edit.cropAHint'), cropOn)}
+        ${field(i18n.t('edit.cropD') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-d"${dis(cropOn)} value="${t.cropD || 0}">`, i18n.t('edit.cropDHint'), cropOn)}
+        ${field(i18n.t('edit.cropB') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-b"${dis(cropOn)} value="${t.cropB || 0}">`, i18n.t('edit.cropBHint'), cropOn)}
+        ${field(i18n.t('edit.cropC') + ' (px)', `<input type="number" min="0" step="1" class="form-input crop-c"${dis(cropOn)} value="${t.cropC || 32768}">`, i18n.t('edit.cropCHint'), cropOn)}
+        ${field(i18n.t('edit.cropTile'), `<div style="display:flex;align-items:center;gap:6px;width:100%;min-height:32px"><label class="toggle crop-tile-toggle${cropOn ? '' : ' is-disabled'}"><input type="checkbox" class="crop-tile"${dis(cropOn)} ${t.cropTile ? 'checked' : ''}><span class="toggle__slider"></span></label><button type="button" class="crop-tile-dir${tileDirCls}"${dis(cropOn)}${cropOn ? ` title="${escapeHtml(tileDirTitle)}"` : ''}>${tileDirIcon}</button></div>`)}
         <div class="stage__sep"></div>
-        ${field(i18n.t('edit.darkenD') + ' (px)', `<input type="number" min="0" step="1" class="form-input darken-d"${dis(cropOn)} value="${t.darkenD || 0}">`, i18n.t('edit.darkenDHint'))}
-        ${field(i18n.t('edit.darkenOpacity') + ' (%)', `<input type="number" min="0" max="100" step="1" class="form-input darken-opacity"${dis(cropOn)} value="${t.darkenOpacity || 0}">`, i18n.t('edit.darkenOpacityHint'))}
+        ${field(i18n.t('edit.darkenD') + ' (px)', `<input type="number" min="0" step="1" class="form-input darken-d"${dis(cropOn)} value="${t.darkenD || 0}">`, i18n.t('edit.darkenDHint'), cropOn)}
+        ${field(i18n.t('edit.darkenOpacity') + ' (%)', `<input type="number" min="0" max="100" step="1" class="form-input darken-opacity"${dis(cropOn)} value="${t.darkenOpacity || 0}">`, i18n.t('edit.darkenOpacityHint'), cropOn)}
       `)}`;
   }
 

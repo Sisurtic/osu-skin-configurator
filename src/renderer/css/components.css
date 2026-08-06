@@ -2237,10 +2237,10 @@ tr[data-group-parent] .file-thumb__icon {
   border-bottom-color: var(--accent);
   color: var(--accent);
 }
-/* Disabled (inactive) stage: dim everything inside and show a "not allowed"
-   cursor over the body, like a disabled app button. */
+/* Disabled (inactive) stage: dim everything inside. Default cursor (not
+   not-allowed) over the body — inert, not a blocked action. */
 :is(#tab-tint,#tab-layer) .stage:not(.stage--active) .stage__body {
-  cursor: not-allowed;
+  cursor: default;
   opacity: 0.5;
   background: color-mix(in srgb, var(--bg-secondary) 50%, transparent);
 }
@@ -2264,8 +2264,9 @@ tr[data-group-parent] .file-thumb__icon {
 :is(#tab-tint,#tab-layer) .stage:not(.stage--active) .tint-color-swatch,
 :is(#tab-tint,#tab-layer) .stage:not(.stage--active) .form-input,
 :is(#tab-tint,#tab-layer) .stage:not(.stage--active) .crop-tile-dir,
-:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .tint-mode {
-  cursor: not-allowed;
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .tint-mode,
+:is(#tab-tint,#tab-layer) .stage:not(.stage--active) .dd-trigger {
+  cursor: default;
 }
 :is(#tab-tint,#tab-layer) .stage:not(.stage--active) .tint-color-swatch:hover {
   transform: none;
@@ -2380,16 +2381,18 @@ tr[data-group-parent] .file-thumb__icon {
    header carries a tint column, restate the grid for BOTH header and layer rows
    so they stay aligned. */
 .op-grid--layersub:has([data-col=tint]) .op-row { grid-template-columns: minmax(120px,1fr) minmax(120px,1fr); }
-/* Dim disabled tint controls (tint off) — swatch + the tint-mode dropdown's
-   VISIBLE trigger (.tint-mode, since Dropdown.enhance hides the native <select>)
-   read as inert, like the tint tab's disabled stage controls. Scoped to the
-   tint-mode trigger only so the layer-view blend dropdown is untouched. */
-.op-grid--layersub .layer-row:not(.layer-row--tinton) .layer-tint-swatch { opacity: 0.4; }
+/* Dim disabled tint controls (tint off) — swatch, the native <select> (hidden),
+   and its VISIBLE .dd-trigger.tint-mode button all read as inert: 0.5 opacity,
+   default cursor, no hover transform. Scoped to tint-off rows only so the
+   layer-view blend dropdown is untouched. */
+.op-grid--layersub .layer-row:not(.layer-row--tinton) .layer-tint-swatch,
+.op-grid--layersub .layer-row:not(.layer-row--tinton) .layer-tint-mode,
 .op-grid--layersub .layer-row:not(.layer-row--tinton) .dd-trigger.tint-mode {
   opacity: 0.5;
   color: var(--text-muted);
   cursor: default;
 }
+.op-grid--layersub .layer-row:not(.layer-row--tinton) .layer-tint-swatch:hover { transform: none; }
 /* Tint-on marker: an absolutely-positioned left edge bar on the row, raised
    above the cell backgrounds so the row-hover highlight cannot cover it. */
 .op-grid--layersub .layer-row { position: relative; }
@@ -2718,7 +2721,4 @@ tr[data-group-parent] .file-thumb__icon {
   border-color: var(--text-primary);
   background: var(--text-primary);
 }
-/* Disabled tint swatch (tint off) reads as inert, like the tint tab's disabled
-   stage controls. */
-#tab-layer .layer-tint-swatch:disabled { opacity: 0.4; cursor: default; }
 

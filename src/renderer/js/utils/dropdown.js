@@ -121,15 +121,14 @@
     // so the trigger's collapsed-wheel listener can't catch it). This runs for
     // every enhanced dropdown, regardless of wheelInline — once the menu is
     // open, scrolling should step the selection and the highlight follows.
-    // Stop at the edges — no wrap.
+    // Wraps around at the edges.
     pop.addEventListener('wheel', e => {
       e.preventDefault();
       const vals = valueList();
       if (!vals.length) return;
       const cur = vals.findIndex(([v]) => v === selectEl.value);
       const dir = e.deltaY > 0 ? 1 : -1;
-      let n = cur + dir;
-      if (n < 0 || n >= vals.length) return;
+      const n = ((cur + dir) % vals.length + vals.length) % vals.length;
       const v = vals[n][0];
       if (v !== selectEl.value) {
         selectEl.value = v;
@@ -258,7 +257,9 @@
       trigger.type = 'button';
       trigger.className = 'form-input dd-trigger' + (selectEl.className.includes('tint-mode') ? ' tint-mode' : '');
       // Carry over caller styling (flex, min-width, max-width) from the select.
-      trigger.style.cssText = origStyle + ';display:flex;align-items:center;justify-content:space-between;gap:6px;text-align:left;cursor:pointer';
+      // Disabled selects get a default cursor (inert), not pointer.
+      const cur = selectEl.disabled ? 'default' : 'pointer';
+      trigger.style.cssText = origStyle + `;display:flex;align-items:center;justify-content:space-between;gap:6px;text-align:left;cursor:${cur}`;
       // Label text is a bare text node (not a span) so it renders like an
       // <input> value/placeholder instead of a nested element. The caret span
       // is pushed to the right via margin-left:auto (trigger is flex).
@@ -297,15 +298,15 @@
       // appended to body, so pointer over the trigger won't reach it). After a
       // change, sync the open menu's highlight if one is showing.
       const onWheel = e => {
+        if (selectEl.disabled) return;       // disabled dropdown: ignore wheel
         e.preventDefault();
         const vals = (selectEl._ddGroups ? selectEl._ddGroups.flat() :
           [...selectEl.querySelectorAll('option')].map(o => [o.value, o.textContent]));
         if (!vals.length) return;
         const cur = vals.findIndex(([v]) => v === selectEl.value);
         const dir = e.deltaY > 0 ? 1 : -1;
-        let n = cur + dir;
-        // Stop at the edges — don't wrap.
-        if (n < 0 || n >= vals.length) return;
+        // Wrap around at the edges.
+        const n = ((cur + dir) % vals.length + vals.length) % vals.length;
         const v = vals[n][0];
         if (v !== selectEl.value) {
           selectEl.value = v;
