@@ -2237,6 +2237,8 @@
       const groups = MODE_GROUPS.map(modes => modes.map(m => [m, i18n.t('tint.mode_' + m)]));
       window.Dropdown.enhance(modeSel, { groups, wheelInline: !modeSel.disabled });
       modeSel.addEventListener('change', () => {
+        const t0 = stageParams();
+        const prevMode = t0 ? t0.mode : null;
         applyToTargets({ mode: modeSel.value });
         // Update the swatch in place to reflect the new mode (hue-shift shows
         // the shifted-base-red preview; other modes show the tint color). Mode
@@ -2245,6 +2247,11 @@
         // open dropdown menu — same reason the color picker updates live.
         const t = stageParams();
         if (sw && t) sw.style.background = t.mode === 'hue-shift' ? hueShiftPreviewCss(t) : colorToCss(t.color);
+        // Close the open picker ONLY when its TYPE changed (hue-shift ↔ a solid
+        // mode swaps the PS adjust picker for the rgba picker and back). Within-
+        // type mode changes leave the rgba picker valid. Mirrors layer-editor.
+        const typeChanged = (prevMode === 'hue-shift') !== (modeSel.value === 'hue-shift');
+        if (typeChanged && window.ColorPicker) window.ColorPicker.closeAll();
         schedulePreview(false);
       });
     }

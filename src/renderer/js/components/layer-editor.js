@@ -550,40 +550,48 @@
     });
 
     // Per-layer tint color swatch → full tint picker. Mirrors tint-editor's
-    // swatch handler: hue-shift opens the PS adjust picker (H/S/L + alpha),
-    // every other mode opens the rgba picker. Writes go through patchLayer so
-    // the composite preview (compositeCanvas) re-tints this layer live.
+    // Attach the tint picker to a layer's swatch — hue-shift opens the PS adjust
+    // picker, every other mode opens the rgba picker. Writes go through patchLayer
+    // so the composite preview (compositeCanvas) re-tints this layer live.
+    // Shared by the swatch click handler (the mode-change handler closes the
+    // picker on a type change instead of re-attaching).
+    function attachTintPicker(k, sw) {
+      const layer = selLayer(k);
+      if (!layer) return;
+      if (layer.mode === 'hue-shift') {
+        const parsed = window.ColorPicker.parseColor(layer.color);
+        window.ColorPicker.attach(sw, {
+          adjust: true,
+          value: { hue: +layer.hueShift || 0, sat: +layer.satShift || 0, light: +layer.lightShift || 0,
+                   alpha: Math.round((parsed.a / 255) * 100) },
+          onChange(v) {
+            patchLayer(k, {
+              hueShift: v.hue, satShift: v.sat, lightShift: v.light,
+              color: `255,255,255,${Math.round(v.alpha * 2.55)}`,
+            });
+            sw.style.background = hueShiftPreviewCss({ hueShift: v.hue, satShift: v.sat, lightShift: v.light });
+            schedulePreview(true);
+          },
+          onClose() { schedulePreview(false); },
+        });
+        return;
+      }
+      window.ColorPicker.attach(sw, { type: 'rgba', alphaPercent: true, value: layer.color, onChange(v) {
+        patchLayer(k, { color: v });
+        sw.style.background = colorToCss(v);
+        schedulePreview(true);
+      }, onClose() {
+        schedulePreview(false);
+      }});
+    }
+
     stages.querySelectorAll('.layer-tint-swatch').forEach(sw => {
       sw.addEventListener('click', () => {
         const k = parseInt(sw.dataset.idx, 10);
         if (isNaN(k)) return;
         const layer = selLayer(k);
         if (!layer || !layer.tintEnabled || sw.disabled) return;
-        if (layer.mode === 'hue-shift') {
-          const parsed = window.ColorPicker.parseColor(layer.color);
-          window.ColorPicker.attach(sw, {
-            adjust: true,
-            value: { hue: +layer.hueShift || 0, sat: +layer.satShift || 0, light: +layer.lightShift || 0,
-                     alpha: Math.round((parsed.a / 255) * 100) },
-            onChange(v) {
-              patchLayer(k, {
-                hueShift: v.hue, satShift: v.sat, lightShift: v.light,
-                color: `255,255,255,${Math.round(v.alpha * 2.55)}`,
-              });
-              sw.style.background = hueShiftPreviewCss({ hueShift: v.hue, satShift: v.sat, lightShift: v.light });
-              schedulePreview(true);
-            },
-            onClose() { schedulePreview(false); },
-          });
-          return;
-        }
-        window.ColorPicker.attach(sw, { type: 'rgba', alphaPercent: true, value: layer.color, onChange(v) {
-          patchLayer(k, { color: v });
-          sw.style.background = colorToCss(v);
-          schedulePreview(true);
-        }, onClose() {
-          schedulePreview(false);
-        }});
+        attachTintPicker(k, sw);
       });
     });
 
@@ -594,13 +602,19 @@
       selEl.addEventListener('change', () => {
         const k = parseInt(selEl.dataset.idx, 10);
         if (isNaN(k)) return;
+        const layer = selLayer(k);
+        const prevMode = layer ? layer.mode : null;
         patchLayer(k, { mode: selEl.value });
         // Refresh the swatch background to match the new mode (hue-shift shows the
         // shifted-base preview; solid modes show the tint color). Re-render of the
         // row would orphan the <select> mid-interaction, so patch the style only.
-        const layer = selLayer(k);
         const sw = stages.querySelector(`.layer-tint-swatch[data-idx="${k}"]`);
         if (layer && sw) sw.style.background = (selEl.value === 'hue-shift') ? hueShiftPreviewCss(layer) : colorToCss(layer.color);
+        // Close the open picker ONLY when its TYPE changed (hue-shift ↔ a solid
+        // mode swaps the PS adjust picker for the rgba picker and back). Within-
+        // type mode changes (multiply↔screen) leave the rgba picker valid.
+        const typeChanged = (prevMode === 'hue-shift') !== (selEl.value === 'hue-shift');
+        if (typeChanged && window.ColorPicker) window.ColorPicker.closeAll();
       });
     });
 
