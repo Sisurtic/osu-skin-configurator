@@ -332,10 +332,10 @@
   },
   "tint": {
     "heading": "图像编辑",
-    "desc": "为 PNG 图片调色，或调整图像高度。",
+    "desc": "为 PNG 图片着色，或调整图像高度。",
     "addImage": "添加图片",
     "empty": "暂无图片操作，请从上方添加",
-    "tagTint": "调色",
+    "tagTint": "着色",
     "colAction": "操作",
     "colSource": "文件",
     "colColor": "颜色",
@@ -381,6 +381,11 @@
     "destPlaceholder": "如 folder/file (留空覆盖底层源)",
     "noLayers": "无可用图层",
     "dragToDelete": "拖拽图层到此处删除",
+    "tintView": "着色视图",
+    "rowView": "图层视图",
+    "toggleViewTitle": "点击切换着色视图 / 图层视图（右键单个图层切换其着色开关）",
+    "colBlendMode": "叠加模式",
+    "colTint": "着色模式",
     "canvasSizeCol": "画布尺寸",
     "canvasSizeTitle": "关闭 - 使用底层图像画布作为输出画布\n开启 - 使用最大图像画布作为输出画布",
     "multiSelectHint": "选中多个，无法编辑",
@@ -597,7 +602,7 @@
     "iniCommentLoss": "注意：应用预设到皮肤时，skin.ini 中的注释、空行和无法识别的内容会被删除，仅保留有效的键值对。建议在应用前备份 skin.ini。"
   },
   "edit": {
-    "stageTint": "调色",
+    "stageTint": "着色",
     "stageCrop": "裁剪",
     "stageDarken": "暗化",
     "cropA": "切割高度",

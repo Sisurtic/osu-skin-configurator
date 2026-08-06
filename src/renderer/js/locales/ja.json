@@ -340,6 +340,11 @@
     "destPlaceholder": "例: folder/file (空 = スキンのルート)",
     "noLayers": "利用可能なレイヤーがありません",
     "dragToDelete": "レイヤーをここにドラッグして削除",
+    "tintView": "着色ビュー",
+    "rowView": "レイヤービュー",
+    "toggleViewTitle": "クリックで着色ビュー / レイヤービューを切り替え（右クリックで個別の着色を切替）",
+    "colBlendMode": "ブレンドモード",
+    "colTint": "着色モード",
     "canvasSizeCol": "キャンバス",
     "canvasSizeTitle": "オフ - 最下層画像のキャンバスを出力に使用\nオン - 最大画像のキャンバスを出力に使用",
     "multiSelectHint": "複数選択、編集不可",
@@ -541,10 +546,10 @@
   },
   "tint": {
     "heading": "画像編集",
-    "desc": "PNG 画像を色替え、または画像の高さを調整します。",
+    "desc": "PNG 画像を着色、または画像の高さを調整します。",
     "addImage": "画像を追加",
     "empty": "画像操作がありません。上から追加してください",
-    "tagTint": "色替え",
+    "tagTint": "着色",
     "colAction": "操作",
     "colSource": "ファイル",
     "colColor": "色",
@@ -577,7 +582,7 @@
     "colDestTitle": "対象パスのファイル名を指定可能\n末尾 / でフォルダ名、それ以外はファイル名\nファイル名がない場合は元の名前"
   },
   "edit": {
-    "stageTint": "色替え",
+    "stageTint": "着色",
     "stageCrop": "クロップ",
     "stageDarken": "暗化",
     "cropA": "カット高さ",

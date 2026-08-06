@@ -74,6 +74,14 @@
         opacity: +l.opacity || 100,
         offsetX: +l.offsetX || 0,
         offsetY: +l.offsetY || 0,
+        // Per-layer tint (Stage-1). Mirrors normalizeTint's tint fields; crop/
+        // darken are NOT part of layers.
+        tintEnabled: !!l.tintEnabled,
+        color: l.color || '255,255,255,255',
+        mode: l.mode || 'normal',
+        hueShift: +l.hueShift || 0,
+        satShift: +l.satShift || 0,
+        lightShift: +l.lightShift || 0,
       })),
     };
   }
@@ -88,6 +96,20 @@
       const ox = +l.offsetX || 0, oy = +l.offsetY || 0;
       if (ox) lo.offsetX = ox;
       if (oy) lo.offsetY = oy;
+      // Per-layer tint: persist only when enabled (omit-defaults). Within tint,
+      // hue-shift persists its 3 offsets; solid modes persist only the color.
+      if (l.tintEnabled) {
+        lo.tintEnabled = true;
+        lo.mode = l.mode || 'normal';
+        if (lo.mode === 'hue-shift') {
+          lo.color = l.color || '255,255,255,255';
+          lo.hueShift = +l.hueShift || 0;
+          lo.satShift = +l.satShift || 0;
+          lo.lightShift = +l.lightShift || 0;
+        } else {
+          lo.color = l.color || '255,255,255,255';
+        }
+      }
       return lo;
     });
     return out;
@@ -333,11 +355,12 @@
       });
     });
 
-    // Wheel over the tab bar cycles tabs (only while the bar is interactive —
-    // the cursor changes to pointer there). Skips disabled (plain-group) and
-    // empty states where tab cycling is meaningless.
+    // Shift + wheel over the tab bar cycles tabs (plain wheel scrolls the page).
+    // Skips disabled (plain-group) and empty states where tab cycling is
+    // meaningless. Only while the bar is interactive.
     if (tabsEl) {
       tabsEl.addEventListener('wheel', (e) => {
+        if (!e.shiftKey) return;             // plain wheel → native scroll
         if (tabsEl.classList.contains('tabs--empty')) return;
         const list = tabs().filter(t => !t.classList.contains('tab--disabled') || t.classList.contains('tab--active'));
         if (list.length < 2) return;

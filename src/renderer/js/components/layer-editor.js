@@ -3,16 +3,24 @@
 // Right: the selected stack's layer sub-list (per-layer blend/exact/flyout) + composite preview.
 //
 // An op (fileLayers[i]) = { destination, canvasMode:'bottom'|'max', layers:[{source,exact,
-// blendMode,opacity,offsetX,offsetY}] }, layers[0] = top (highest), layers[N-1] = bottom.
-// layer to reorder. 9-grid alignment is a UI shortcut that writes offsetX/offsetY (no `align`
-// field). canvasMode: 'bottom' = bottom layer's size; 'max' = max width & max height (each
-// axis independently) so the widest and tallest layers both fit.
+// blendMode,opacity,offsetX,offsetY, tintEnabled,color,mode,hueShift,satShift,lightShift}] },
+// layers[0] = top (highest), layers[N-1] = bottom. Each layer may ALSO carry a per-layer tint
+// (Stage-1: solid-color blend or hue-shift), applied to that layer's source BEFORE compositing.
+// 9-grid alignment is a UI shortcut that writes offsetX/offsetY (no `align` field). canvasMode:
+// 'bottom' = bottom layer's size; 'max' = max width & max height (each axis independently) so
+// the widest and tallest layers both fit.
+//
+// Each layer row has TWO inline views: NORMAL (file/blend/exact/props) and TINT
+// (file/color-swatch/mode/tint-toggle). Right-click a row toggles its view; the "toggle tint"
+// button next to "add layer" toggles ALL rows. The tint color swatch opens the full tint picker
+// (rgba for solid modes, PS adjust for hue-shift) — reused from tint-editor via TintPipeline.
 //
 // Selection/drag/delete/reorder is delegated to OpTable (`opSel`), same as tint/file-copy.
 // Multi-select is for batch-DELETE ONLY — no cross-stack property sync (compositing is too
 // per-stack-specific). Selection contract (init/render/getSelectedActions/selectAdded/...)
 // mirrors TintEditor.
 (function () {
+  const { MODE_GROUPS, colorToCss, hueShiftPreviewCss, tintCanvas } = window.TintPipeline;
   let getLayers, setLayers, skinName, presetId, skinPath;
   let container;
   let opSel = null;          // outer OpTable: layer-stack operation list
@@ -22,6 +30,11 @@
   let splitFraction = 0.5;
   let previewDebounce = null;
   let liveFrame = 0;
+  // Per-stack row view state (UI-only, NOT persisted): ALL rows of the selected
+  // stack share one view — NORMAL (file/blend/exact/props) or TINT
+  // (file/swatch/mode/toggle) — so the table header and column widths stay
+  // consistent. Toggled wholesale by the "Tint" button; reset on stack switch.
+  let tintView = false;
 
   const IMG_EXTS = new Set(['.png']);
   const thumbCache = new Map();      // src path → dataURL (list thumbnails)
@@ -79,6 +92,9 @@
           if (moved) {
             const el = container && container.querySelector('#layer-preview');
             if (el && window.ImageViewer) window.ImageViewer.reset(el);
+            // Switching stacks: the tint-view state belongs to the previous
+            // stack — reset it so the new stack starts in NORMAL view.
+            tintView = false;
           }
           refreshDetailAndList(moved);
         },
@@ -165,7 +181,6 @@
       </div></div>`;
   }
 
-  // The selected stack's right panel: destination + layer sub-list + (placeholder) preview.
   // The selected stack's right panel: layer sub-list + preview.
   function renderStackDetail() {
     const s = sel();
@@ -178,40 +193,65 @@
     // layers[0] = top of the stack (rendered first = list top); layers[N-1] =
     // bottom. Newly added layers unshift to the front. Compositing iterates in
     // reverse (bottom first) — see compositeCanvas / apply_layers.
-    const rows = layers.map((l, k) => {
-      const is2x = has2x(l.source);
-      return `<div class="op-row layer-row" data-idx="${k}">
-        <div class="op-cell" data-col="file"><span class="file-thumb layer-thumb" data-path="${escapeHtml(l.source || '')}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(l.source || '', pathBasename(l.source))}</span></div>
-        <div class="op-cell" data-col="mode"><select class="form-input layer-blend" data-idx="${k}" style="width:110px;margin-left:-4px">${blendOpts(l.blendMode || 'normal')}</select></div>
-        <div class="op-cell" data-col="exact"><label class="toggle${is2x ? '' : ' is-disabled'}" style="flex:0 0 auto">
-          <input type="checkbox" class="layer-exact" data-idx="${k}" ${(is2x && l.exact) ? 'checked' : ''}${is2x ? '' : ' disabled'}>
-          <span class="toggle__slider"></span>
-        </label></div>
-        <div class="op-cell" data-col="props"><button type="button" class="btn btn--secondary btn--sm layer-flyout-btn" data-idx="${k}" title="${escapeHtml(i18n.t('layer.propsTitle'))}" style="padding:2px 6px;font-size:11px">☰</button></div>
-      </div>`;
-    }).join('');
+    const rows = layers.map((l, k) => tintView
+      ? renderTintRow(l, k)
+      : renderNormalRow(l, k)
+    ).join('');
     return `
-      <div style="padding:8px 0;display:flex;align-items:stretch;gap:8px">
+      <div style="padding:8px 0;display:flex;align-items:center;gap:8px">
         <button class="btn btn--primary btn--sm" id="btn-add-layer" style="font-size:11px;padding:4px 10px;flex:0 0 auto;display:flex;align-items:center">${i18n.t('layer.addLayer')}</button>
-        <div class="editor-delete-zone" id="layer-row-delete-zone"
-             style="flex:1;display:flex;align-items:center;justify-content:center;padding:0 10px;border:2px dashed var(--danger);border-radius:var(--radius);text-align:center;color:var(--danger);font-size:11px;opacity:0.4;transition:all 0.2s">
-          ${i18n.t('layer.dragToDelete')}
-        </div>
+        <button class="btn btn--secondary btn--sm${tintView ? ' btn--tint-on' : ''}" id="btn-toggle-tint-view" title="${escapeHtml(i18n.t('layer.toggleViewTitle'))}" style="font-size:11px;padding:4px 10px;flex:0 0 auto;display:flex;align-items:center">${tintView ? i18n.t('layer.rowView') : i18n.t('layer.tintView')}</button>
+      </div>
+      <div class="editor-delete-zone" id="layer-row-delete-zone"
+           style="margin:0 0 8px;padding:8px;border:2px dashed var(--danger);border-radius:var(--radius);text-align:center;color:var(--danger);font-size:12px;opacity:0.5;transition:all 0.2s">
+        ${i18n.t('layer.dragToDelete')}
       </div>
       ${rows ? `
       <div class="files-table-body-scroll" id="layer-rows-scroll" style="max-height:300px;overflow-y:auto">
         <div class="files-body-table"><div class="table-wrap">
           <div class="op-grid op-grid--layersub">
-            <div class="op-row op-row--head">
+            <div class="op-row op-row--head layer-sub-head">
               <div class="op-cell op-cell--head" data-col="file">${i18n.t('tint.colSource')}</div>
-              <div class="op-cell op-cell--head" data-col="mode">${i18n.t('tint.colMode')}</div>
-              <div class="op-cell op-cell--head" data-col="exact" title="${escapeHtml(i18n.t('tint.colExactTitle'))}">${i18n.t('tint.colExact')}</div>
-              <div class="op-cell op-cell--head" data-col="props" style="padding-left:4px;padding-right:4px"></div>
+              ${tintView
+                ? `<div class="op-cell op-cell--head" data-col="tint">${i18n.t('layer.colTint')}</div>`
+                : `<div class="op-cell op-cell--head" data-col="mode">${i18n.t('layer.colBlendMode')}</div>
+                   <div class="op-cell op-cell--head" data-col="exact" title="${escapeHtml(i18n.t('tint.colExactTitle'))}">${i18n.t('tint.colExact')}</div>`}
             </div>
             ${rows}
           </div>
         </div></div>
       </div>` : ''}`;
+  }
+
+  // NORMAL view row: file / blend-mode / exact / ☰ (composite props flyout).
+  function renderNormalRow(l, k) {
+    const is2x = has2x(l.source);
+    return `<div class="op-row layer-row${l.tintEnabled ? ' layer-row--tinton' : ''}" data-idx="${k}">
+      <div class="op-cell" data-col="file"><span class="file-thumb layer-thumb" data-path="${escapeHtml(l.source || '')}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(l.source || '', pathBasename(l.source))}</span></div>
+      <div class="op-cell" data-col="mode" style="display:flex;align-items:center;gap:6px;min-width:0">
+        <button type="button" class="form-input layer-flyout-btn" data-idx="${k}" title="${escapeHtml(i18n.t('layer.propsTitle'))}" style="flex:0 0 auto;width:28px;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg class="layer-flyout-icon" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true"><path d="M2 3h10M2 7h10M2 11h10"/></svg></button>
+        <select class="form-input layer-blend" data-idx="${k}" style="flex:1;min-width:0;margin-left:0">${blendOpts(l.blendMode || 'normal')}</select>
+      </div>
+      <div class="op-cell" data-col="exact"><label class="toggle${is2x ? '' : ' is-disabled'}" style="flex:0 0 auto">
+        <input type="checkbox" class="layer-exact" data-idx="${k}" ${(is2x && l.exact) ? 'checked' : ''}${is2x ? '' : ' disabled'}>
+        <span class="toggle__slider"></span>
+      </label></div>
+    </div>`;
+  }
+
+  // TINT view row: file / color-swatch / tint-mode / tint-enabled toggle.
+  // The swatch opens the full tint picker (rgba vs PS hue-shift) — bound in
+  // bindStageHandlers, same logic as tint-editor's swatch click.
+  function renderTintRow(l, k) {
+    const swatchBg = (l.mode === 'hue-shift') ? hueShiftPreviewCss(l) : colorToCss(l.color);
+    const tintOn = !!l.tintEnabled;
+    return `<div class="op-row layer-row${tintOn ? ' layer-row--tinton' : ''}" data-idx="${k}">
+      <div class="op-cell" data-col="file"><span class="file-thumb layer-thumb" data-path="${escapeHtml(l.source || '')}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(l.source || '', pathBasename(l.source))}</span></div>
+      <div class="op-cell" data-col="tint" style="display:flex;align-items:center;gap:8px;min-width:0">
+        <button type="button" class="tint-color-swatch layer-tint-swatch" data-idx="${k}"${tintOn ? '' : ' disabled'} style="width:24px;height:24px;border-radius:4px;border:1px solid var(--border);background:${swatchBg};flex:0 0 auto;cursor:pointer"></button>
+        <select class="form-input layer-tint-mode" data-idx="${k}"${tintOn ? '' : ' disabled'} style="flex:1;min-width:0">${tintModeOpts(l.mode || 'normal')}</select>
+      </div>
+    </div>`;
   }
 
   // Blend-mode options. Layers reuse tint's mode names (tint.mode_*) + 'normal'.
@@ -223,8 +263,16 @@
     ['difference', 'exclusion'],
     ['hue', 'saturation', 'color', 'luminosity'],
   ];
+  // Tint-mode options for the per-layer tint (Stage-1) — identical to the tint
+  // tab's list (TintPipeline.MODE_GROUPS, incl. 'replace' + 'hue-shift'). Kept in
+  // sync by reusing the shared table rather than maintaining a local copy.
   function blendOpts(curMode) {
     return BLEND_MODES.map(group =>
+      group.map(m => `<option value="${m}" ${m === curMode ? 'selected' : ''}>${i18n.t('tint.mode_' + m)}</option>`).join('')
+    ).join('');
+  }
+  function tintModeOpts(curMode) {
+    return MODE_GROUPS.map(group =>
       group.map(m => `<option value="${m}" ${m === curMode ? 'selected' : ''}>${i18n.t('tint.mode_' + m)}</option>`).join('')
     ).join('');
   }
@@ -476,6 +524,92 @@
       btn.addEventListener('click', () => openLayerFlyout(parseInt(btn.dataset.idx, 10), btn));
     });
 
+    // ── Per-stack view toggle (NORMAL ↔ TINT) ──
+    // Two entry points, same action: the "Tint view / Row view" button, and
+    // clicking the sub-list header row. The header hover-highlights to signal
+    // it is clickable.
+    const toggleView = () => { tintView = !tintView; refreshDetailAndList(false); };
+    const btnToggleTint = stages.querySelector('#btn-toggle-tint-view');
+    if (btnToggleTint) btnToggleTint.addEventListener('click', toggleView);
+    const subHead = stages.querySelector('.layer-sub-head');
+    if (subHead) subHead.addEventListener('click', toggleView);
+
+    // Right-click a layer row toggles THAT layer's tint on/off (UI-only entry;
+    // there is no inline toggle column). OFF drops the flag only — color/mode/
+    // shift values stay in memory (restored on re-enable) but are NOT persisted.
+    stages.querySelectorAll('.layer-row').forEach(row => {
+      row.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const k = parseInt(row.dataset.idx, 10);
+        if (isNaN(k)) return;
+        const layer = selLayer(k);
+        if (!layer) return;
+        patchLayer(k, { tintEnabled: !layer.tintEnabled });
+        refreshDetailAndList(true);
+      });
+    });
+
+    // Per-layer tint color swatch → full tint picker. Mirrors tint-editor's
+    // swatch handler: hue-shift opens the PS adjust picker (H/S/L + alpha),
+    // every other mode opens the rgba picker. Writes go through patchLayer so
+    // the composite preview (compositeCanvas) re-tints this layer live.
+    stages.querySelectorAll('.layer-tint-swatch').forEach(sw => {
+      sw.addEventListener('click', () => {
+        const k = parseInt(sw.dataset.idx, 10);
+        if (isNaN(k)) return;
+        const layer = selLayer(k);
+        if (!layer || !layer.tintEnabled || sw.disabled) return;
+        if (layer.mode === 'hue-shift') {
+          const parsed = window.ColorPicker.parseColor(layer.color);
+          window.ColorPicker.attach(sw, {
+            adjust: true,
+            value: { hue: +layer.hueShift || 0, sat: +layer.satShift || 0, light: +layer.lightShift || 0,
+                     alpha: Math.round((parsed.a / 255) * 100) },
+            onChange(v) {
+              patchLayer(k, {
+                hueShift: v.hue, satShift: v.sat, lightShift: v.light,
+                color: `255,255,255,${Math.round(v.alpha * 2.55)}`,
+              });
+              sw.style.background = hueShiftPreviewCss({ hueShift: v.hue, satShift: v.sat, lightShift: v.light });
+              schedulePreview(true);
+            },
+            onClose() { schedulePreview(false); },
+          });
+          return;
+        }
+        window.ColorPicker.attach(sw, { type: 'rgba', alphaPercent: true, value: layer.color, onChange(v) {
+          patchLayer(k, { color: v });
+          sw.style.background = colorToCss(v);
+          schedulePreview(true);
+        }, onClose() {
+          schedulePreview(false);
+        }});
+      });
+    });
+
+    // Per-layer tint mode dropdown (custom Dropdown over the native <select>).
+    stages.querySelectorAll('.layer-tint-mode').forEach(selEl => {
+      const groups = MODE_GROUPS.map(modes => modes.map(m => [m, i18n.t('tint.mode_' + m)]));
+      window.Dropdown.enhance(selEl, { groups, wheelInline: !selEl.disabled });
+      selEl.addEventListener('change', () => {
+        const k = parseInt(selEl.dataset.idx, 10);
+        if (isNaN(k)) return;
+        patchLayer(k, { mode: selEl.value });
+        // Refresh the swatch background to match the new mode (hue-shift shows the
+        // shifted-base preview; solid modes show the tint color). Re-render of the
+        // row would orphan the <select> mid-interaction, so patch the style only.
+        const layer = selLayer(k);
+        const sw = stages.querySelector(`.layer-tint-swatch[data-idx="${k}"]`);
+        if (layer && sw) sw.style.background = (selEl.value === 'hue-shift') ? hueShiftPreviewCss(layer) : colorToCss(layer.color);
+      });
+    });
+
+  }
+
+  // The layer at index k of the currently-selected stack (or null).
+  function selLayer(k) {
+    const stack = sel();
+    return stack && stack.layers && stack.layers[k] ? stack.layers[k] : null;
   }
 
   // ── Layer properties flyout (opacity / 9-grid / offset) ──
@@ -733,9 +867,21 @@
       const im = imgs[k];
       if (!im) continue;
       const l = layers[k];
+      // Per-layer tint pre-pass: when the layer's tint is enabled, rasterise the
+      // tinted source (Stage-1 solid blend or hue-shift) into a scratch canvas,
+      // then composite THAT. Untinted layers take the zero-cost direct path. The
+      // tint is applied to the layer's own pixels BEFORE the inter-layer blend
+      // (blendMode) — the two operate on different stages and never conflict.
+      let src = im;
+      if (l.tintEnabled) {
+        let raw = document.createElement('canvas');
+        raw.width = im.naturalWidth; raw.height = im.naturalHeight;
+        raw.getContext('2d').drawImage(im, 0, 0);
+        src = tintCanvas(raw, l.color, l.mode || 'normal', l);
+      }
       ctx.globalAlpha = Math.max(0, Math.min(1, (+l.opacity || 100) / 100));
       ctx.globalCompositeOperation = blendToComposite(l.blendMode || 'normal');
-      ctx.drawImage(im, +l.offsetX || 0, +l.offsetY || 0);
+      ctx.drawImage(src, +l.offsetX || 0, +l.offsetY || 0);
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
@@ -804,7 +950,12 @@
     return { destination: '', canvasMode: 'bottom', layers: [] };
   }
   function defaultLayer(src) {
-    return { source: src, exact: false, blendMode: 'normal', opacity: 100, offsetX: 0, offsetY: 0 };
+    return { source: src, exact: false, blendMode: 'normal', opacity: 100, offsetX: 0, offsetY: 0,
+      // Per-layer tint (Stage-1: solid-color blend or hue-shift). Mirrors tint's
+      // Stage-1 fields; crop/darken are deliberately NOT included (layers don't
+      // use them). Defaults match TintPipeline / normalizeTint.
+      tintEnabled: false, color: '255,255,255,255', mode: 'normal',
+      hueShift: 0, satShift: 0, lightShift: 0 };
   }
 
   function layoutColumns() { /* canvas scaling; no-op */ }
@@ -822,10 +973,27 @@
         const s = stacks[i];
         out.push({
           destination: s.destination || '', canvasMode: s.canvasMode === 'max' ? 'max' : 'bottom',
-          layers: (s.layers || []).map(l => ({
-            source: l.source || '', exact: !!l.exact, blendMode: l.blendMode || 'normal',
-            opacity: +l.opacity || 100, offsetX: +l.offsetX || 0, offsetY: +l.offsetY || 0,
-          })),
+          layers: (s.layers || []).map(l => {
+            const o = {
+              source: l.source || '', exact: !!l.exact, blendMode: l.blendMode || 'normal',
+              opacity: +l.opacity || 100, offsetX: +l.offsetX || 0, offsetY: +l.offsetY || 0,
+            };
+            // Per-layer tint: carry the fields only when enabled (omit-defaults,
+            // same shape as the save path in preset-editor.serializeLayerStack).
+            if (l.tintEnabled) {
+              o.tintEnabled = true;
+              o.mode = l.mode || 'normal';
+              if (o.mode === 'hue-shift') {
+                o.color = l.color || '255,255,255,255';
+                o.hueShift = +l.hueShift || 0;
+                o.satShift = +l.satShift || 0;
+                o.lightShift = +l.lightShift || 0;
+              } else {
+                o.color = l.color || '255,255,255,255';
+              }
+            }
+            return o;
+          }),
         });
       }
     }

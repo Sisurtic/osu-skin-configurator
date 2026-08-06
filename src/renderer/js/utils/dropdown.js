@@ -156,15 +156,23 @@
       const ph = pop.offsetHeight || 0;
       const roomBelow = window.innerHeight - r.bottom;
       const above = roomBelow < ph + 8 && r.top > ph + 8;
+      // position:fixed → coordinates are viewport-relative, matching
+      // getBoundingClientRect exactly (no scrollY/scrollX, no offset-parent).
       pop.style.top = above
-        ? `${r.top + window.scrollY - ph - 2}px`
-        : `${r.bottom + window.scrollY + 2}px`;
-      pop.style.left = `${r.left + window.scrollX}px`;
+        ? `${r.top - ph - 2}px`
+        : `${r.bottom + 2}px`;
+      pop.style.left = `${r.left}px`;
       pop.style.width = `${r.width}px`;
       pop.style.boxSizing = 'border-box';
     }
     reposition();
     window.addEventListener('resize', reposition);
+    // Close the menu if any ancestor scrolls (e.g. the layer sub-list scroll
+    // area): with position:fixed the pop would otherwise stay pinned while the
+    // trigger scrolls away. capture so we catch the scroll on whichever ancestor
+    // fires it, regardless of bubbling.
+    const onScrollClose = () => closeAll();
+    window.addEventListener('scroll', onScrollClose, true);
 
     const items = () => [...pop.querySelectorAll('.dd-menu__item')];
     function setHighlight(el) { items().forEach(i => i.classList.toggle('is-hover', i === el)); }
@@ -218,6 +226,7 @@
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onAway);
       window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', onScrollClose, true);
       trigger.classList.remove(OPEN_CLS);
     };
   }

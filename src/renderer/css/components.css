@@ -153,7 +153,7 @@ select.form-input {
 button.form-input.dd-trigger { appearance: none; }
 .dd-trigger__caret { flex: 0 0 auto; }
 .dd-menu {
-  position: absolute;
+  position: fixed;
   z-index: 300;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -1679,6 +1679,7 @@ tr[data-group-parent] .file-thumb__icon {
   flex: 1;
   margin-left: auto;
   width: 0;
+  height: auto;                /* override .form-input 28px — match the mode tags */
   font-size: 11px !important;
   padding: 2px 6px !important;
   line-height: 1.4;
@@ -1721,8 +1722,10 @@ tr[data-group-parent] .file-thumb__icon {
 .cp-num-input {
   width: 48px;
   min-width: 48px;
+  height: auto;                /* override .form-input 28px — match hex/mode height */
   padding: 2px 4px !important;
   font-size: 11px !important;
+  line-height: 1.4;
   text-align: center;
   flex-shrink: 0;
 }
@@ -2356,13 +2359,47 @@ tr[data-group-parent] .file-thumb__icon {
 
 /* layer sub-list columns: file | mode | exact | props. file is the flex column
    (source name truncates); the others are fixed. */
-.op-grid--layersub .op-row { grid-template-columns: minmax(120px,1fr) 110px 80px 44px; }
+.op-grid--layersub .op-row { grid-template-columns: minmax(120px,1fr) minmax(120px,1fr) 80px; }
 .op-grid--layersub .op-cell[data-col=file] { padding-right: 12px; overflow: visible; }
 .op-grid--layersub .op-cell[data-col=mode] { padding-right: 0; }
-.op-grid--layersub .op-cell[data-col=exact],
-.op-grid--layersub .op-cell[data-col=props] { padding-left: 0; padding-right: 0; justify-content: center; }
-.op-grid--layersub .op-cell--head[data-col=exact],
-.op-grid--layersub .op-cell--head[data-col=props] { justify-content: center; }
+.op-grid--layersub .op-cell[data-col=exact] { padding-left: 0; padding-right: 0; justify-content: center; }
+.op-grid--layersub .op-cell--head[data-col=exact] { justify-content: center; }
+/* Square layer-properties button (☰), height-aligned to the 28px mode dropdown. */
+/* Layer-properties button (☰): uses .form-input (same class as the mode dropdown
+   trigger) so it shares the exact same background/border/level — no separate
+   background rule needed; only sizing + the icon live here. */
+.op-grid--layersub .layer-flyout-btn {
+  width: 28px; height: 28px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.op-grid--layersub .layer-flyout-icon {
+  stroke: currentColor; stroke-width: 1.2; fill: none;
+  stroke-linecap: round; transition: transform 0.12s ease;
+}
+/* Tint view = 2 columns (file / tint[swatch+mode merged]). When the sub-list's
+   header carries a tint column, restate the grid for BOTH header and layer rows
+   so they stay aligned. */
+.op-grid--layersub:has([data-col=tint]) .op-row { grid-template-columns: minmax(120px,1fr) minmax(120px,1fr); }
+/* Dim disabled tint controls (tint off) — swatch + the tint-mode dropdown's
+   VISIBLE trigger (.tint-mode, since Dropdown.enhance hides the native <select>)
+   read as inert, like the tint tab's disabled stage controls. Scoped to the
+   tint-mode trigger only so the layer-view blend dropdown is untouched. */
+.op-grid--layersub .layer-row:not(.layer-row--tinton) .layer-tint-swatch { opacity: 0.4; }
+.op-grid--layersub .layer-row:not(.layer-row--tinton) .dd-trigger.tint-mode {
+  opacity: 0.5;
+  color: var(--text-muted);
+  cursor: default;
+}
+/* Tint-on marker: an absolutely-positioned left edge bar on the row, raised
+   above the cell backgrounds so the row-hover highlight cannot cover it. */
+.op-grid--layersub .layer-row { position: relative; }
+.op-grid--layersub .layer-row--tinton::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--accent); z-index: 1; pointer-events: none;
+}
+/* Clickable sub-list header (toggles the view); hover-highlights to signal it. */
+.op-grid--layersub .layer-sub-head { cursor: pointer; transition: background var(--transition-fast); }
+.op-grid--layersub .layer-sub-head:hover .op-cell { background: var(--bg-hover); }
 
 /* ── Info / about dialog ── */
 .info-overlay {
@@ -2623,11 +2660,13 @@ tr[data-group-parent] .file-thumb__icon {
   user-select: none;
 }
 #layer-preview canvas {
-  border: 1px solid var(--border);
+  /* outline (not border): outline draws OUTSIDE the box without taking layout
+     space, so fit-scale (which sizes off canvas.width) never clips the edge and
+     no 1px gap appears on either side. box-sizing stays content-box so the
+     pixel grid is exact. */
+  outline: 1px solid var(--border);
+  outline-offset: 0;
   box-sizing: content-box;
-  /* will-change keeps the transformed canvas on its own compositor layer so
-     rapid pan/zoom (frequent left/top/transform writes) doesn't smear. Keep it:
-     removing it reintroduces drag ghosts on normal-sized boards. */
   will-change: transform;
   box-shadow: var(--shadow-pop);
 }
@@ -2641,11 +2680,16 @@ tr[data-group-parent] .file-thumb__icon {
    overlay's trigger (which copies the select's inline style) inherits them —
    otherwise the trigger would resize with the selected label and jump. */
 .layer-canvas-mode { font-size: 10px !important; padding: 2px 6px !important; }
-/* Layer properties (☰) button: dim when idle, bright on hover, accent while its flyout is open. */
-.layer-flyout-btn { color: var(--text-muted); opacity: 0.5; transition: opacity 0.12s ease, color 0.12s ease; }
-.layer-flyout-btn:hover { opacity: 1; color: var(--text-primary); }
-.layer-flyout-btn--open { opacity: 1; color: var(--accent); background: transparent; border-color: transparent; }
-.layer-flyout-btn--open:hover { color: var(--accent); background: var(--bg-hover); }
+/* Layer properties (☰) button: dim when idle, bright on hover, accent while its flyout is open.
+   NB: keep the BUTTON opaque (no opacity<1) so the row-hover cell tint cannot
+   bleed through — dim only the icon via stroke color. */
+.layer-flyout-btn { color: var(--text-muted); transition: color 0.12s ease, border-color 0.12s ease; }
+.layer-flyout-btn:hover { color: var(--text-primary); border-color: var(--text-primary); }
+.layer-flyout-btn--open { color: var(--accent); }
+.layer-flyout-btn--open:hover { color: var(--accent); }
+/* Enlarge the icon on hover/open (transform scales the SVG, stays centered). */
+.layer-flyout-btn:hover .layer-flyout-icon,
+.layer-flyout-btn--open .layer-flyout-icon { transform: scale(1.18); }
 
 /* Layer properties flyout (reuses .cp-popover frame). */
 .layer-flyout { padding: 10px 12px; }
@@ -2663,4 +2707,18 @@ tr[data-group-parent] .file-thumb__icon {
 .layer-9grid__cell svg { stroke: var(--text-muted); stroke-width: 1.4; fill: none; transition: transform 0.12s ease; }
 .layer-9grid__cell:hover { background: var(--bg-hover); }
 .layer-9grid__cell:hover svg { stroke: var(--accent); transform: scale(1.18); }
+
+/* ── Per-layer tint view (layer tab) ── */
+/* "Layer view" button (shown while in tint view) — inverted fill so the
+   available action stands out: light background (--text-primary) + dark bold
+   text (--on-accent). No hardcoded colors. */
+#tab-layer .btn--tint-on {
+  color: var(--on-accent);
+  font-weight: 700;
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+}
+/* Disabled tint swatch (tint off) reads as inert, like the tint tab's disabled
+   stage controls. */
+#tab-layer .layer-tint-swatch:disabled { opacity: 0.4; cursor: default; }
 

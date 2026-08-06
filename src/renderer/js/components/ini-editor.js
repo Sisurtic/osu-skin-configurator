@@ -590,7 +590,7 @@
           if (el && el.checked !== (val === '1')) el.checked = (val === '1');
         } else if (field === 'section') {
           const el = pickControl('.ini-value-section', idx);
-          if (el && el.value !== val) el.value = val;
+          if (el && el.value !== val) { el.value = val; el.dispatchEvent(new Event('change', { bubbles: true })); }
         } else {
           const el = pickControl('.ini-value-input', idx);
           if (el) el.value = val;

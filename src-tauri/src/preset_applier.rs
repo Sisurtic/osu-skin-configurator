@@ -272,113 +272,7 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
     let mut rgba = img.to_rgba8();
 
     // Stage 1: tint (parallelized across pixel rows via rayon).
-    if op.tint_enabled {
-        let (cr, cg, cb, ca) = parse_color(&op.color);
-        let cf = |c: u8| c as f64 / 255.0;
-        let crf = cf(cr); let cgf = cf(cg); let cbf = cf(cb);
-        // The picker's alpha is the BLEND STRENGTH (how much of the tint applies),
-        // NOT the output image opacity. alpha is preserved from the source pixel.
-        let t = cf(ca);
-        let lerp = |orig: f64, blended: f64| orig + (blended - orig) * t;
-        let mode = op.mode.clone();
-        // Split the raw buffer into row-sized byte chunks so threads work on
-        // contiguous spans (cache-friendly, no per-pixel indexing overhead).
-        let (w, _h) = rgba.dimensions();
-        let stride = (w as usize) * 4;
-        let buf: &mut [u8] = rgba.as_mut();
-        buf.par_chunks_mut(stride).for_each(|row| {
-            for px in row.chunks_exact_mut(4) {
-                let pa = px[3];
-                if pa == 0 { continue; }
-                let (prf, pgf, pbf) = (px[0] as f64, px[1] as f64, px[2] as f64);
-                let (nr, ng, nb) = match mode.as_str() {
-                    "multiply" => {
-                        let m = |p: f64, c: f64| p * c;
-                        (lerp(prf, m(prf, crf)), lerp(pgf, m(pgf, cgf)), lerp(pbf, m(pbf, cbf)))
-                    }
-                    "screen" => {
-                        let s = |p: f64, c: f64| 255.0 - (255.0 - p) * (255.0 - c * 255.0) / 255.0;
-                        (lerp(prf, s(prf, crf)), lerp(pgf, s(pgf, cgf)), lerp(pbf, s(pbf, cbf)))
-                    }
-                    "overlay" => {
-                        let o = |p: f64, c: f64| {
-                            if p < 128.0 { 2.0 * p * (c * 255.0) / 255.0 } else { 255.0 - 2.0 * (255.0 - p) * (255.0 - c * 255.0) / 255.0 }
-                        };
-                        (lerp(prf, o(prf, crf)), lerp(pgf, o(pgf, cgf)), lerp(pbf, o(pbf, cbf)))
-                    }
-                    // New modes work in normalized 0..1 (pixel/255, color already 0..1),
-                    // then scale back to 0..255 to match the existing arms' output range.
-                    "darken" => {
-                        let d = |p: f64, c: f64| p.min(c) * 255.0;
-                        (lerp(prf, d(prf / 255.0, crf)), lerp(pgf, d(pgf / 255.0, cgf)), lerp(pbf, d(pbf / 255.0, cbf)))
-                    }
-                    "lighten" => {
-                        let l = |p: f64, c: f64| p.max(c) * 255.0;
-                        (lerp(prf, l(prf / 255.0, crf)), lerp(pgf, l(pgf / 255.0, cgf)), lerp(pbf, l(pbf / 255.0, cbf)))
-                    }
-                    "soft-light" => {
-                        // Photoshop Soft Light (pegtop variant): if C<=0.5: 2AB + A²(1-2C); else 2A(1-B) + A²(2B-1).
-                        let sl = |a: f64, b: f64| if b <= 0.5 { 2.0 * a * b + a * a * (1.0 - 2.0 * b) } else { 2.0 * a * (1.0 - b) + a * a * (2.0 * b - 1.0) };
-                        (lerp(prf, sl(prf / 255.0, crf) * 255.0), lerp(pgf, sl(pgf / 255.0, cgf) * 255.0), lerp(pbf, sl(pbf / 255.0, cbf) * 255.0))
-                    }
-                    "hard-light" => {
-                        // Like overlay but judged by the blend color (B), not the pixel.
-                        let hl = |a: f64, b: f64| if b <= 0.5 { 2.0 * a * b } else { 1.0 - 2.0 * (1.0 - a) * (1.0 - b) };
-                        (lerp(prf, hl(prf / 255.0, crf) * 255.0), lerp(pgf, hl(pgf / 255.0, cgf) * 255.0), lerp(pbf, hl(pbf / 255.0, cbf) * 255.0))
-                    }
-                    "difference" => {
-                        (lerp(prf, (prf / 255.0 - crf).abs() * 255.0), lerp(pgf, (pgf / 255.0 - cgf).abs() * 255.0), lerp(pbf, (pbf / 255.0 - cbf).abs() * 255.0))
-                    }
-                    "exclusion" => {
-                        let ex = |a: f64, b: f64| a + b - 2.0 * a * b;
-                        (lerp(prf, ex(prf / 255.0, crf) * 255.0), lerp(pgf, ex(pgf / 255.0, cgf) * 255.0), lerp(pbf, ex(pbf / 255.0, cbf) * 255.0))
-                    }
-                    // HSL component modes: replace one/two HSL channels of the pixel
-                    // with the color's, keep the rest from the pixel.
-                    "hue" => {
-                        let (ch, _, _) = rgb_to_hsl(crf, cgf, cbf);
-                        let (_, ps, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
-                        let (rr, rg, rb) = hsl_to_rgb(ch, ps, pl);
-                        (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
-                    }
-                    // PS-style Hue/Saturation adjustment: shift the pixel's own
-                    // H/S/L by signed offsets (hue ±180°, sat/light ±100%).
-                    // hue wraps mod 1; sat/light clamp to [0,1].
-                    "hue-shift" => {
-                        let (ph, ps, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
-                        let h = ((ph + op.hue_shift / 360.0) % 1.0 + 1.0) % 1.0;
-                        let s = (ps + op.sat_shift / 100.0).clamp(0.0, 1.0);
-                        let l = (pl + op.light_shift / 100.0).clamp(0.0, 1.0);
-                        let (rr, rg, rb) = hsl_to_rgb(h, s, l);
-                        (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
-                    }
-                    "saturation" => {
-                        let (_, cs, _) = rgb_to_hsl(crf, cgf, cbf);
-                        let (ph, _, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
-                        let (rr, rg, rb) = hsl_to_rgb(ph, cs, pl);
-                        (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
-                    }
-                    "color" => {
-                        let (ch, cs, _) = rgb_to_hsl(crf, cgf, cbf);
-                        let (_, _, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
-                        let (rr, rg, rb) = hsl_to_rgb(ch, cs, pl);
-                        (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
-                    }
-                    "luminosity" => {
-                        let (_, _, cl) = rgb_to_hsl(crf, cgf, cbf);
-                        let (ph, ps, _) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
-                        let (rr, rg, rb) = hsl_to_rgb(ph, ps, cl);
-                        (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
-                    }
-                    _ => (lerp(prf, cr as f64), lerp(pgf, cg as f64), lerp(pbf, cb as f64)),
-                };
-                px[0] = nr.round() as u8;
-                px[1] = ng.round() as u8;
-                px[2] = nb.round() as u8;
-                // px[3] (alpha) preserved
-            }
-        });
-    }
+    apply_tint_stage1(&mut rgba, op);
 
     // Stage 2: crop — split at row tail_h; compose blank + tail + body-extended to out_h.
     if op.crop_enabled {
@@ -530,6 +424,106 @@ fn apply_tint(src: &str, dest: &str, op: &TintOp) -> Result<(), String> {
     r
 }
 
+// Stage 1 of the tint pipeline: a per-pixel solid-color blend OR a hue-shift
+// self-adjustment, applied in place. Shared by apply_tint (standalone tint op)
+// and apply_layers (per-layer tint pre-pass). No-op when op.tint_enabled is
+// false. Alpha is preserved (the picker alpha is blend STRENGTH, not opacity).
+fn apply_tint_stage1(rgba: &mut image::RgbaImage, op: &TintOp) {
+    if !op.tint_enabled { return; }
+    let (cr, cg, cb, ca) = parse_color(&op.color);
+    let cf = |c: u8| c as f64 / 255.0;
+    let crf = cf(cr); let cgf = cf(cg); let cbf = cf(cb);
+    let t = cf(ca);
+    let lerp = |orig: f64, blended: f64| orig + (blended - orig) * t;
+    let mode = op.mode.clone();
+    let (w, _h) = rgba.dimensions();
+    let stride = (w as usize) * 4;
+    let buf: &mut [u8] = rgba.as_mut();
+    buf.par_chunks_mut(stride).for_each(|row| {
+        for px in row.chunks_exact_mut(4) {
+            let pa = px[3];
+            if pa == 0 { continue; }
+            let (prf, pgf, pbf) = (px[0] as f64, px[1] as f64, px[2] as f64);
+            let (nr, ng, nb) = match mode.as_str() {
+                "multiply" => {
+                    let m = |p: f64, c: f64| p * c;
+                    (lerp(prf, m(prf, crf)), lerp(pgf, m(pgf, cgf)), lerp(pbf, m(pbf, cbf)))
+                }
+                "screen" => {
+                    let s = |p: f64, c: f64| 255.0 - (255.0 - p) * (255.0 - c * 255.0) / 255.0;
+                    (lerp(prf, s(prf, crf)), lerp(pgf, s(pgf, cgf)), lerp(pbf, s(pbf, cbf)))
+                }
+                "overlay" => {
+                    let o = |p: f64, c: f64| {
+                        if p < 128.0 { 2.0 * p * (c * 255.0) / 255.0 } else { 255.0 - 2.0 * (255.0 - p) * (255.0 - c * 255.0) / 255.0 }
+                    };
+                    (lerp(prf, o(prf, crf)), lerp(pgf, o(pgf, cgf)), lerp(pbf, o(pbf, cbf)))
+                }
+                "darken" => {
+                    let d = |p: f64, c: f64| p.min(c) * 255.0;
+                    (lerp(prf, d(prf / 255.0, crf)), lerp(pgf, d(pgf / 255.0, cgf)), lerp(pbf, d(pbf / 255.0, cbf)))
+                }
+                "lighten" => {
+                    let l = |p: f64, c: f64| p.max(c) * 255.0;
+                    (lerp(prf, l(prf / 255.0, crf)), lerp(pgf, l(pgf / 255.0, cgf)), lerp(pbf, l(pbf / 255.0, cbf)))
+                }
+                "soft-light" => {
+                    let sl = |a: f64, b: f64| if b <= 0.5 { 2.0 * a * b + a * a * (1.0 - 2.0 * b) } else { 2.0 * a * (1.0 - b) + a * a * (2.0 * b - 1.0) };
+                    (lerp(prf, sl(prf / 255.0, crf) * 255.0), lerp(pgf, sl(pgf / 255.0, cgf) * 255.0), lerp(pbf, sl(pbf / 255.0, cbf) * 255.0))
+                }
+                "hard-light" => {
+                    let hl = |a: f64, b: f64| if b <= 0.5 { 2.0 * a * b } else { 1.0 - 2.0 * (1.0 - a) * (1.0 - b) };
+                    (lerp(prf, hl(prf / 255.0, crf) * 255.0), lerp(pgf, hl(pgf / 255.0, cgf) * 255.0), lerp(pbf, hl(pbf / 255.0, cbf) * 255.0))
+                }
+                "difference" => {
+                    (lerp(prf, (prf / 255.0 - crf).abs() * 255.0), lerp(pgf, (pgf / 255.0 - cgf).abs() * 255.0), lerp(pbf, (pbf / 255.0 - cbf).abs() * 255.0))
+                }
+                "exclusion" => {
+                    let ex = |a: f64, b: f64| a + b - 2.0 * a * b;
+                    (lerp(prf, ex(prf / 255.0, crf) * 255.0), lerp(pgf, ex(pgf / 255.0, cgf) * 255.0), lerp(pbf, ex(pbf / 255.0, cbf) * 255.0))
+                }
+                "hue" => {
+                    let (ch, _, _) = rgb_to_hsl(crf, cgf, cbf);
+                    let (_, ps, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
+                    let (rr, rg, rb) = hsl_to_rgb(ch, ps, pl);
+                    (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
+                }
+                "hue-shift" => {
+                    let (ph, ps, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
+                    let h = ((ph + op.hue_shift / 360.0) % 1.0 + 1.0) % 1.0;
+                    let s = (ps + op.sat_shift / 100.0).clamp(0.0, 1.0);
+                    let l = (pl + op.light_shift / 100.0).clamp(0.0, 1.0);
+                    let (rr, rg, rb) = hsl_to_rgb(h, s, l);
+                    (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
+                }
+                "saturation" => {
+                    let (_, cs, _) = rgb_to_hsl(crf, cgf, cbf);
+                    let (ph, _, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
+                    let (rr, rg, rb) = hsl_to_rgb(ph, cs, pl);
+                    (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
+                }
+                "color" => {
+                    let (ch, cs, _) = rgb_to_hsl(crf, cgf, cbf);
+                    let (_, _, pl) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
+                    let (rr, rg, rb) = hsl_to_rgb(ch, cs, pl);
+                    (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
+                }
+                "luminosity" => {
+                    let (_, _, cl) = rgb_to_hsl(crf, cgf, cbf);
+                    let (ph, ps, _) = rgb_to_hsl(cf(px[0]), cf(px[1]), cf(px[2]));
+                    let (rr, rg, rb) = hsl_to_rgb(ph, ps, cl);
+                    (lerp(prf, rr * 255.0), lerp(pgf, rg * 255.0), lerp(pbf, rb * 255.0))
+                }
+                _ => (lerp(prf, cr as f64), lerp(pgf, cg as f64), lerp(pbf, cb as f64)),
+            };
+            px[0] = nr.round() as u8;
+            px[1] = ng.round() as u8;
+            px[2] = nb.round() as u8;
+            // px[3] (alpha) preserved
+        }
+    });
+}
+
 // Compose a layer stack into one output PNG. Each `stack` value carries
 // destination, canvasMode ('bottom'|'max'), and a layers[] (top→bottom: layers[0]
 // = highest). Compositing iterates in reverse (lowest first). Each
@@ -559,10 +553,29 @@ fn apply_layers(skin_path: &str, stack: &Value) -> Result<(), String> {
             Some(v) => v,
             None => continue,
         };
-        let img = match image::open(&use_src) {
+        let mut img = match image::open(&use_src) {
             Ok(i) => i.to_rgba8(),
             Err(_) => continue,
         };
+        // Per-layer tint pre-pass: when the layer's tint is enabled, run Stage-1
+        // (solid blend or hue-shift) on the layer's own pixels BEFORE compositing.
+        // Crop/darken are not part of layers — their TintOp fields stay default.
+        let tint_enabled = l.get("tintEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
+        if tint_enabled {
+            let top = TintOp {
+                tint_enabled: true,
+                color: l.get("color").and_then(|v| v.as_str()).unwrap_or("255,255,255,255").to_string(),
+                mode: l.get("mode").and_then(|v| v.as_str()).unwrap_or("normal").to_string(),
+                crop_enabled: false,
+                crop_a: 0.0, crop_b: 0.0, crop_c: 32768.0, crop_d: 0.0,
+                crop_tile: false, crop_tile_dir: "down".to_string(),
+                darken_enabled: false, darken_d: 0.0, darken_opacity: 0.0,
+                hue_shift: l.get("hueShift").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                sat_shift: l.get("satShift").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                light_shift: l.get("lightShift").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            };
+            apply_tint_stage1(&mut img, &top);
+        }
         let (w, h) = img.dimensions();
         resolved.push((img, w, h, l));
     }

@@ -340,6 +340,11 @@
     "destPlaceholder": "如 folder/file (留空為面板根目錄)",
     "noLayers": "無可用圖層",
     "dragToDelete": "拖曳圖層到此處刪除",
+    "tintView": "著色視圖",
+    "rowView": "圖層視圖",
+    "toggleViewTitle": "點擊切換著色視圖 / 圖層視圖（右鍵單一圖層切換其著色開關）",
+    "colBlendMode": "疊加模式",
+    "colTint": "著色模式",
     "canvasSizeCol": "畫布尺寸",
     "canvasSizeTitle": "關閉 - 使用底層影像畫布作為輸出畫布\n開啟 - 使用最大影像畫布作為輸出畫布",
     "multiSelectHint": "選中多個，無法編輯",
@@ -541,10 +546,10 @@
   },
   "tint": {
     "heading": "圖像編輯",
-    "desc": "為 PNG 圖片調色，或調整圖像高度。",
+    "desc": "為 PNG 圖片著色，或調整圖像高度。",
     "addImage": "加入圖片",
     "empty": "暫無圖片操作，請從上方新增",
-    "tagTint": "調色",
+    "tagTint": "著色",
     "colAction": "操作",
     "colSource": "檔案",
     "colColor": "顏色",
@@ -577,7 +582,7 @@
     "colDestTitle": "允許指定目標路徑檔名\n末尾加 / 作為資料夾名，否則為檔名\n檔名不存在時使用原始檔名"
   },
   "edit": {
-    "stageTint": "調色",
+    "stageTint": "著色",
     "stageCrop": "裁剪",
     "stageDarken": "暗化",
     "cropA": "切割高度",
