@@ -290,6 +290,8 @@
     "copy": "＋ コピー",
     "delete": "＋ 削除",
     "clickToChange": "クリックでソース変更",
+    "playTitle": "オーディオを再生",
+    "pauseTitle": "再生を停止",
     "deleteZone": "操作をここにドラッグして削除",
     "colAction": "操作",
     "colFile": "ファイル",

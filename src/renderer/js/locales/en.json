@@ -290,6 +290,8 @@
     "copy": "＋ Copy",
     "delete": "＋ Delete",
     "clickToChange": "Click to change source",
+    "playTitle": "Play audio",
+    "pauseTitle": "Stop audio",
     "deleteZone": "Drag an action here to delete",
     "colAction": "Action",
     "colFile": "File",

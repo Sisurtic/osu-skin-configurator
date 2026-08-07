@@ -67,6 +67,8 @@
 
     // --- images ---
     getPreviewDataUrl: (imagePath) => call('image_get_preview', { imagePath }),
+    // Cheap existence probe (single stat) for audio-preview gating.
+    fileExists: (imagePath) => call('file_exists', { imagePath }),
 
     // --- in-app shortcuts ---
     loadShortcuts: () => call('shortcuts_load'),

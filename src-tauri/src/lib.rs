@@ -360,6 +360,15 @@ fn image_get_preview(image_path: String) -> Value {
     }
 }
 
+// Cheap existence probe (single stat) used by the file editor to decide whether
+// an audio source can be previewed — avoids reading whole audio files as base64
+// through image_get_preview just to test existence.
+#[tauri::command]
+fn file_exists(image_path: String) -> Value {
+    let exists = !image_path.is_empty() && std::path::Path::new(&image_path).exists();
+    wrap_ok(json!(exists))
+}
+
 // ── in-app shortcuts (keybind settings) ──
 
 #[tauri::command]
@@ -749,7 +758,7 @@ pub fn run() {
             skins_scan, skins_read_ini, skins_get_path,
             presets_scan, presets_load, presets_save, presets_delete, presets_delete_multiple, presets_apply, presets_apply_multiple,
             groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_set_collapsed_batch, groups_delete_recursive, groups_set_shortcut, groups_set_description, groups_set_preview, groups_set_actions, groups_apply, groups_flatten_subgroups, set_table_state, skin_set_meta, clone_table_state_for_groups,
-            image_get_preview,
+            image_get_preview, file_exists,
             shortcuts_load, shortcuts_save,
             global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_bind_batch, global_shortcuts_reload,
             app_get_open_file, app_get_version, check_latest_release, download_and_run_latest_release, cancel_update_download, locales_list, set_locale,

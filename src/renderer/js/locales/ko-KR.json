@@ -290,6 +290,8 @@
     "copy": "＋ 복사",
     "delete": "＋ 삭제",
     "clickToChange": "클릭하여 소스 변경",
+    "playTitle": "오디오 재생",
+    "pauseTitle": "재생 중지",
     "deleteZone": "작업을 여기로 드래그하여 삭제",
     "colAction": "작업",
     "colFile": "파일",

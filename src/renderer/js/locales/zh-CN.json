@@ -290,6 +290,8 @@
     "copy": "＋ 复制",
     "delete": "＋ 删除",
     "clickToChange": "点击更换源文件",
+    "playTitle": "播放音频",
+    "pauseTitle": "停止播放",
     "deleteZone": "拖拽操作到此处删除",
     "colAction": "操作",
     "colFile": "文件",

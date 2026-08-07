@@ -395,6 +395,39 @@ tr[data-group-parent] .file-thumb__icon {
   white-space: nowrap;
   min-width: 0;
 }
+/* Audio preview play/pause button — injected into an audio row's .file-thumb
+   after existence is confirmed. A <button>, so it's in OpTable's
+   interactiveSelector (auto-excluded from row selection) and never matches the
+   re-source gate (img/.file-thumb__icon). */
+.file-audio-btn {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-left: 2px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 0;
+}
+.file-audio-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.file-audio-btn__icon {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+.file-audio-btn__icon--play[hidden],
+.file-audio-btn__icon--pause[hidden] {
+  display: none;
+}
 .table-wrap {
   border: 1px solid var(--border);
 }

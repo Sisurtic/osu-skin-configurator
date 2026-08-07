@@ -16,6 +16,109 @@
   // All data-idx consumers index into THIS, not a fresh buildFileOps().
   let currentFileOps = null;
 
+  // ── Audio preview (mutually-exclusive one-shot playback) ──
+  // Audio source files (osu! hitsounds .mp3/.wav/.ogg) get a 🎵 icon + a play
+  // button. Playback is exclusive: starting one stops the previous. Existence
+  // is probed via the cheap `file_exists` IPC and cached per raw path so the
+  // frequent re-renders don't re-stat. The button is a <button>, so it lives in
+  // OpTable's interactiveSelector (auto-excluded from row selection) and never
+  // matches the re-source gate (img/.file-thumb__icon) — clicks don't resrc.
+  const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg']);
+  const audioExistsCache = new Map();   // raw path → bool (exists on disk)
+  let currentAudio = null;              // the playing HTMLAudioElement
+  let currentAudioPath = null;          // raw path bound to currentAudio
+  let currentAudioBtn = null;           // the button element (cleared on re-render)
+  const PLAY_SVG = '<svg class="file-audio-btn__icon file-audio-btn__icon--play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+  const PAUSE_SVG = '<svg class="file-audio-btn__icon file-audio-btn__icon--pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
+
+  function isAudioPath(p) {
+    const ext = (p || '').slice((p || '').lastIndexOf('.')).toLowerCase();
+    return AUDIO_EXTS.has(ext);
+  }
+  // Skin-relative raw path → absolute OS path (mirrors op-table.js's loader
+  // resolver; replicated here so audio logic stays out of the shared loader,
+  // which tint/layer editors also use).
+  function resolveDiskPath(raw, skPath) {
+    let p = raw;
+    const isAbs = /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('/');
+    if (!isAbs && skPath) {
+      p = skPath.replace(/\\/g, '/').replace(/\/$/, '') + '/' + p.replace(/\\/g, '/');
+    }
+    return p;
+  }
+  function stopAudio() {
+    if (currentAudio) { try { currentAudio.pause(); } catch (e) { /* ignore */ } }
+    currentAudio = null; currentAudioPath = null; currentAudioBtn = null;
+  }
+  function setButtonState(btn, playing) {
+    if (!btn) return;
+    const playIc = btn.querySelector('.file-audio-btn__icon--play');
+    const pauseIc = btn.querySelector('.file-audio-btn__icon--pause');
+    if (playIc) playIc.hidden = playing;
+    if (pauseIc) pauseIc.hidden = !playing;
+    const t = i18n.t(playing ? 'file.pauseTitle' : 'file.playTitle');
+    btn.title = t; btn.setAttribute('aria-label', t);
+  }
+  function bindPlayButton(btn) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();   // don't bubble to the .file-thumb re-source listener
+      const raw = btn.dataset.audioPath;
+      const url = btn.dataset.audioUrl;
+      // Same button while playing → toggle off.
+      if (currentAudioPath === raw && currentAudio) {
+        stopAudio(); setButtonState(btn, false); return;
+      }
+      stopAudio();
+      const a = new Audio(url);
+      currentAudio = a; currentAudioPath = raw; currentAudioBtn = btn;
+      setButtonState(btn, true);
+      a.addEventListener('ended', () => { if (currentAudio === a) { stopAudio(); setButtonState(btn, false); } });
+      a.addEventListener('error', () => { if (currentAudio === a) { stopAudio(); setButtonState(btn, false); } });
+      try { a.play(); } catch (err) { /* ignore autoplay/playback errors */ }
+    });
+  }
+  // Async: stat each audio cell, downgrade 🎵→📄 if missing, else inject + bind
+  // a play button. Idempotent (skips spans already holding a button). Called
+  // after loadThumbnails() each render.
+  async function enhanceAudioRows() {
+    const convert = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.convertFileSrc) || null;
+    if (!convert) return;   // graceful: leave the optimistic 🎵 icon, no button
+    const skPath = await skinPath() || '';
+    const spans = document.querySelectorAll('.file-thumb[data-path]');
+    const toBind = [];
+    for (const span of spans) {
+      const raw = span.dataset.path || '';
+      if (!isAudioPath(raw)) continue;
+      if (span.querySelector('.file-audio-btn')) continue;   // idempotent
+      let exists;
+      if (audioExistsCache.has(raw)) {
+        exists = audioExistsCache.get(raw);
+      } else {
+        try {
+          const r = await tauriAPI.fileExists(resolveDiskPath(raw, skPath));
+          exists = !!(r && r.success && r.data);
+        } catch (_) { exists = false; }
+        audioExistsCache.set(raw, exists);
+      }
+      if (!exists) {
+        // Missing audio → restore the default 📄 placeholder icon.
+        const ic = span.querySelector('.file-thumb__icon--audio');
+        if (ic) { ic.classList.remove('file-thumb__icon--audio'); ic.textContent = '📄'; }
+        continue;
+      }
+      const url = convert(resolveDiskPath(raw, skPath));
+      span.insertAdjacentHTML('beforeend',
+          '<button class="file-audio-btn" type="button" '
+        + 'data-audio-path="' + escapeHtml(raw) + '" '
+        + 'data-audio-url="' + escapeHtml(url) + '" '
+        + 'title="' + escapeHtml(i18n.t('file.playTitle')) + '" '
+        + 'aria-label="' + escapeHtml(i18n.t('file.playTitle')) + '">'
+        + PLAY_SVG + PAUSE_SVG + '</button>');
+      toBind.push(span.querySelector('.file-audio-btn:last-child'));
+    }
+    for (const btn of toBind) bindPlayButton(btn);
+  }
+
   function blockUI() {
     if (document.getElementById('dialog-block-overlay')) return;
     const overlay = document.createElement('div');
@@ -96,6 +199,10 @@
 
   function render(container) {
     const fileOps = buildFileOps();
+    // Re-render = structural change (add/delete/reorder/save); stop any audio
+    // preview so the now-detached button can't keep playing. The new DOM starts
+    // clean (no "currently playing" button).
+    stopAudio();
     // Snapshot FOLDED header destinations from the live DOM before rebuilding,
     // so renderGroup can preserve an in-flight header edit (otherwise the
     // rebuild resets it to the first member's value). Keyed by seq group key.
@@ -559,6 +666,7 @@
     }
 
     loadThumbnails();
+    enhanceAudioRows();
 
     // ── Re-source: ordinary rows AND group headers share ONE path ──
     // Clicking any thumbnail (ordinary row or group header) re-sources every
@@ -976,7 +1084,13 @@
   // Build the inner markup for a file cell: cached <img> if available, else a
   // 📄 icon placeholder (loadThumbnails fills it in async on first load).
   // Delete rows (no source / not an image) render a bare label with no icon.
+  // Audio rows (copy OR delete) render an optimistic 🎵 placeholder; the async
+  // enhanceAudioRows pass downgrades to 📄 if the file is missing, or injects a
+  // play button if it exists.
   function thumbHtmlFor(rawPath, label, isDelete) {
+    if (isAudioPath(rawPath)) {
+      return `<span class="file-thumb__icon file-thumb__icon--audio" title="${i18n.t('file.clickToChange')}">🎵</span><span class="file-thumb__name" title="${escapeHtml(rawPath)}">${escapeHtml(label || '')}</span>`;
+    }
     if (isDelete) {
       return `<span class="file-thumb__icon" title="${i18n.t('file.clickToChange')}">📄</span><span class="file-thumb__name" title="${escapeHtml(rawPath)}">${escapeHtml(label || '')}</span>`;
     }
@@ -1036,5 +1150,5 @@
     sel.setSelected(ns, anchor);
   }
 
-  window.FileCopyEditor = { init, render, layoutColumns: adjustFillButtons, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection(), invalidateCache: () => thumbCache.clear() };
+  window.FileCopyEditor = { init, render, layoutColumns: adjustFillButtons, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection(), invalidateCache: () => { thumbCache.clear(); audioExistsCache.clear(); } };
 })();

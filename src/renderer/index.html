@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost file:; connect-src 'self' ipc: http://ipc.localhost;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost file:; media-src 'self' asset: http://asset.localhost file:; connect-src 'self' ipc: http://ipc.localhost;">
   <!-- Pre-load flash guard: runs before variables.css loads, so the literal
        MUST mirror --bg-primary in variables.css. -->
   <style>html,body{background:#1a1a1a;}</style>
