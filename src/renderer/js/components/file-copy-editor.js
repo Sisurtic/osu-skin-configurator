@@ -837,7 +837,14 @@
         const op = ops[idx];
         currentSource = op ? (op._type === 'copy' ? op.source : op.path) : '';
       }
-      const chosen = await window.SourcePicker.pickMulti({ getSkinPath: () => skinPath(), currentSource });
+      // File ops can be any type (images, audio, ini, …), so re-source with an
+      // all-files filter as the default — not the SourcePicker's image default,
+      // which would hide audio/other files from the picker.
+      const allFilter = () => [
+        { name: i18n.t('file.allFilesFilter'), extensions: ['*'] },
+        { name: 'Image', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng', 'bmp'] },
+      ];
+      const chosen = await window.SourcePicker.pickMulti({ getSkinPath: () => skinPath(), currentSource, filters: allFilter() });
       syncReSource(chosen, clickedRow);
     }
 
