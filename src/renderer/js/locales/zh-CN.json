@@ -387,6 +387,7 @@
     "colBlendMode": "叠加模式",
     "colTint": "着色模式",
     "canvasSizeCol": "画布尺寸",
+    "colComposite": "合成",
     "canvasSizeTitle": "关闭 - 使用底层图像画布作为输出画布\n开启 - 使用最大图像画布作为输出画布",
     "multiSelectHint": "选中多个，无法编辑",
     "propsTitle": "图层属性",

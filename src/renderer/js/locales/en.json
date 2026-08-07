@@ -387,6 +387,7 @@
     "colBlendMode": "Blend mode",
     "colTint": "Tint mode",
     "canvasSizeCol": "Canvas",
+    "colComposite": "Composite",
     "canvasSizeTitle": "Off - use the bottom image canvas as the output canvas\nOn - use the largest image canvas as the output canvas",
     "multiSelectHint": "Multiple selected, cannot edit",
     "propsTitle": "Layer properties",

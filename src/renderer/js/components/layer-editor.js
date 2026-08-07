@@ -158,9 +158,14 @@
       const count = (s.layers || []).length;
       // Label always shows the bottom layer's source — the destination is edited
       // in its own column next to this, so echoing it here would be redundant.
-      const label = bottomSrc ? pathBasename(bottomSrc) : '';
+      // A stack with no layers has no source to name: show a placeholder and
+      // hide the layer count (0 is uninformative).
+      const label = bottomSrc ? pathBasename(bottomSrc) : '-';
+      const countHtml = count > 0
+        ? `<span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px;font-size:11px;line-height:28px">(${count})</span>`
+        : '';
       return `<div class="op-row layerop-row${selCls}" data-idx="${idx}">
-        <div class="op-cell" data-col="file"><span style="display:inline-flex;align-items:center;gap:6px;min-width:0"><span class="file-thumb" data-path="${escapeHtml(bottomSrc)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(bottomSrc, label)}</span><span style="color:var(--text-muted);flex:0 0 auto;margin-right:-12px;font-size:11px;line-height:28px">(${count})</span></span></div>
+        <div class="op-cell" data-col="file"><span style="display:inline-flex;align-items:center;gap:6px;min-width:0"><span class="file-thumb" data-path="${escapeHtml(bottomSrc)}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(bottomSrc, label)}</span>${countHtml}</span></div>
         <div class="op-cell" data-col="dest"><input type="text" class="form-input layer-dest" data-idx="${idx}" value="${escapeHtml(s.destination || '')}" autocomplete="off" spellcheck="false" placeholder="${i18n.t('layer.destPlaceholder')}"></div>
         <div class="op-cell" data-col="canvas"><label class="toggle" style="flex:0 0 auto">
           <input type="checkbox" class="layer-canvas-mode" data-idx="${idx}" ${s.canvasMode === 'max' ? 'checked' : ''}>
@@ -172,7 +177,7 @@
       <div class="files-body-table"><div class="table-wrap">
         <div class="op-grid op-grid--layer">
           <div class="op-row op-row--head">
-            <div class="op-cell op-cell--head" data-col="file">${i18n.t('tint.colSource')}</div>
+            <div class="op-cell op-cell--head" data-col="file">${i18n.t('layer.colComposite')}</div>
             <div class="op-cell op-cell--head" data-col="dest" title="${escapeHtml(i18n.t('tint.colDestTitle'))}">${i18n.t('tint.colDest')}</div>
             <div class="op-cell op-cell--head" data-col="canvas" style="white-space:nowrap" title="${escapeHtml(i18n.t('layer.canvasSizeTitle'))}">${i18n.t('layer.canvasSizeCol')}</div>
           </div>

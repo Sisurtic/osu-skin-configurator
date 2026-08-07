@@ -346,6 +346,7 @@
     "colBlendMode": "ブレンドモード",
     "colTint": "着色モード",
     "canvasSizeCol": "キャンバス",
+    "colComposite": "合成",
     "canvasSizeTitle": "オフ - 最下層画像のキャンバスを出力に使用\nオン - 最大画像のキャンバスを出力に使用",
     "multiSelectHint": "複数選択、編集不可",
     "propsTitle": "レイヤープロパティ",
