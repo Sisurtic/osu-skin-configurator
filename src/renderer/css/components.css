@@ -419,38 +419,27 @@ tr[data-group-parent] .file-thumb__icon {
   white-space: nowrap;
   min-width: 0;
 }
-/* Audio preview play/pause button — injected into an audio row's .file-thumb
-   after existence is confirmed. A <button>, so it's in OpTable's
-   interactiveSelector (auto-excluded from row selection) and never matches the
-   re-source gate (img/.file-thumb__icon). */
-.file-audio-btn {
+/* Audio preview waveform — injected into an audio row's .file-thumb after
+   existence is confirmed. A <span>, so it's in OpTable's interactiveSelector
+   (auto-excluded from row selection) and never matches the re-source gate
+   (img/.file-thumb__icon). The wrapper reserves the slot; the canvas is
+   appended after decode and is the click target (play/pause toggle). */
+.file-audio-wave {
   flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
+  width: 80px;
+  height: 28px;
   margin-left: 2px;
-  background: var(--bg-primary);
+  display: inline-block;
   border: 1px solid var(--border);
   border-radius: 3px;
-  color: var(--text-muted);
+  background: var(--bg-primary);
   cursor: pointer;
   line-height: 0;
 }
-.file-audio-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-.file-audio-btn__icon {
-  width: 12px;
-  height: 12px;
+.file-audio-wave__cv {
+  width: 100%;
+  height: 100%;
   display: block;
-}
-.file-audio-btn__icon--play[hidden],
-.file-audio-btn__icon--pause[hidden] {
-  display: none;
 }
 .table-wrap {
   border: 1px solid var(--border);
@@ -734,7 +723,7 @@ tr[data-group-parent] .file-thumb__icon {
 }
 /* Disabled toggle: same colors as the enabled state, just dimmed via opacity
    so it reads as "the same control, unavailable" — no conflicting recolor. */
-.toggle.is-disabled { opacity: 0.35; pointer-events: none; }
+.toggle.is-disabled { opacity: 0.2; pointer-events: none; }
 .toggle input {
   opacity: 0;
   width: 0;
@@ -2406,9 +2395,14 @@ tr[data-group-parent] .file-thumb__icon {
 .op-grid--ini .op-cell[data-col=value] .path-input-row { width: 100%; }
 /* INI value-column buttons (fill / center / pick-file) sit inside table rows;
    give them the same solid base as form inputs / thumbnails instead of the
-   tertiary fill, so they read consistently on the (translucent) selected row. */
-.op-grid--ini .btn--secondary { background: var(--bg-primary); }
-.op-grid--ini .btn--secondary:hover { background: var(--bg-hover); }
+   tertiary fill, so they read consistently on the (translucent) selected row.
+   Applies to every editor table (ini / file-copy / tint) for consistency. */
+.op-grid--ini .btn--secondary,
+.op-grid--filecopy .btn--secondary,
+.op-grid--tint .btn--secondary { background: var(--bg-primary); }
+.op-grid--ini .btn--secondary:hover,
+.op-grid--filecopy .btn--secondary:hover,
+.op-grid--tint .btn--secondary:hover { background: var(--bg-hover); }
 
 /* layer outer columns: file | dest | canvas. Same as tint (file/dest split,
    canvas fixed). */

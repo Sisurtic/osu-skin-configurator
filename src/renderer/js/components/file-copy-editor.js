@@ -16,24 +16,61 @@
   // All data-idx consumers index into THIS, not a fresh buildFileOps().
   let currentFileOps = null;
 
-  // ── Audio preview (mutually-exclusive one-shot playback) ──
-  // Audio source files (osu! hitsounds .mp3/.wav/.ogg) get a 🎵 icon + a play
-  // button. Playback is exclusive: starting one stops the previous. Existence
-  // is probed via the cheap `file_exists` IPC and cached per raw path so the
-  // frequent re-renders don't re-stat. The button is a <button>, so it lives in
-  // OpTable's interactiveSelector (auto-excluded from row selection) and never
-  // matches the re-source gate (img/.file-thumb__icon) — clicks don't resrc.
+  // ── Audio preview (waveform + mutually-exclusive playback) ──
+  // Audio source files (osu! hitsounds .mp3/.wav/.ogg) render as
+  // [🎵 icon] [waveform canvas] [filename] [duration]. The waveform is decoded
+  // once per raw path (fetch → AudioContext.decodeAudioData → 80 peaks) and
+  // cached; it is also the click target — click plays, click again pauses, and
+  // the played portion is overdrawn in the accent color by a single shared
+  // requestAnimationFrame loop. Playback is exclusive: starting one stops the
+  // previous. Existence is probed via the cheap `file_exists` IPC and cached.
+  // The waveform wrapper (.file-audio-wave) is in OpTable's interactiveSelector
+  // (auto-excluded from row selection) and never matches the re-source gate
+  // (img/.file-thumb__icon) — clicks neither select the row nor re-source.
   const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg']);
   const audioExistsCache = new Map();   // raw path → bool (exists on disk)
-  // Pre-warmed HTMLAudioElement per raw path. Created + load()ed at enhance
-  // time so the browser buffers the bytes BEFORE the user clicks — the first
-  // play is then immediate instead of eating the start while it fetches.
-  const audioElCache = new Map();
-  let currentAudio = null;              // the playing HTMLAudioElement
-  let currentAudioPath = null;          // raw path bound to currentAudio
-  let currentAudioBtn = null;           // the button element (cleared on re-render)
-  const PLAY_SVG = '<svg class="file-audio-btn__icon file-audio-btn__icon--play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
-  const PAUSE_SVG = '<svg class="file-audio-btn__icon file-audio-btn__icon--pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
+  // Decoded audio per raw path: { peaks, duration, buffer }. The buffer is the
+  // decoded AudioBuffer itself — playback runs straight from it via
+  // AudioBufferSourceNode, so there is NO second network fetch (the old
+  // HTMLAudioElement preload raced the decode fetch and caused click delay +
+  // swallowed transients). null buffer = decode failed (no playback, no viz).
+  const waveformCache = new Map();
+  // Currently-playing source node + the timing bookkeeping needed to derive
+  // progress and to pause/resume. AudioBufferSourceNode is one-shot: each
+  // start/resume creates a fresh node, so we keep startCtxTime + startOffset.
+  let currentSource = null;             // active AudioBufferSourceNode
+  let currentBuffer = null;             // its AudioBuffer (for duration/peaks)
+  let currentAudioPath = null;          // raw path bound to currentSource
+  let currentAudioCanvas = null;        // the waveform canvas (cleared on re-render)
+  let currentPeaks = null;              // peaks bound to currentSource (for redraw)
+  let currentDuration = 0;              // buffer duration (seconds)
+  let startCtxTime = 0;                 // audioCtx.currentTime when playback started
+  let startOffset = 0;                  // buffer offset (s) playback started at
+  // Paused-row state: a left-click on the playing row PAUSES (keeps position)
+  // instead of stopping, so a subsequent left-click can resume. Only one row
+  // may be paused at a time; clicking any other row clears it.
+  let pausedBuffer = null;              // the paused row's AudioBuffer
+  let pausedPath = null;                // raw path bound to the paused row
+  let pausedCanvas = null;              // the paused row's waveform canvas
+  let pausedPeaks = null;               // peaks bound to the paused row
+  let pausedDuration = 0;               // buffer duration (seconds)
+  let pausedOffset = 0;                 // buffer offset (s) where it paused
+  // Waveform rendering constants. The bar count is derived from the bar/gap
+  // widths so the bars always fill WAVE_CSS_W exactly: slot = bar + gap, count
+  // = floor(W / slot). Decoupling the visual style from the peak count means
+  // thicker bars / wider gaps never leave the canvas half-empty.
+  const WAVE_CSS_W = 80;
+  const WAVE_CSS_H = 28;
+  const WAVE_BAR_W = 2;          // bar thickness (CSS px)
+  const WAVE_GAP = 2;            // gap between bars (CSS px)
+  const WAVE_PEAKS = Math.floor(WAVE_CSS_W / (WAVE_BAR_W + WAVE_GAP));   // = 20
+  // Shared AudioContext for BOTH decode and playback. Lazy; resumed on first
+  // user gesture (click) to satisfy autoplay policy; closed on cache invalidate.
+  let audioCtx = null;
+  // Single shared rAF handle for the playing waveform's progress redraw.
+  let waveRafId = 0;
+  // Cached canvas colors resolved from CSS variables (re-resolved on invalidate).
+  let waveColors = null;
 
   function isAudioPath(p) {
     const ext = (p || '').slice((p || '').lastIndexOf('.')).toLowerCase();
@@ -50,79 +87,272 @@
     }
     return p;
   }
-  // Build (or reuse) a pre-warmed Audio element for a raw path's URL and kick
-  // off buffering. Safe to call repeatedly — reuses the cached element.
-  function warmAudio(raw, url) {
-    let a = audioElCache.get(raw);
-    if (!a) {
-      a = new Audio();
-      a.preload = 'auto';
-      a.src = url;   // setting src + preload triggers the fetch/decode
-      audioElCache.set(raw, a);
+  // Lazy shared AudioContext for decode + playback.
+  function getAudioCtx() {
+    if (!audioCtx) {
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      if (Ctor) audioCtx = new Ctor();
     }
-    return a;
+    return audioCtx;
   }
-  // Drop every pre-warmed Audio element (pause + clear src so the browser can
-  // reclaim the buffered media). Called on cache invalidation (skin/preset
-  // switch, global-shortcut apply) where the source files may have changed.
-  function clearAudioElCache() {
-    for (const a of audioElCache.values()) {
-      try { a.pause(); } catch (e) { /* ignore */ }
-      try { a.removeAttribute('src'); a.load(); } catch (e) { /* ignore */ }
+  // Resolve waveform base/played colors from CSS variables once and cache.
+  // (color-variable-discipline: canvas must not hardcode hex.)
+  function resolveWaveColors() {
+    if (!waveColors) {
+      const cs = getComputedStyle(document.documentElement);
+      waveColors = {
+        base: (cs.getPropertyValue('--text-muted') || '#888').trim(),
+        played: (cs.getPropertyValue('--accent') || '#4d9').trim(),
+      };
     }
-    audioElCache.clear();
-    // The current Audio (if any) was one of the cached elements; reset state.
-    currentAudio = null; currentAudioPath = null; currentAudioBtn = null;
+    return waveColors;
   }
-  function stopAudio() {
-    if (currentAudio) {
-      try { currentAudio.pause(); } catch (e) { /* ignore */ }
-      try { currentAudio.currentTime = 0; } catch (e) { /* ignore */ }
-    }
-    currentAudio = null; currentAudioPath = null; currentAudioBtn = null;
-  }
-  function setButtonState(btn, playing) {
-    if (!btn) return;
-    const playIc = btn.querySelector('.file-audio-btn__icon--play');
-    const pauseIc = btn.querySelector('.file-audio-btn__icon--pause');
-    if (playIc) playIc.hidden = playing;
-    if (pauseIc) pauseIc.hidden = !playing;
-    const t = i18n.t(playing ? 'file.pauseTitle' : 'file.playTitle');
-    btn.title = t; btn.setAttribute('aria-label', t);
-  }
-  function bindPlayButton(btn) {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();   // don't bubble to the .file-thumb re-source listener
-      const raw = btn.dataset.audioPath;
-      const url = btn.dataset.audioUrl;
-      // Same button while playing → toggle off.
-      if (currentAudioPath === raw && currentAudio) {
-        stopAudio(); setButtonState(btn, false); return;
+  // Reduce a decoded AudioBuffer to WAVE_PEAKS normalized amplitude samples
+  // (max absolute value per bucket; stereo → max across channels). WAVE_PEAKS
+  // is derived from WAVE_BAR_W/WAVE_GAP so the bars fill the canvas exactly.
+  function downsamplePeaks(buf) {
+    const ch0 = buf.getChannelData(0);
+    const ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : null;
+    const len = ch0.length;
+    const peaks = new Float32Array(WAVE_PEAKS);
+    const bucket = Math.max(1, Math.floor(len / WAVE_PEAKS));
+    let max = 0;
+    for (let i = 0; i < WAVE_PEAKS; i++) {
+      const start = i * bucket;
+      const end = Math.min(len, start + bucket);
+      let peak = 0;
+      for (let j = start; j < end; j++) {
+        const v = ch1 ? Math.max(Math.abs(ch0[j]), Math.abs(ch1[j])) : Math.abs(ch0[j]);
+        if (v > peak) peak = v;
       }
-      stopAudio();
-      // Reuse the pre-warmed element so the first play is instant (the browser
-      // has already buffered it at enhance time).
-      const a = warmAudio(raw, url);
-      currentAudio = a; currentAudioPath = raw; currentAudioBtn = btn;
-      setButtonState(btn, true);
-      a.addEventListener('ended', () => { if (currentAudio === a) { stopAudio(); setButtonState(btn, false); } });
-      a.addEventListener('error', () => { if (currentAudio === a) { stopAudio(); setButtonState(btn, false); } });
-      try { a.play(); } catch (err) { /* ignore autoplay/playback errors */ }
-    });
+      peaks[i] = peak;
+      if (peak > max) max = peak;
+    }
+    // Normalize to 0..1 so quiet clips still fill the bar height.
+    if (max > 0) for (let i = 0; i < WAVE_PEAKS; i++) peaks[i] /= max;
+    return peaks;
   }
-  // Async: stat each audio cell, downgrade 🎵→📄 if missing, else inject + bind
-  // a play button. Idempotent (skips spans already holding a button). Called
-  // after loadThumbnails() each render.
+  // Decode an audio URL into { peaks, duration, buffer }. Cached per raw path.
+  // The buffer is the decoded AudioBuffer — playback streams straight from it,
+  // so this single fetch is the ONLY network pull for the file. On any failure
+  // (fetch/CORS/decode/empty), returns { peaks: null, duration: NaN, buffer: null }
+  // and caches that sentinel so we never retry the same failing file.
+  async function decodeWaveform(raw, url) {
+    if (waveformCache.has(raw)) return waveformCache.get(raw);
+    let rec;
+    try {
+      const ab = await (await fetch(url)).arrayBuffer();
+      const ctx = getAudioCtx();
+      if (!ctx) throw new Error('no AudioContext');
+      const buf = await ctx.decodeAudioData(ab);
+      rec = { peaks: downsamplePeaks(buf), duration: buf.duration || 0, buffer: buf };
+    } catch (_) {
+      rec = { peaks: null, duration: NaN, buffer: null };
+    }
+    waveformCache.set(raw, rec);
+    return rec;
+  }
+  // Duration → display string. Hitsounds are sub-2s, so <10s shows decimal
+  // seconds (m:ss would erase all detail); ≥10s shows m:ss. Invalid → ''.
+  function formatDuration(sec) {
+    if (!isFinite(sec) || sec <= 0) return '';
+    if (sec < 10) return sec.toFixed(2) + 's';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return m + ':' + String(s).padStart(2, '0');
+  }
+  // Draw the waveform into a canvas. DPR-aware (re-asserts the transform every
+  // call since setting width resets it). Base bars full width, then accent
+  // overdraw for the played portion [0, progress].
+  function drawWaveform(canvas, peaks, progress) {
+    if (!canvas || !peaks) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = WAVE_CSS_W * dpr;
+    canvas.height = WAVE_CSS_H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, WAVE_CSS_W, WAVE_CSS_H);
+    const colors = resolveWaveColors();
+    const mid = WAVE_CSS_H / 2;
+    const slot = WAVE_BAR_W + WAVE_GAP;
+    // Continuous play edge (CSS px) so progress sweeps smoothly instead of
+    // jumping bar-by-bar: each bar straddling the edge is split — base color
+    // full width, then the played color overdrawn up to the edge's sub-pixel
+    // position within that bar.
+    const edge = Math.max(0, Math.min(1, progress)) * WAVE_CSS_W;
+    for (let i = 0; i < WAVE_PEAKS; i++) {
+      const h = Math.max(1, peaks[i] * (WAVE_CSS_H - 2));
+      const x = i * slot;
+      const y = mid - h / 2;
+      ctx.fillStyle = colors.base;
+      ctx.fillRect(x, y, WAVE_BAR_W, h);
+      const playedW = Math.min(WAVE_BAR_W, edge - x);
+      if (playedW > 0) {
+        ctx.fillStyle = colors.played;
+        ctx.fillRect(x, y, playedW, h);
+      }
+    }
+  }
+  // Single shared rAF loop: while a source plays, redraw its waveform with the
+  // current progress. Self-terminates when playback state is cleared. Progress
+  // is derived from the AudioContext clock (startCtxTime + startOffset), since
+  // AudioBufferSourceNode has no currentTime of its own.
+  function startWaveRaf() {
+    if (waveRafId) return;
+    const loop = () => {
+      if (!currentSource || !currentAudioCanvas || !audioCtx) { waveRafId = 0; return; }
+      const elapsed = startOffset + (audioCtx.currentTime - startCtxTime);
+      const p = currentDuration > 0 ? Math.min(1, elapsed / currentDuration) : 0;
+      drawWaveform(currentAudioCanvas, currentPeaks, p);
+      if (p >= 1) { stopAudio(); waveRafId = 0; return; }   // natural end fallback
+      waveRafId = requestAnimationFrame(loop);
+    };
+    waveRafId = requestAnimationFrame(loop);
+  }
+  function stopWaveRaf() {
+    if (waveRafId) { cancelAnimationFrame(waveRafId); waveRafId = 0; }
+  }
+  // Tear down all playback + decode state. Called on cache invalidation
+  // (skin/preset switch, global-shortcut apply) where the source files may have
+  // changed. Stops the active source, closes the AudioContext, drops all state.
+  function clearAudioElCache() {
+    stopWaveRaf();
+    stopSource(currentSource);
+    try { if (audioCtx) audioCtx.close(); } catch (e) { /* ignore */ }
+    audioCtx = null;
+    waveColors = null;   // re-resolve colors next draw (theme may have changed)
+    currentSource = null; currentBuffer = null; currentAudioPath = null;
+    currentAudioCanvas = null; currentDuration = 0; currentPeaks = null;
+    startCtxTime = 0; startOffset = 0;
+    clearPaused();
+  }
+  // Stop + disconnect a source node (no-op if null). Stopping an already-stopped
+  // node throws, hence the guard.
+  function stopSource(src) {
+    if (!src) return;
+    try { src.onended = null; } catch (e) { /* ignore */ }
+    try { src.stop(); } catch (e) { /* ignore */ }
+    try { src.disconnect(); } catch (e) { /* ignore */ }
+  }
+  // Full stop: stop the playing source, redraw idle, clear ALL state (playing +
+  // paused). Used when switching rows, re-rendering, or on error/ended.
+  function stopAudio() {
+    stopWaveRaf();
+    stopSource(currentSource);
+    drawWaveform(currentAudioCanvas, currentPeaks, 0);   // idle BEFORE nulling
+    clearPaused();
+    currentSource = null; currentBuffer = null; currentAudioPath = null;
+    currentAudioCanvas = null; currentDuration = 0; currentPeaks = null;
+    startCtxTime = 0; startOffset = 0;
+  }
+  // Pause the playing row WITHOUT rewinding: compute the current play offset,
+  // stash it so a left-click can resume, then stop the source + rAF and freeze
+  // the canvas at the playhead.
+  function pauseAudio() {
+    if (!currentSource || !audioCtx) return;
+    stopWaveRaf();
+    const offset = currentElapsed();
+    stopSource(currentSource);
+    const p = currentDuration > 0 ? Math.min(1, offset / currentDuration) : 0;
+    drawWaveform(currentAudioCanvas, currentPeaks, p);   // freeze at playhead
+    pausedBuffer = currentBuffer; pausedPath = currentAudioPath;
+    pausedCanvas = currentAudioCanvas; pausedPeaks = currentPeaks;
+    pausedDuration = currentDuration; pausedOffset = offset;
+    currentSource = null; currentBuffer = null; currentAudioPath = null;
+    currentAudioCanvas = null; currentDuration = 0; currentPeaks = null;
+    startCtxTime = 0; startOffset = 0;
+  }
+  function clearPaused() {
+    if (pausedBuffer) drawWaveform(pausedCanvas, pausedPeaks, 0);   // rewind viz
+    pausedBuffer = null; pausedPath = null; pausedCanvas = null;
+    pausedPeaks = null; pausedDuration = 0; pausedOffset = 0;
+  }
+  // Current play position (seconds) derived from the AudioContext clock.
+  function currentElapsed() {
+    if (!audioCtx) return startOffset;
+    return startOffset + (audioCtx.currentTime - startCtxTime);
+  }
+  // Start (or resume) playback of a decoded AudioBuffer at the given offset.
+  // AudioBufferSourceNode is one-shot, so each call mints a fresh node bound to
+  // the shared context's destination. The context is resumed here (user gesture)
+  // to satisfy autoplay policy. rAF drives the progress redraw.
+  function playBuffer(buf, peaks, canvas, duration, offset) {
+    const ctx = getAudioCtx();
+    if (!ctx || !buf) return;
+    if (ctx.state === 'suspended') { try { ctx.resume(); } catch (e) { /* ignore */ } }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.onended = () => { if (currentSource === src) stopAudio(); };
+    const when = ctx.currentTime;
+    try { src.start(when, Math.min(offset, (buf.duration || duration) - 0.001)); }
+    catch (_) { stopAudio(); return; }
+    currentSource = src; currentBuffer = buf;
+    currentPeaks = peaks; currentAudioCanvas = canvas;
+    currentDuration = duration || buf.duration || 0;
+    startCtxTime = when; startOffset = offset;
+    startWaveRaf();
+  }
+  // The waveform wrapper is the click target.
+  //   • left-click on idle row   → play from 0
+  //   • left-click while playing → pause (keep position)
+  //   • left-click on paused row → resume from pause
+  //   • right-click anywhere     → play from 0 (restart)
+  function bindWaveCanvas(wrapper) {
+    const onActivate = (e, fromStart) => {
+      e.stopPropagation();   // don't bubble to the .file-thumb re-source listener
+      const raw = wrapper.dataset.audioPath;
+      const canvas = wrapper.querySelector('.file-audio-wave__cv');
+      const rec = waveformCache.get(raw);
+      const buf = rec && rec.buffer;
+      // Right-click = force restart from 0, regardless of current state.
+      if (e.button === 2 || fromStart) {
+        stopAudio();
+        if (!buf) return;
+        currentAudioPath = raw;
+        playBuffer(buf, rec.peaks, canvas, rec.duration, 0);
+        return;
+      }
+      // Left-click while this row is playing → pause (keep position).
+      if (currentAudioPath === raw && currentSource) {
+        pauseAudio();
+        return;
+      }
+      // Left-click on the paused row → resume from the stashed position.
+      if (pausedPath === raw && pausedBuffer) {
+        const pBuf = pausedBuffer, pPeaks = pausedPeaks, pCan = pausedCanvas;
+        const pDur = pausedDuration, pOff = pausedOffset;
+        currentAudioPath = raw;
+        pausedBuffer = null; pausedPath = null; pausedCanvas = null;
+        pausedPeaks = null; pausedDuration = 0; pausedOffset = 0;
+        playBuffer(pBuf, pPeaks, pCan, pDur, pOff);
+        return;
+      }
+      // Left-click on a fresh row → stop everything else, play from 0.
+      stopAudio();
+      if (!buf) return;
+      currentAudioPath = raw;
+      playBuffer(buf, rec.peaks, canvas, rec.duration, 0);
+    };
+    wrapper.addEventListener('click', (e) => onActivate(e, false));
+    // Right-click restarts from the beginning; prevent the native context menu.
+    wrapper.addEventListener('contextmenu', (e) => { e.preventDefault(); onActivate(e, true); });
+  }
+  // Async: stat each audio cell, downgrade 🎵→📄 if missing, else decode the
+  // waveform and mount the canvas + duration. Idempotent (skips wrappers
+  // already marked data-wave-ready). Called after loadThumbnails() each render.
   async function enhanceAudioRows() {
     const convert = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.convertFileSrc) || null;
-    if (!convert) return;   // graceful: leave the optimistic 🎵 icon, no button
+    if (!convert) return;   // graceful: leave the optimistic 🎵 icon, no canvas
     const skPath = await skinPath() || '';
     const spans = document.querySelectorAll('.file-thumb[data-path]');
     const toBind = [];
     for (const span of spans) {
       const raw = span.dataset.path || '';
       if (!isAudioPath(raw)) continue;
-      if (span.querySelector('.file-audio-btn')) continue;   // idempotent
+      const wrapper = span.querySelector('.file-audio-wave');
+      if (!wrapper || wrapper.dataset.waveReady === '1') continue;   // idempotent
       let exists;
       if (audioExistsCache.has(raw)) {
         exists = audioExistsCache.get(raw);
@@ -137,20 +367,44 @@
         // Missing audio → restore the default 📄 placeholder icon.
         const ic = span.querySelector('.file-thumb__icon--audio');
         if (ic) { ic.classList.remove('file-thumb__icon--audio'); ic.textContent = '📄'; }
+        if (wrapper) wrapper.remove();   // no canvas for a missing file
         continue;
       }
       const url = convert(resolveDiskPath(raw, skPath));
-      warmAudio(raw, url);   // pre-buffer now so the first click plays instantly
-      span.insertAdjacentHTML('beforeend',
-          '<button class="file-audio-btn" type="button" '
-        + 'data-audio-path="' + escapeHtml(raw) + '" '
-        + 'data-audio-url="' + escapeHtml(url) + '" '
-        + 'title="' + escapeHtml(i18n.t('file.playTitle')) + '" '
-        + 'aria-label="' + escapeHtml(i18n.t('file.playTitle')) + '">'
-        + PLAY_SVG + PAUSE_SVG + '</button>');
-      toBind.push(span.querySelector('.file-audio-btn:last-child'));
+      wrapper.dataset.audioPath = raw;
+      const title = i18n.t('file.waveformTitle');
+      wrapper.title = title;
+      wrapper.setAttribute('aria-label', title);
+      toBind.push(wrapper);
+      // Decode is async; mount the canvas + duration when it resolves. This
+      // fetch is the SINGLE network pull for the file — the decoded AudioBuffer
+      // is cached and replayed straight from memory on click (no second fetch,
+      // no HTMLAudioElement preload racing the buffer). The wrapper may have
+      // been detached by a re-render mid-flight — bail then.
+      decodeWaveform(raw, url).then(rec => {
+        if (!wrapper.isConnected) return;
+        wrapper.dataset.waveReady = '1';
+        if (rec && rec.peaks) {
+          const cv = document.createElement('canvas');
+          cv.className = 'file-audio-wave__cv';
+          wrapper.appendChild(cv);
+          drawWaveform(cv, rec.peaks, 0);
+        } else {
+          wrapper.dataset.waveFailed = '1';   // decode failed: still click-plays
+        }
+        const fmt = formatDuration(rec ? rec.duration : NaN);
+        const name = span.querySelector('.file-thumb__name');
+        if (name && !(name.nextElementSibling && name.nextElementSibling.classList.contains('file-audio-dur'))) {
+          const dur = document.createElement('span');
+          dur.className = 'ini-key-desc file-audio-dur';
+          // Always show a duration tag — even when decode failed or the file
+          // has no readable length — so the column stays visually stable.
+          dur.textContent = fmt || '--:--';
+          name.after(dur);
+        }
+      });
     }
-    for (const btn of toBind) bindPlayButton(btn);
+    for (const w of toBind) bindWaveCanvas(w);
   }
 
   function blockUI() {
@@ -257,7 +511,7 @@
       sel = OpTable.create({
         container,
         rowSelector: '.file-op-row',
-        interactiveSelector: 'input, button, label, .toggle, .toggle__slider, .file-thumb__icon, img',
+        interactiveSelector: 'input, button, label, .toggle, .toggle__slider, .file-thumb__icon, img, .file-audio-wave',
         deleteMimeType: 'application/file-indices',
         rowMembers: (row) => rowMemberIndices(row),
         rowAnchor: (row) => rowAnchorIndex(row),
@@ -1128,12 +1382,14 @@
   // Build the inner markup for a file cell: cached <img> if available, else a
   // 📄 icon placeholder (loadThumbnails fills it in async on first load).
   // Delete rows (no source / not an image) render a bare label with no icon.
-  // Audio rows (copy OR delete) render an optimistic 🎵 placeholder; the async
-  // enhanceAudioRows pass downgrades to 📄 if the file is missing, or injects a
-  // play button if it exists.
+  // Audio rows (copy OR delete) render [🎵] + a waveform wrapper + the
+  // filename. The wrapper is an empty skeleton here (reserves the fixed-width
+  // slot so layout is stable); the async enhanceAudioRows pass downgrades the
+  // row to 📄 if the file is missing, otherwise decodes the waveform and mounts
+  // a <canvas> + duration inside/after it.
   function thumbHtmlFor(rawPath, label, isDelete) {
     if (isAudioPath(rawPath)) {
-      return `<span class="file-thumb__icon file-thumb__icon--audio" title="${i18n.t('file.clickToChange')}">🎵</span><span class="file-thumb__name" title="${escapeHtml(rawPath)}">${escapeHtml(label || '')}</span>`;
+      return `<span class="file-thumb__icon file-thumb__icon--audio" title="${i18n.t('file.clickToChange')}">🎵</span><span class="file-audio-wave"></span><span class="file-thumb__name" title="${escapeHtml(rawPath)}">${escapeHtml(label || '')}</span>`;
     }
     if (isDelete) {
       return `<span class="file-thumb__icon" title="${i18n.t('file.clickToChange')}">📄</span><span class="file-thumb__name" title="${escapeHtml(rawPath)}">${escapeHtml(label || '')}</span>`;
@@ -1194,5 +1450,5 @@
     sel.setSelected(ns, anchor);
   }
 
-  window.FileCopyEditor = { init, render, layoutColumns: adjustFillButtons, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection(), invalidateCache: () => { thumbCache.clear(); audioExistsCache.clear(); clearAudioElCache(); } };
+  window.FileCopyEditor = { init, render, layoutColumns: adjustFillButtons, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection(), invalidateCache: () => { thumbCache.clear(); audioExistsCache.clear(); clearAudioElCache(); waveformCache.clear(); } };
 })();

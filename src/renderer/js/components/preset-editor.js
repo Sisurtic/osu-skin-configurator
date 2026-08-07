@@ -1074,6 +1074,7 @@
     }
     if (result && result.success) {
       state.set('presetDirty', false);
+      Toast.success(i18n.t('preset.saved'));
       // Suppress sub-editor writes during the post-save re-render: the old
       // input DOM is destroyed by render(), firing blur/change events that
       // would write stale values into the freshly-reloaded editData and
