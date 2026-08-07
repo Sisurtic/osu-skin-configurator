@@ -1,16 +1,11 @@
 // Source picker — opens the file dialog and returns skin-relative paths for
 // re-sourcing operation rows. Each editor binds its own thumbnail click handler
 // (img/icon only) and calls SourcePicker.pickMulti; the component owns the
-// dialog + path normalization (absolute skin path → skin-relative).
+// dialog + path normalization (absolute skin path → skin-relative). Callers
+// pass their own `filters` (file ops use all-files, tint/layer use PNG/JPG).
 //
 // Vanilla JS, no modules. window.SourcePicker = { pickMulti }.
 (function () {
-  // Default image filter for the open-file dialog.
-  const DEFAULT_FILTERS = () => [
-    { name: 'Image', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng', 'bmp'] },
-    { name: 'All', extensions: ['*'] },
-  ];
-
   // Normalize an absolute/relative chosen path to skin-relative: if it's inside
   // the skin folder, strip the skin prefix; otherwise leave it as-is (relative
   // paths are returned unchanged). `skPath` is the absolute skin root (POSIX).
@@ -33,12 +28,12 @@
   // Open the file dialog (multi-select) and resolve to ALL chosen paths
   // (skin-relative), or [] on cancel. `opts`:
   //   getSkinPath: async () => absSkinPath   (skin root for normalization)
-  //   filters?: dialog filter list (defaults to image + all)
+  //   filters: dialog filter list (required — each caller picks its own)
   //   currentSource?: skin-relative path — its directory becomes the dialog's
   //     initial folder (falls back to the skin root).
   async function pickMulti(opts) {
     const getSkinPath = (opts && opts.getSkinPath) || (async () => '');
-    const filters = (opts && opts.filters) || DEFAULT_FILTERS();
+    const filters = (opts && opts.filters) || [{ name: 'All', extensions: ['*'] }];
     const skPath = (await getSkinPath() || '').replace(/\\/g, '/');
     let defaultPath = skPath || undefined;
     const cur = opts && opts.currentSource;

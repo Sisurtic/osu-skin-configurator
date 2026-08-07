@@ -1712,7 +1712,7 @@
       try {
         fileDialogOpen = true; blockUI();
         const defaultPath = await skinPath() || '';
-        const result = await api.selectFile([{ name: 'PNG', extensions: ['png'] }], defaultPath);
+        const result = await api.selectFile([{ name: i18n.t('file.pngJpgFilter'), extensions: ['png', 'jpg', 'jpeg'] }], defaultPath);
         if (!result.success || !result.data || !result.data.length) return;
         const skPath = await skinPath();
         const tints = cur();
@@ -1858,7 +1858,11 @@
         const op = !Number.isNaN(idx) ? arr[idx] : null;
         currentSource = op ? (op.source || '') : '';
       }
-      const chosen = await window.SourcePicker.pickMulti({ getSkinPath: () => skinPath(), currentSource });
+      const chosen = await window.SourcePicker.pickMulti({
+        getSkinPath: () => skinPath(),
+        currentSource,
+        filters: [{ name: i18n.t('file.pngJpgFilter'), extensions: ['png', 'jpg', 'jpeg'] }],
+      });
       syncReSource(chosen, clickedRow);
     }
 

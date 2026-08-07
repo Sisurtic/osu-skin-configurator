@@ -232,7 +232,7 @@
   function renderNormalRow(l, k) {
     const is2x = has2x(l.source);
     return `<div class="op-row layer-row${l.tintEnabled ? ' layer-row--tinton' : ''}" data-idx="${k}">
-      <div class="op-cell" data-col="file"><span class="file-thumb layer-thumb" data-path="${escapeHtml(l.source || '')}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(l.source || '', pathBasename(l.source))}</span></div>
+      <div class="op-cell" data-col="file"><span class="file-thumb layer-thumb" data-path="${escapeHtml(l.source || '')}" title="${escapeHtml(i18n.t('file.clickToChange'))}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(l.source || '', pathBasename(l.source))}</span></div>
       <div class="op-cell" data-col="mode" style="display:flex;align-items:center;gap:6px;min-width:0">
         <button type="button" class="form-input layer-flyout-btn" data-idx="${k}" title="${escapeHtml(i18n.t('layer.propsTitle'))}" style="flex:0 0 auto;width:28px;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg class="layer-flyout-icon" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true"><path d="M2 3h10M2 7h10M2 11h10"/></svg></button>
         <select class="form-input layer-blend" data-idx="${k}" style="flex:1;min-width:0;margin-left:0">${blendOpts(l.blendMode || 'normal')}</select>
@@ -251,7 +251,7 @@
     const swatchBg = (l.mode === 'hue-shift') ? hueShiftPreviewCss(l) : colorToCss(l.color);
     const tintOn = !!l.tintEnabled;
     return `<div class="op-row layer-row${tintOn ? ' layer-row--tinton' : ''}" data-idx="${k}">
-      <div class="op-cell" data-col="file"><span class="file-thumb layer-thumb" data-path="${escapeHtml(l.source || '')}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(l.source || '', pathBasename(l.source))}</span></div>
+      <div class="op-cell" data-col="file"><span class="file-thumb layer-thumb" data-path="${escapeHtml(l.source || '')}" title="${escapeHtml(i18n.t('file.clickToChange'))}" style="display:inline-flex;align-items:center;gap:6px">${thumbHtmlFor(l.source || '', pathBasename(l.source))}</span></div>
       <div class="op-cell" data-col="tint" style="display:flex;align-items:center;gap:8px;min-width:0">
         <button type="button" class="tint-color-swatch layer-tint-swatch" data-idx="${k}"${tintOn ? '' : ' disabled'} style="width:24px;height:24px;border-radius:4px;border:1px solid var(--border);background:${swatchBg};flex:0 0 auto;cursor:${tintOn ? 'pointer' : 'default'}"></button>
         <select class="form-input layer-tint-mode" data-idx="${k}"${tintOn ? '' : ' disabled'} style="flex:1;min-width:0">${tintModeOpts(l.mode || 'normal')}</select>
@@ -422,7 +422,7 @@
       try {
         fileDialogOpen = true;
         const defaultPath = await skinPath() || '';
-        const result = await api.selectFile([{ name: 'PNG', extensions: ['png'] }], defaultPath);
+        const result = await api.selectFile([{ name: i18n.t('file.pngJpgFilter'), extensions: ['png', 'jpg', 'jpeg'] }], defaultPath);
         if (!result.success || !result.data || !result.data.length) return;
         const skPath = await skinPath();
         const idx = selectedIdx();
@@ -497,6 +497,7 @@
           const picked = await window.SourcePicker.pickMulti({
             getSkinPath: () => skinPath(),
             currentSource: oldSrc,
+            filters: [{ name: i18n.t('file.pngJpgFilter'), extensions: ['png', 'jpg', 'jpeg'] }],
           });
           if (!picked.length) return;
           const relPath = picked[0];

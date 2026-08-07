@@ -356,6 +356,18 @@ button.form-input.dd-trigger { appearance: none; }
   opacity: 0.85;
   box-shadow: 0 0 0 2px var(--accent);
 }
+/* Layer OUTER table thumbnail is display-only (no re-source handler), so it
+   must NOT read as a click target: drop the hover highlight there. Only the
+   INNER table thumbnail (.layer-thumb) is re-sourceable and keeps the highlight. */
+.layerop-row .file-thumb img,
+.layerop-row .file-thumb__icon {
+  cursor: default;
+}
+.layerop-row .file-thumb img:hover,
+.layerop-row .file-thumb__icon:hover {
+  opacity: 1;
+  box-shadow: none;
+}
 /* Group-member sub-rows (tr[data-group-parent]) can't be re-sourced
    individually — swapping one frame orphans it from its sequence (use the
    group header instead). pointer-events:none on their thumbnail img/icon
