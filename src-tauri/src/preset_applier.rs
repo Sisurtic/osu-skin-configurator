@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use rayon::prelude::*;
-use crate::preset_manager::Group;
+use crate::preset_manager::{Group, path_matches_case};
 
 fn normalize_lexical(p: &str) -> String {
     // emulate Node path.normalize for our containment check: collapse separators,
@@ -755,7 +755,12 @@ fn resolve_source(
             if alt.exists() { use_src = alt.to_string_lossy().to_string(); }
         }
     }
-    if !Path::new(&use_src).exists() {
+    let use_src_path = Path::new(&use_src);
+    // Existence alone is not enough on Windows (case-insensitive FS): a stored
+    // `SOUND\...` still "exists" after the folder became `Sound\...`. Require the
+    // on-disk casing to match every segment of the stored path exactly, else
+    // treat it as a missing source rather than silently applying a stale path.
+    if !use_src_path.exists() || !path_matches_case(use_src_path) {
         push_warn(warnings, origin, crate::i18n::t("warn.copy_source_missing", &[("name", &source_name)]));
         return None;
     }
@@ -861,10 +866,14 @@ fn apply_one_set(
         if !deleted_paths.insert(key) {
             continue; // already handled by an earlier delete entry
         }
-        if target.exists() {
-            if std::fs::remove_file(&target).is_ok() { files_deleted += 1; }
-        } else {
+        // Existence alone is not enough on Windows (case-insensitive FS): a
+        // stored `SOUND\...` still "exists" after the folder became `Sound\...`.
+        // Require exact casing so a stale path is skipped (warned) rather than
+        // silently deleting the renamed file.
+        if !target.exists() || !path_matches_case(&target) {
             push_warn(&mut warnings, origin, crate::i18n::t("warn.del_missing", &[("path", del_path)]));
+        } else {
+            if std::fs::remove_file(&target).is_ok() { files_deleted += 1; }
         }
     }
 

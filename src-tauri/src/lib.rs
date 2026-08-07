@@ -383,7 +383,11 @@ fn image_get_preview(image_path: String) -> Value {
 // through image_get_preview just to test existence.
 #[tauri::command]
 fn file_exists(image_path: String) -> Value {
-    let exists = !image_path.is_empty() && std::path::Path::new(&image_path).exists();
+    // Existence alone is not enough on Windows (case-insensitive FS): a stored
+    // `SOUND\...` still "exists" after the folder became `Sound\...`. Require the
+    // on-disk casing to match exactly so the audio preview reflects the real path.
+    let p = std::path::Path::new(&image_path);
+    let exists = !image_path.is_empty() && p.exists() && preset_manager::path_matches_case(p);
     wrap_ok(json!(exists))
 }
 

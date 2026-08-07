@@ -1073,8 +1073,44 @@ pub fn delete_group_recursive(skin_path: &str, group_id: i64) -> Result<Value, S
 
 // ── Preview ──
 
+// Verify that `abs` exists on disk with EXACT casing for every path segment.
+// Windows FS is case-insensitive, so a stored `SOUND\...` happily resolves after
+// the folder was renamed to `Sound\...`. We walk the path segment-by-segment
+// from the root, reading each directory and requiring a byte-exact entry name
+// match — any casing drift (or a genuinely missing entry) returns false. This
+// keeps the UI from showing a preview for a stale-cased stored path.
+pub fn path_matches_case(abs: &Path) -> bool {
+    let comps: Vec<String> = abs.components().filter_map(|c| match c {
+        std::path::Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+        _ => None,
+    }).collect();
+    if comps.is_empty() { return true; }
+    // Anchor = the path with all Normal segments stripped (e.g. "C:\" for an
+    // absolute Windows path). We rebuild the verified path under it.
+    let mut current = abs.to_path_buf();
+    for ancestor in abs.ancestors() {
+        let normal_count = ancestor.components().filter(|c| matches!(c, std::path::Component::Normal(_))).count();
+        if normal_count == 0 { current = ancestor.to_path_buf(); break; }
+    }
+    for seg in &comps {
+        let rd = match fs::read_dir(&current) {
+            Ok(rd) => rd,
+            Err(_) => return false,
+        };
+        let found = rd.flatten().any(|e| e.file_name().to_string_lossy() == *seg);
+        if !found { return false; }
+        current = current.join(seg);
+    }
+    true
+}
+
 pub fn get_preview_data_url(image_path: &str) -> Option<String> {
-    if image_path.is_empty() || !Path::new(image_path).exists() { return None; }
+    if image_path.is_empty() { return None; }
+    let p = Path::new(image_path);
+    // Existence alone is not enough on Windows (case-insensitive FS): a stored
+    // `SOUND\...` still "exists" after the folder became `Sound\...`. Require the
+    // on-disk casing to match exactly, else report the preview as missing.
+    if !p.exists() || !path_matches_case(p) { return None; }
     let bytes = fs::read(image_path).ok()?;
     let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
     let ext = Path::new(image_path).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
