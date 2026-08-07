@@ -35,6 +35,24 @@ fn wrap_err(msg: &str) -> Value { json!({ "success": false, "error": msg }) }
 fn skin_path_from_name(app: &AppHandle, skin_name: &str) -> Result<String, String> {
     let cfg = config_store::load(app);
     let osu_path = cfg.osu_path.ok_or_else(|| i18n::t("err.osu_path_unset", &[]))?;
+    // Return the skin directory's REAL filesystem casing, not the casing of the
+    // configured osu_path + skin_name. The frontend strips this prefix from
+    // dialog-chosen absolute paths with a CASE-SENSITIVE compare; if skPath's
+    // casing drifted from the disk's, either the prefix fails to strip (path
+    // looks "outside" the skin) or it strips with foreign casing (same file
+    // stored as two divergent strings → dedup/drift). Reading the actual dir
+    // entry gives the canonical casing both sides agree on. Falls back to the
+    // joined path if the skin folder can't be read (e.g. just deleted).
+    let skins_dir = osu_path::get_skins_path(&osu_path);
+    let target_lc = skin_name.to_lowercase();
+    if let Ok(rd) = std::fs::read_dir(&skins_dir) {
+        for entry in rd.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) { continue; }
+            if entry.file_name().to_string_lossy().to_lowercase() == target_lc {
+                return Ok(entry.path().to_string_lossy().to_string());
+            }
+        }
+    }
     Ok(osu_path::get_skin_path(&osu_path, skin_name).to_string_lossy().to_string())
 }
 
