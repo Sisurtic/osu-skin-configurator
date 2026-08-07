@@ -25,6 +25,10 @@
   // matches the re-source gate (img/.file-thumb__icon) — clicks don't resrc.
   const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg']);
   const audioExistsCache = new Map();   // raw path → bool (exists on disk)
+  // Pre-warmed HTMLAudioElement per raw path. Created + load()ed at enhance
+  // time so the browser buffers the bytes BEFORE the user clicks — the first
+  // play is then immediate instead of eating the start while it fetches.
+  const audioElCache = new Map();
   let currentAudio = null;              // the playing HTMLAudioElement
   let currentAudioPath = null;          // raw path bound to currentAudio
   let currentAudioBtn = null;           // the button element (cleared on re-render)
@@ -46,8 +50,35 @@
     }
     return p;
   }
+  // Build (or reuse) a pre-warmed Audio element for a raw path's URL and kick
+  // off buffering. Safe to call repeatedly — reuses the cached element.
+  function warmAudio(raw, url) {
+    let a = audioElCache.get(raw);
+    if (!a) {
+      a = new Audio();
+      a.preload = 'auto';
+      a.src = url;   // setting src + preload triggers the fetch/decode
+      audioElCache.set(raw, a);
+    }
+    return a;
+  }
+  // Drop every pre-warmed Audio element (pause + clear src so the browser can
+  // reclaim the buffered media). Called on cache invalidation (skin/preset
+  // switch, global-shortcut apply) where the source files may have changed.
+  function clearAudioElCache() {
+    for (const a of audioElCache.values()) {
+      try { a.pause(); } catch (e) { /* ignore */ }
+      try { a.removeAttribute('src'); a.load(); } catch (e) { /* ignore */ }
+    }
+    audioElCache.clear();
+    // The current Audio (if any) was one of the cached elements; reset state.
+    currentAudio = null; currentAudioPath = null; currentAudioBtn = null;
+  }
   function stopAudio() {
-    if (currentAudio) { try { currentAudio.pause(); } catch (e) { /* ignore */ } }
+    if (currentAudio) {
+      try { currentAudio.pause(); } catch (e) { /* ignore */ }
+      try { currentAudio.currentTime = 0; } catch (e) { /* ignore */ }
+    }
     currentAudio = null; currentAudioPath = null; currentAudioBtn = null;
   }
   function setButtonState(btn, playing) {
@@ -69,7 +100,9 @@
         stopAudio(); setButtonState(btn, false); return;
       }
       stopAudio();
-      const a = new Audio(url);
+      // Reuse the pre-warmed element so the first play is instant (the browser
+      // has already buffered it at enhance time).
+      const a = warmAudio(raw, url);
       currentAudio = a; currentAudioPath = raw; currentAudioBtn = btn;
       setButtonState(btn, true);
       a.addEventListener('ended', () => { if (currentAudio === a) { stopAudio(); setButtonState(btn, false); } });
@@ -107,6 +140,7 @@
         continue;
       }
       const url = convert(resolveDiskPath(raw, skPath));
+      warmAudio(raw, url);   // pre-buffer now so the first click plays instantly
       span.insertAdjacentHTML('beforeend',
           '<button class="file-audio-btn" type="button" '
         + 'data-audio-path="' + escapeHtml(raw) + '" '
@@ -1150,5 +1184,5 @@
     sel.setSelected(ns, anchor);
   }
 
-  window.FileCopyEditor = { init, render, layoutColumns: adjustFillButtons, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection(), invalidateCache: () => { thumbCache.clear(); audioExistsCache.clear(); } };
+  window.FileCopyEditor = { init, render, layoutColumns: adjustFillButtons, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection(), invalidateCache: () => { thumbCache.clear(); audioExistsCache.clear(); clearAudioElCache(); } };
 })();
