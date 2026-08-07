@@ -936,8 +936,8 @@
 
   function convertToSkinIniPath(fullPath, skinPath, edit, field) {
     let rel = fullPath;
-    // Convert to skin-relative path
-    if (skinPath && fullPath.toLowerCase().startsWith(skinPath.toLowerCase())) {
+    // Convert to skin-relative path (case-sensitive: skin root casing is canonical)
+    if (skinPath && fullPath.startsWith(skinPath)) {
       rel = fullPath.slice(skinPath.length).replace(/^[/\\]/, '');
     }
     // Separate directory and filename

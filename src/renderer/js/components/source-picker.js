@@ -14,11 +14,16 @@
   // Normalize an absolute/relative chosen path to skin-relative: if it's inside
   // the skin folder, strip the skin prefix; otherwise leave it as-is (relative
   // paths are returned unchanged). `skPath` is the absolute skin root (POSIX).
+  // The prefix match is CASE-SENSITIVE: the skin root's casing is canonical
+  // (it comes from the configured osu path + skin name), and a case-insensitive
+  // match would strip the prefix off a path whose actual casing differs —
+  // yielding a relPath with foreign casing that diverges from the canonical
+  // stored path (same file, two strings → dedup/drift bugs).
   function toSkinRelative(chosen, skPath) {
     let p = (chosen || '').replace(/\\/g, '/');
     if (skPath) {
       const skNorm = skPath.replace(/\/$/, '');
-      if (p.toLowerCase().startsWith(skNorm.toLowerCase())) {
+      if (p.startsWith(skNorm)) {
         p = p.slice(skNorm.length).replace(/^\//, '');
       }
     }

@@ -1718,7 +1718,7 @@
         const tints = cur();
         for (const absPath of result.data) {
           let relPath = '';
-          if (skPath && absPath.toLowerCase().startsWith(skPath.toLowerCase())) {
+          if (skPath && absPath.startsWith(skPath)) {
             relPath = absPath.slice(skPath.length).replace(/^[/\\]/, '');
           }
           if (!relPath) { Toast.warning(i18n.t('file.outsideSkin')); continue; }

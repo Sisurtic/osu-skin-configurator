@@ -343,7 +343,11 @@
         const copiesBefore = copies.length;
         for (const absPath of result.data) {
           let relPath = '';
-          if (skPath && absPath.toLowerCase().startsWith(skPath.toLowerCase())) {
+          // Case-sensitive prefix match: the skin root's casing is canonical.
+          // A case-insensitive match would accept a path whose actual casing
+          // differs, storing a relPath with foreign casing that diverges from
+          // the canonical path (same file, two strings).
+          if (skPath && absPath.startsWith(skPath)) {
             relPath = absPath.slice(skPath.length).replace(/^[/\\]/, '');
           }
           if (!relPath) {
@@ -385,7 +389,7 @@
         const deletesBefore = deletes.length;
         for (const filePath of filePaths) {
           let relPath = '';
-          if (skPath && filePath.toLowerCase().startsWith(skPath.toLowerCase())) {
+          if (skPath && filePath.startsWith(skPath)) {
             relPath = filePath.slice(skPath.length).replace(/^[/\\]/, '');
           }
           if (!relPath) {

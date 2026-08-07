@@ -244,7 +244,7 @@
     const toRel = (absPath) => {
       const norm = absPath.replace(/\\/g, '/');
       const sk = skPath.replace(/\\/g, '/');
-      if (sk && norm.toLowerCase().startsWith(sk.toLowerCase())) {
+      if (sk && norm.startsWith(sk)) {
         return norm.slice(sk.length).replace(/^[/\\]/, '');
       }
       return '';
