@@ -422,7 +422,7 @@
       try {
         fileDialogOpen = true;
         const defaultPath = await skinPath() || '';
-        const result = await api.selectFile([{ name: i18n.t('file.pngJpgFilter'), extensions: ['png', 'jpg', 'jpeg'] }], defaultPath);
+        const result = await api.selectFile([{ name: 'PNG/JPG', extensions: ['png', 'jpg', 'jpeg'] }], defaultPath);
         if (!result.success || !result.data || !result.data.length) return;
         const skPath = await skinPath();
         const idx = selectedIdx();
@@ -497,7 +497,7 @@
           const picked = await window.SourcePicker.pickMulti({
             getSkinPath: () => skinPath(),
             currentSource: oldSrc,
-            filters: [{ name: i18n.t('file.pngJpgFilter'), extensions: ['png', 'jpg', 'jpeg'] }],
+            filters: [{ name: 'PNG/JPG', extensions: ['png', 'jpg', 'jpeg'] }],
           });
           if (!picked.length) return;
           const relPath = picked[0];

@@ -233,7 +233,7 @@
       if (lastSep > 0) defaultPath = full.substring(0, lastSep);
     }
     const result = await api.selectFile([
-      { name: i18n.t('preview.imageFilter'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng', 'bmp'] },
+      { name: 'Image', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'apng', 'bmp'] },
     ], defaultPath);
     dialogOpen = false;
     unblockUI();

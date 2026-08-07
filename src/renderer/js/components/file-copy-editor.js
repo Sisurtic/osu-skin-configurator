@@ -334,7 +334,7 @@
         blockUI();
         const skPath = await skinPath() || '';
         const result = await api.selectFile([
-          { name: i18n.t('file.allFilesFilter'), extensions: ['*'] }
+          { name: 'All files', extensions: ['*'] }
         ], skPath);
         if (!result.success || !result.data || !result.data.length) return;
 
@@ -379,7 +379,7 @@
         blockUI();
         const defaultPath = await skinPath() || '';
         const result = await api.selectFile([
-          { name: i18n.t('file.allFilesFilter'), extensions: ['*'] }
+          { name: 'All files', extensions: ['*'] }
         ], defaultPath);
         if (!result.success || !result.data || !result.data.length) return;
 
@@ -845,7 +845,7 @@
       // all-files filter — not the SourcePicker's image default, which would hide
       // audio/other files from the picker.
       const allFilter = () => [
-        { name: i18n.t('file.allFilesFilter'), extensions: ['*'] },
+        { name: 'All files', extensions: ['*'] },
       ];
       const chosen = await window.SourcePicker.pickMulti({ getSkinPath: () => skinPath(), currentSource, filters: allFilter() });
       syncReSource(chosen, clickedRow);

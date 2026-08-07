@@ -898,7 +898,7 @@
         const idx = parseInt(btn.dataset.idx);
         const skPath = skinPathFn ? await skinPathFn() : '';
         const result = await api.selectFile([
-          { name: i18n.t('file.pngFilter'), extensions: ['png'] }
+          { name: 'PNG', extensions: ['png'] }
         ], skPath || undefined);
         if (!result.success || !result.data || !result.data.length) return;
         const selectedPath = result.data[0];
