@@ -98,6 +98,7 @@
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
         const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0, d.filesLayered || 0);
         Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
+        if (typeof window.playApplySound === 'function') window.playApplySound(true);
         // Surface partial-failure warnings (missing sources, copy/tint failures,
         // paths outside the skin) the backend reports alongside the success.
         const warns = d.warnings || [];
@@ -106,6 +107,7 @@
         }
       } else {
         Toast.error(i18n.t('apply.applyFailed', { msg: result.error || i18n.t('app.unknownError') }));
+        if (typeof window.playApplySound === 'function') window.playApplySound(false);
       }
     });
   }
@@ -349,6 +351,7 @@
 
       if (failed) {
         Toast.error(i18n.t('apply.applyFailed', { msg: failed.error || i18n.t('app.unknownError') }));
+        if (typeof window.playApplySound === 'function') window.playApplySound(false);
       } else {
         const d = combined || {};
         // Clear BOTH selection states atomically. setMultiple fires the
@@ -360,6 +363,7 @@
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
         const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0, d.filesLayered || 0);
         Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
+        if (typeof window.playApplySound === 'function') window.playApplySound(true);
         // Surface partial-failure warnings (missing sources, copy/tint failures,
         // paths outside the skin) the backend reports alongside the success.
         const warns = d.warnings || [];

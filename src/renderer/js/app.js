@@ -11,11 +11,24 @@
   const viewEditor = document.getElementById('view-editor');
   const viewSelector = document.getElementById('view-selector');
 
-  // Pre-warmed "applied" chime. Created at startup + preloaded so the first
-  // global-shortcut apply plays instantly instead of cutting the start while
-  // the browser fetches the file. Reused for every play; replay from the top.
-  const meowAudio = new Audio('assets/meow.wav');
-  meowAudio.preload = 'auto';
+  // Pre-warmed apply chimes. Created at startup + preloaded so the first apply
+  // plays instantly instead of cutting the start while the browser fetches the
+  // file. Reused for every play; replay from the top. Played on EVERY apply —
+  // not just the global-shortcut path — so in-window applies give feedback too.
+  const applySuccessAudio = new Audio('assets/notification-done.wav');
+  applySuccessAudio.preload = 'auto';
+  const applyErrorAudio = new Audio('assets/notification-error.wav');
+  applyErrorAudio.preload = 'auto';
+
+  // Play the apply success/fail chime. `ok` = success. Success and error are
+  // separate elements, so they may overlap (allowed — a fail can interrupt a
+  // prior success without cutting it). A repeated same-side call rewinds and
+  // restarts that clip.
+  function playApplySound(ok) {
+    const a = ok ? applySuccessAudio : applyErrorAudio;
+    try { a.currentTime = 0; a.play(); } catch (e) { /* ignore playback errors */ }
+  }
+  window.playApplySound = playApplySound;
 
   function switchView(viewId) {
     [viewWelcome, viewEditor, viewSelector].forEach(v => {
@@ -204,9 +217,10 @@
           if (tints > 0) parts.push(`${i18n.t('apply.groupTint')}×${tints}`);
           const sum = parts.join(' ');
           Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
-          try { meowAudio.currentTime = 0; meowAudio.play(); } catch (e) {}
+          playApplySound(true);
         } else if (p.warnings > 0) {
           Toast.warning(i18n.t('apply.applyFailed', { msg: '' }));
+          playApplySound(false);
         }
       });
 
