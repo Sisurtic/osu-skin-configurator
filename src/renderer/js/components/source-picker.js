@@ -30,7 +30,13 @@
   //   getSkinPath: async () => absSkinPath   (skin root for normalization)
   //   filters: dialog filter list (required — each caller picks its own)
   //   currentSource?: skin-relative path — its directory becomes the dialog's
-  //     initial folder (falls back to the skin root).
+  //     initial folder (falls back to the skin root). Only the DIRECTORY is used:
+  //     passing the full path would make Win32's IFileOpenDialog (what rfd uses
+  //     for pick_files) back-fill the filename box with the whole path and
+  //     left-truncate it (e.g. approachcircle@2x.png → …hcircle@2x.png), because
+  //     SetFolder + SetFileName on an OPEN dialog resolves the name inside the
+  //     folder. A SAVE dialog doesn't have this quirk, but re-sourcing isn't a
+  //     save. So we keep the filename box empty and rely on folder-scoped picking.
   async function pickMulti(opts) {
     const getSkinPath = (opts && opts.getSkinPath) || (async () => '');
     const filters = (opts && opts.filters) || [{ name: 'All', extensions: ['*'] }];
@@ -42,8 +48,7 @@
       const isAbs = /^[a-zA-Z]:[\\/]/.test(abs) || abs.startsWith('/');
       const full = isAbs ? abs : (skPath.replace(/\/$/, '') + '/' + abs);
       const lastSep = Math.max(full.lastIndexOf('/'), full.lastIndexOf('\\'));
-      const dir = lastSep > 0 ? full.substring(0, lastSep) : full;
-      defaultPath = dir;
+      defaultPath = lastSep > 0 ? full.substring(0, lastSep) : full;
     }
     const result = await api.selectFile(filters, defaultPath);
     if (!result || !result.success || !result.data || !result.data.length) return [];

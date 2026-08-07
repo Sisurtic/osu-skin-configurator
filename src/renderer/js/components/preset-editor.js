@@ -1101,7 +1101,13 @@
       if (currentId === '__new__' && window.Selection && typeof window.Selection.setSingle === 'function') {
         window.Selection.setSingle('preset', result.data);
       }
-      state.set('selectedPreset', result.data);
+      // Only fire selectedPreset when the id actually changed (new preset got its
+      // real id). For an existing preset the id is unchanged: re-asserting it
+      // would trigger the listener → reload from disk → re-render the editor and
+      // wipe the in-editor operation-row selection the user just had.
+      if (result.data !== currentId) {
+        state.set('selectedPreset', result.data);
+      }
       // Preview images may have changed — drop the cached ones before re-scan
       // so the next render reloads them (ids are also compacted on delete).
       if (window.PresetSelector && typeof window.PresetSelector.invalidateCache === 'function') {

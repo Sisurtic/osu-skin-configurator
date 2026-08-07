@@ -152,6 +152,17 @@ select.form-input {
    overlaid via Dropdown.enhance (utils/dropdown.js). ── */
 button.form-input.dd-trigger { appearance: none; }
 .dd-trigger__caret { flex: 0 0 auto; }
+/* A custom dropdown's accent highlight should signal "the menu is open", not
+   mere keyboard focus — so suppress the inherited .form-input:focus border and
+   drive the highlight off the .dd-trigger--open class Dropdown adds/removes.
+   Keep keyboard focus visible for a11y via the standard focus-visible ring. */
+button.form-input.dd-trigger:focus { border-color: var(--border); outline: none; }
+button.form-input.dd-trigger:focus-visible {
+  border-color: var(--border);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.dd-trigger--open { border-color: var(--accent) !important; }
 .dd-menu {
   position: fixed;
   z-index: 300;
@@ -721,9 +732,9 @@ tr[data-group-parent] .file-thumb__icon {
   height: 22px;
   display: inline-block;
 }
-.toggle.is-disabled { opacity: 0.5; pointer-events: none; }
-.toggle.is-disabled .toggle__slider { background: var(--bg-tertiary); border-color: var(--border-light); }
-.toggle.is-disabled .toggle__slider::before { background: var(--border-light); }
+/* Disabled toggle: same colors as the enabled state, just dimmed via opacity
+   so it reads as "the same control, unavailable" — no conflicting recolor. */
+.toggle.is-disabled { opacity: 0.35; pointer-events: none; }
 .toggle input {
   opacity: 0;
   width: 0;
@@ -785,7 +796,7 @@ tr[data-group-parent] .file-thumb__icon {
   border-radius: 10px;
   font-size: 11px;
   font-weight: 500;
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
   color: var(--text-secondary);
 }
 .tag--accent {
@@ -2393,6 +2404,11 @@ tr[data-group-parent] .file-thumb__icon {
    right edge. */
 .op-grid--ini .op-cell[data-col=value] .color-row,
 .op-grid--ini .op-cell[data-col=value] .path-input-row { width: 100%; }
+/* INI value-column buttons (fill / center / pick-file) sit inside table rows;
+   give them the same solid base as form inputs / thumbnails instead of the
+   tertiary fill, so they read consistently on the (translucent) selected row. */
+.op-grid--ini .btn--secondary { background: var(--bg-primary); }
+.op-grid--ini .btn--secondary:hover { background: var(--bg-hover); }
 
 /* layer outer columns: file | dest | canvas. Same as tint (file/dest split,
    canvas fixed). */

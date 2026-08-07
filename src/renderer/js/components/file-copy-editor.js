@@ -752,7 +752,7 @@
         targets.push({ removeIdxs: idxs, insertAt: idxs[0], value: headerValue(headerRow, ops[idxs[0]]) });
       };
       const consider = (v) => {
-        const tr = container.querySelector(`tr[data-idx="${v}"]`);
+        const tr = container.querySelector(`[data-idx="${v}"]`);
         if (!tr) return;
         if (tr.classList.contains('file-seq-group')) addGroup(tr);
         else if (tr.dataset.groupParent) {

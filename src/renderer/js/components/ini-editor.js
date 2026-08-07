@@ -580,7 +580,7 @@
           if (el) el.value = val;
           if (color) {
             const sw = headerEl.querySelector(`.ini-color-swatch[data-group="${g}"]`);
-            if (sw) sw.style.background = color;
+            if (sw) sw.style.background = swatchBgCss(color);
           }
         }
       },
@@ -596,7 +596,7 @@
           if (el) el.value = val;
           if (color) {
             const sw = pickControl('.ini-color-swatch', idx);
-            if (sw) sw.style.background = color;
+            if (sw) sw.style.background = swatchBgCss(color);
           }
         }
       },
@@ -654,7 +654,7 @@
         const bg = type === 'rgba'
           ? `rgba(${parsed.r},${parsed.g},${parsed.b},${parsed.a/255})`
           : `rgb(${parsed.r},${parsed.g},${parsed.b})`;
-        if (swatch) swatch.style.background = bg;
+        if (swatch) swatch.style.background = swatchBgCss(bg);
         if (isGroupHeader) return; // temporary — don't write data or sync
         // Commit the edited row's own value live (siblings sync on change/Enter).
         iniEdits[idx].value = normalized;
@@ -680,9 +680,9 @@
             ? window.ColorPicker.parseColor(input.value)
             : { r: 0, g: 0, b: 0, a: 255 };
           const swatch = input.parentElement.querySelector('.ini-color-swatch');
-          if (swatch) swatch.style.background = type === 'rgba'
+          if (swatch) swatch.style.background = swatchBgCss(type === 'rgba'
             ? `rgba(${parsed.r},${parsed.g},${parsed.b},${parsed.a/255})`
-            : `rgb(${parsed.r},${parsed.g},${parsed.b})`;
+            : `rgb(${parsed.r},${parsed.g},${parsed.b})`);
           return;
         }
         const type = input.dataset.type;
@@ -749,7 +749,7 @@
               ? `rgba(${r},${g},${b},${a/255})`
               : `rgb(${r},${g},${b})`;
             // Update the edited row's swatch + input box.
-            swatch.style.background = bg;
+            swatch.style.background = swatchBgCss(bg);
             const input = swatch.parentElement.querySelector('.ini-color-value');
             if (input) input.value = newValue;
             if (isGroupHeader) {
@@ -1212,12 +1212,12 @@
                 const field = plan.field;
                 const type = field?.type || 'string';
                 const cnLabel = INI_FIELD_LABELS.fieldLabel(field || { key: edit.key });
-                const rowTitle = field ? `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(field) + ' (' + field.key + ')')}"` : '';
+                const keyTitle = field ? `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(field) + ' (' + field.key + ')')}"` : '';
                 if (edit._delete) {
-                  return `<div class="op-row ini-edit-row ini-delete-row" data-idx="${idx}" ${rowTitle}>
+                  return `<div class="op-row ini-edit-row ini-delete-row" data-idx="${idx}">
                     <div class="op-cell" data-col="action"><span class="tag tag--danger">${i18n.t('ini.tagDelete')}</span></div>
                     <div class="op-cell" data-col="section"><span class="tag">${sectionLabel(edit)}</span></div>
-                    <div class="op-cell" data-col="key"><span class="ini-key-name">${escapeHtml(edit.key)}</span> <span class="ini-key-desc">${escapeHtml(cnLabel)}</span></div>
+                    <div class="op-cell" data-col="key"><span class="ini-key-name" ${keyTitle}>${escapeHtml(edit.key)}</span> <span class="ini-key-desc">${escapeHtml(cnLabel)}</span></div>
                     <div class="op-cell" data-col="value" style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</div>
                   </div>`;
                 }
@@ -1234,10 +1234,10 @@
                   : isCenterable
                     ? `<div class="op-cell" data-col="value" style="display:flex;align-items:center;gap:8px;padding-right:12px"><span style="flex:1;min-width:0">${renderValueInput(type, edit, idx, field)}</span>${centerBtn}</div>`
                     : `<div class="op-cell" data-col="value">${renderValueInput(type, edit, idx, field)}</div>`;
-                return `<div class="op-row ini-edit-row" data-idx="${idx}" ${rowTitle}>
+                return `<div class="op-row ini-edit-row" data-idx="${idx}">
                   <div class="op-cell" data-col="action"><span class="tag tag--accent">${i18n.t('ini.tagModify')}</span></div>
                   <div class="op-cell" data-col="section"><span class="tag">${sectionLabel(edit)}</span></div>
-                  <div class="op-cell" data-col="key"><span class="ini-key-name">${escapeHtml(edit.key)}</span> <span class="ini-key-desc">${escapeHtml(cnLabel)}</span></div>
+                  <div class="op-cell" data-col="key"><span class="ini-key-name" ${keyTitle}>${escapeHtml(edit.key)}</span> <span class="ini-key-desc">${escapeHtml(cnLabel)}</span></div>
                   ${valueCell}
                 </div>`;
               }
@@ -1252,7 +1252,7 @@
               const syncKey = `${plan.baseKey}-${plan.maniaKeys}`;
               const templateKey = plan.field.key;
               const fieldCn = INI_FIELD_LABELS.fieldLabel(plan.field);
-              const rowTitle = `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(plan.field) + ' (' + templateKey + ')')}"`;
+              const keyTitle = `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(plan.field) + ' (' + templateKey + ')')}"`;
 
               // Determine group composition (modify, delete, or mixed)
               const hasModify = plan.indices.some(i => !iniEdits[i]._delete);
@@ -1261,10 +1261,10 @@
               const groupDataIdx = `G-${groupId}`;
               const expanded = expandedSeqGroups.has(groupId);
 
-              let html = `<div class="op-row ini-edit-row ini-collapsed-row${expanded ? ' ini-collapsed-row--expanded' : ''}" data-gid="${escapeHtml(groupId)}" data-group="${escapeHtml(syncKey)}" data-group-indices="${escapeHtml(JSON.stringify(plan.indices))}" data-idx="${escapeHtml(groupDataIdx)}" ${rowTitle}>
+              let html = `<div class="op-row ini-edit-row ini-collapsed-row${expanded ? ' ini-collapsed-row--expanded' : ''}" data-gid="${escapeHtml(groupId)}" data-group="${escapeHtml(syncKey)}" data-group-indices="${escapeHtml(JSON.stringify(plan.indices))}" data-idx="${escapeHtml(groupDataIdx)}">
                 <div class="op-cell" data-col="action"><span class="tag ini-group-toggle" style="background:var(--group-tag-bg);color:var(--group-tag);cursor:pointer">${i18n.t('ini.tagGroup')}</span></div>
                 <div class="op-cell" data-col="section"><span class="tag">${sectionLabel(firstEdit)}</span></div>
-                <div class="op-cell" data-col="key"><span class="ini-key-name">${escapeHtml(templateKey)}</span> <span class="ini-key-desc">${escapeHtml(fieldCn)}</span></div>
+                <div class="op-cell" data-col="key"><span class="ini-key-name" ${keyTitle}>${escapeHtml(templateKey)}</span> <span class="ini-key-desc">${escapeHtml(fieldCn)}</span></div>
                 <div class="op-cell" data-col="value" style="display:flex;align-items:center;gap:8px;padding-right:12px">
                   <span style="flex:1;min-width:0">${hasModify ? renderValueInput(firstType, (!expanded && _headerTempSnapshot[groupId] != null ? { ...firstEdit, value: _headerTempSnapshot[groupId] } : firstEdit), plan.indices[0], firstField, `data-group-header="1" data-group="${escapeHtml(syncKey)}"`) : `<span style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</span>`}</span>
                   ${hasModify ? `<button type="button" class="btn btn--secondary btn--sm ini-fill-btn" data-gid="${escapeHtml(groupId)}" data-group="${escapeHtml(syncKey)}" title="${i18n.t('ini.fillAllTitle')}" data-full="${escapeHtml(i18n.t('ini.fillAll'))}" style="padding:4px 6px;flex:0 0 auto;white-space:nowrap">${i18n.t('ini.fillAll')}</button>` : ''}
@@ -1277,19 +1277,19 @@
                 const subEdit = iniEdits[subIdx];
                 const subField = findFieldByTemplate(subEdit.section, subEdit.key);
                 const subType = subField?.type || 'string';
-                const subTitle = subField ? `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(subField) + ' (' + subField.key + ')')}"` : '';
+                const subKeyTitle = subField ? `title="${escapeHtml(INI_FIELD_LABELS.fieldLabel(subField) + ' (' + subField.key + ')')}"` : '';
                 if (subEdit._delete) {
-                  html += `<div class="op-row ini-edit-row ini-sub-row ini-delete-row" data-idx="${subIdx}" data-gid="${escapeHtml(groupId)}" data-group-parent="${escapeHtml(groupId)}"${subHide} ${subTitle}>
+                  html += `<div class="op-row ini-edit-row ini-sub-row ini-delete-row" data-idx="${subIdx}" data-gid="${escapeHtml(groupId)}" data-group-parent="${escapeHtml(groupId)}"${subHide}>
                     <div class="op-cell" data-col="action"><span class="tag tag--danger">${i18n.t('ini.tagDelete')}</span></div>
                     <div class="op-cell" data-col="section"><span class="tag">${sectionLabel(subEdit)}</span></div>
-                    <div class="op-cell" data-col="key"><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span class="ini-key-desc">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></div>
+                    <div class="op-cell" data-col="key"><span class="ini-key-name" ${subKeyTitle}>${escapeHtml(subEdit.key)}</span> <span class="ini-key-desc">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></div>
                     <div class="op-cell" data-col="value" style="color:var(--danger);font-size:12px">${i18n.t('ini.removeLabel')}</div>
                   </div>`;
                 } else {
-                  html += `<div class="op-row ini-edit-row ini-sub-row" data-idx="${subIdx}" data-gid="${escapeHtml(groupId)}" data-group-parent="${escapeHtml(groupId)}"${subHide} ${subTitle}>
+                  html += `<div class="op-row ini-edit-row ini-sub-row" data-idx="${subIdx}" data-gid="${escapeHtml(groupId)}" data-group-parent="${escapeHtml(groupId)}"${subHide}>
                     <div class="op-cell" data-col="action"><span class="tag tag--accent">${i18n.t('ini.tagModify')}</span></div>
                     <div class="op-cell" data-col="section"><span class="tag">${sectionLabel(subEdit)}</span></div>
-                    <div class="op-cell" data-col="key"><span class="ini-key-name">${escapeHtml(subEdit.key)}</span> <span class="ini-key-desc">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></div>
+                    <div class="op-cell" data-col="key"><span class="ini-key-name" ${subKeyTitle}>${escapeHtml(subEdit.key)}</span> <span class="ini-key-desc">${escapeHtml(subField ? INI_FIELD_LABELS.fieldLabel(subField) : subEdit.key)}</span></div>
                     <div class="op-cell" data-col="value">${renderValueInput(subType, subEdit, subIdx, subField)}</div>
                   </div>`;
                 }
@@ -1300,6 +1300,25 @@
         </div>
       </div>
     `;
+  }
+
+  // Swatch background CSS: opaque colors render as-is; a partially-transparent
+  // rgba (a<1) is layered over a solid bg-primary base so the alpha reads
+  // against black instead of the row behind. One inline declaration (gradient
+  // layer over a var layer) — no class/inline override conflict. Used both at
+  // render time and when the color picker updates a swatch live.
+  function swatchBgCss(css) {
+    const m = css.match(/^rgba\(([^)]+)\)$/i);
+    if (m) {
+      const parts = m[1].split(',').map(s => parseFloat(s.trim()));
+      const a = parts[3];
+      if (a !== undefined && a < 1) {
+        // Layer the translucent color over a solid bg-primary base so the alpha
+        // reads against black instead of the row behind.
+        return `linear-gradient(${css},${css}),var(--bg-primary)`;
+      }
+    }
+    return css;
   }
 
   function renderValueInput(type, edit, i, field, extraAttr) {
@@ -1323,7 +1342,7 @@
         const parts = val.split(',').map(Number);
         const r = parts[0]||0, g = parts[1]||0, b = parts[2]||0, a = parts[3] !== undefined ? parts[3] : 255;
         return `<div class="color-row" style="display:flex;align-items:center;gap:6px">
-          <button type="button" class="color-swatch ini-color-swatch" data-idx="${i}" data-type="${type}"${x} tabindex="0" style="flex:0 0 auto;background:${isRgba ? `rgba(${r},${g},${b},${a/255})` : `rgb(${r},${g},${b})`}"></button>
+          <button type="button" class="color-swatch ini-color-swatch" data-idx="${i}" data-type="${type}"${x} tabindex="0" style="flex:0 0 auto;background:${swatchBgCss(isRgba ? `rgba(${r},${g},${b},${a/255})` : `rgb(${r},${g},${b})`)}"></button>
           <input type="text" class="form-input ini-value-input ini-color-value" data-idx="${i}" data-type="${type}"${x} value="${escapeHtml(val)}" autocomplete="off" spellcheck="false" style="flex:1;min-width:0">
         </div>`;
       }
