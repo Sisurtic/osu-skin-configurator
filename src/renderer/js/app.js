@@ -11,6 +11,12 @@
   const viewEditor = document.getElementById('view-editor');
   const viewSelector = document.getElementById('view-selector');
 
+  // Pre-warmed "applied" chime. Created at startup + preloaded so the first
+  // global-shortcut apply plays instantly instead of cutting the start while
+  // the browser fetches the file. Reused for every play; replay from the top.
+  const meowAudio = new Audio('assets/meow.wav');
+  meowAudio.preload = 'auto';
+
   function switchView(viewId) {
     [viewWelcome, viewEditor, viewSelector].forEach(v => {
       if (v) v.classList.remove('view--active');
@@ -198,7 +204,7 @@
           if (tints > 0) parts.push(`${i18n.t('apply.groupTint')}×${tints}`);
           const sum = parts.join(' ');
           Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
-          try { new Audio('assets/meow.wav').play(); } catch (e) {}
+          try { meowAudio.currentTime = 0; meowAudio.play(); } catch (e) {}
         } else if (p.warnings > 0) {
           Toast.warning(i18n.t('apply.applyFailed', { msg: '' }));
         }
