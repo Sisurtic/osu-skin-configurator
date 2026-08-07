@@ -288,7 +288,7 @@
     cache: thumbCache,
     isImage: (raw) => isImagePath(raw),
     skinPath: () => skinPath(),
-    imgHtml: (dataUrl) => `<img src="${dataUrl}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0">`,
+    imgHtml: (dataUrl) => `<img src="${dataUrl}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);background:var(--bg-primary);flex-shrink:0">`,
     placeholderHtml: () => `<span class="file-thumb__icon">📄</span>`,
   });
   function thumbHtmlFor(src, label) {
