@@ -97,7 +97,7 @@
         state.set('activePresets', {});
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
         const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0, d.filesLayered || 0);
-        Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
+        Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum || i18n.t('apply.fragmentNone')}]</span>`);
         if (typeof window.playApplySound === 'function') window.playApplySound(true);
         // Surface partial-failure warnings (missing sources, copy/tint failures,
         // paths outside the skin) the backend reports alongside the success.
@@ -135,7 +135,7 @@
    * Show multi-preset apply dialog from use mode.
    * @param {{presetIds?: number[], groupIds?: number[]}} args
    */
-  async function showMulti({ presetIds = [], groupIds = [], dirty = false } = {}) {
+  async function showMulti({ presetIds = [], groupIds = [], dirty = false, ownActionsOnly = false } = {}) {
     if (document.querySelector('.modal-overlay')) return;
     const skin = state.get('selectedSkin');
     if (!skin || (presetIds.length === 0 && groupIds.length === 0)) {
@@ -166,7 +166,12 @@
     for (const gid of groupIds) {
       const g = groups.find(x => x.id === gid) || {};
       const meta = { name: g.name || i18n.t('group.tableGroup') };
-      const u = collectApplyUnits ? collectApplyUnits(gid) : { presetIds: new Set(), groupIds: new Set([gid]) };
+      // Edit-mode (ownActionsOnly) applies JUST this group's own actions — no
+      // subtree recursion. Use mode collects the full unit set (root + selected
+      // child groups + selected presets) so the dialog counts match apply_group.
+      const u = ownActionsOnly
+        ? { presetIds: new Set(), groupIds: new Set([gid]) }
+        : (collectApplyUnits ? collectApplyUnits(gid) : { presetIds: new Set(), groupIds: new Set([gid]) });
       const applyCount = u.presetIds.size + u.groupIds.size;
       // Merge own actions of every group in the unit set (root + selected subs).
       const merged = { skinIni: [], fileCopies: [], fileDeletes: [], fileTints: [], fileLayers: [] };
@@ -331,7 +336,7 @@
         // presets + selected child groups (mirroring collectApplyUnits). No need
         // to pass the selection here — pass null.
         for (const gid of groupIds) {
-          const rg = await api.applyGroup(skin, gid, null);
+          const rg = await api.applyGroup(skin, gid, null, ownActionsOnly);
           if (rg.success) {
             const d = rg.data;
             if (!combined) combined = d;
@@ -362,7 +367,7 @@
         state.setMultiple({ activePresets: {}, activeTableGroups: {} });
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
         const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0, d.filesLayered || 0);
-        Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum}]</span>`);
+        Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum || i18n.t('apply.fragmentNone')}]</span>`);
         if (typeof window.playApplySound === 'function') window.playApplySound(true);
         // Surface partial-failure warnings (missing sources, copy/tint failures,
         // paths outside the skin) the backend reports alongside the success.

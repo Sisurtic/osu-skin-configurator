@@ -1,12 +1,15 @@
-// Per-skin preset+group tree, stored as config.osp JSON inside each skin dir.
-// Faithful port of preset-manager.js. The tree model (presets + groups with
-// children[{type,id}] + rootGroupIds) and compact_ids are load-bearing.
+// Per-skin preset+group tree, stored as a SQLite database in config.osp inside
+// each skin dir (the .osp extension is kept; the content is binary SQLite, not
+// JSON text). Faithful port of preset-manager.js. The tree model (presets +
+// groups with children[{type,id}] + rootGroupIds) and compact_ids are
+// load-bearing. Legacy JSON .osp files are lazy-migrated on first load.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
+use rusqlite::Connection;
 
 const CONFIG_FILENAME: &str = "config.osp";
 
@@ -102,11 +105,322 @@ fn config_path(skin_path: &str) -> std::path::PathBuf {
     Path::new(skin_path).join(CONFIG_FILENAME)
 }
 
-pub fn load_config(skin_path: &str) -> Config {
-    let p = config_path(skin_path);
-    if !p.exists() { return Config::empty(); }
-    let raw = match fs::read_to_string(&p) { Ok(s) => s, Err(_) => return Config::empty() };
-    let v: Value = match serde_json::from_str(&raw) { Ok(v) => v, Err(_) => return Config::empty() };
+// The 16-byte magic header SQLite writes at offset 0 of every database file:
+// "SQLite format 3\0". Used to tell a new-format .osp (binary SQLite) apart
+// from a legacy JSON text .osp so load_config can lazy-migrate.
+const SQLITE_MAGIC: &[u8] = b"SQLite format 3\0";
+
+/// Does the file at `p` start with the SQLite magic header? Returns false for a
+/// missing file, a too-short file, a 0-byte file, or any non-SQLite content
+/// (e.g. legacy JSON text).
+fn is_sqlite_file(p: &Path) -> bool {
+    use std::io::Read;
+    let mut f = match fs::File::open(p) { Ok(f) => f, Err(_) => return false };
+    let mut buf = [0u8; 16];
+    match f.read(&mut buf) { Ok(n) if n == 16 => &buf == SQLITE_MAGIC, _ => false }
+}
+
+/// Apply the schema + pragmas to a freshly-opened SQLite connection. Idempotent
+/// (CREATE TABLE IF NOT EXISTS). Sets user_version=1 on a brand-new DB. Returns
+/// Err on any SQL failure so callers can fall back.
+fn apply_schema(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "PRAGMA journal_mode=DELETE;\
+         PRAGMA synchronous=NORMAL;\
+         PRAGMA temp_store=MEMORY;\
+         PRAGMA foreign_keys=OFF;\
+         PRAGMA busy_timeout=5000;",
+    ).map_err(|e| format!("pragma: {}", e))?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);\
+         CREATE TABLE IF NOT EXISTS presets (id INTEGER PRIMARY KEY, data TEXT NOT NULL);\
+         CREATE TABLE IF NOT EXISTS groups (\
+             id INTEGER PRIMARY KEY, name TEXT NOT NULL,\
+             collapsed INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT '',\
+             shortcut TEXT, description TEXT, preview_path TEXT, preview_kind TEXT,\
+             preview_frames TEXT, preview_fps INTEGER, actions TEXT);\
+         CREATE TABLE IF NOT EXISTS children (\
+             parent_id INTEGER, position INTEGER NOT NULL,\
+             kind TEXT NOT NULL, child_id INTEGER NOT NULL);\
+         CREATE INDEX IF NOT EXISTS idx_children_parent ON children(parent_id, position);\
+         CREATE TABLE IF NOT EXISTS table_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    ).map_err(|e| format!("schema: {}", e))?;
+    // Stamp the version. PRAGMA user_version cannot be parameterized, so we read
+    // first and only set it on a brand-new DB (0) to avoid clobbering a higher
+    // version written by a newer build.
+    let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(|e| format!("user_version read: {}", e))?;
+    if v == 0 {
+        conn.execute_batch("PRAGMA user_version=1;").map_err(|e| format!("user_version set: {}", e))?;
+    }
+    Ok(())
+}
+
+/// Open a connection to the .osp at `p`, apply pragmas + schema. The caller is
+/// responsible for closing (drop). Used by both load and save paths.
+fn open_db(p: &Path) -> Result<Connection, String> {
+    let conn = Connection::open(p).map_err(|e| format!("open {}: {}", p.display(), e))?;
+    apply_schema(&conn)?;
+    Ok(conn)
+}
+
+/// Read a Config out of an existing SQLite .osp. Assumes the file already passed
+/// `is_sqlite_file`. Returns Config::empty() if the file can't be read (treated
+/// the same as a corrupt/missing legacy file — readers are tolerant).
+fn load_sqlite_config(p: &Path) -> Config {
+    let conn = match open_db(p) { Ok(c) => c, Err(_) => return Config::empty() };
+    let mut cfg = Config::empty();
+
+    // ── meta bag ──
+    if let Ok(mut stmt) = conn.prepare("SELECT key, value FROM meta") {
+        if let Ok(rows) = stmt.query_map([], |r| {
+            let k: String = r.get(0)?;
+            let v: Option<String> = r.get(1)?;
+            Ok((k, v))
+        }) {
+            for row in rows.flatten() {
+                match row.0.as_str() {
+                    "next_preset_id" => { if let Some(n) = row.1.as_deref().and_then(|s| s.parse::<i64>().ok()) { cfg.next_preset_id = n; } }
+                    "next_group_id" => { if let Some(n) = row.1.as_deref().and_then(|s| s.parse::<i64>().ok()) { cfg.next_group_id = n; } }
+                    "accent_hue" => { if let Some(s) = &row.1 { if let Ok(h) = s.parse::<f64>() { cfg.accent_hue = Some(h); } } }
+                    "custom_text1" => { cfg.custom_text1 = row.1.filter(|s| !s.is_empty()); }
+                    "custom_text2" => { cfg.custom_text2 = row.1.filter(|s| !s.is_empty()); }
+                    "skin_link" => { cfg.skin_link = row.1.filter(|s| !s.is_empty()); }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // ── presets (opaque JSON blobs) ──
+    if let Ok(mut stmt) = conn.prepare("SELECT data FROM presets ORDER BY id") {
+        if let Ok(rows) = stmt.query_map([], |r| {
+            let d: String = r.get(0)?;
+            Ok(d)
+        }) {
+            for d in rows.flatten() {
+                if let Ok(v) = serde_json::from_str::<Value>(&d) {
+                    cfg.presets.push(v);
+                }
+            }
+        }
+    }
+
+    // ── groups ──
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT id, name, collapsed, kind, shortcut, description, preview_path, preview_kind, preview_frames, preview_fps, actions FROM groups ORDER BY id"
+    ) {
+        if let Ok(rows) = stmt.query_map([], |r| {
+            let id: i64 = r.get(0)?;
+            let name: String = r.get(1)?;
+            let collapsed: i64 = r.get(2)?;
+            let kind: String = r.get(3)?;
+            let shortcut: Option<String> = r.get(4)?;
+            let description: Option<String> = r.get(5)?;
+            let preview_path: Option<String> = r.get(6)?;
+            let preview_kind: Option<String> = r.get(7)?;
+            let preview_frames: Option<String> = r.get(8)?;
+            let preview_fps: Option<i64> = r.get::<_, Option<i64>>(9)?;
+            let actions: Option<String> = r.get(10)?;
+            Ok((id, name, collapsed, kind, shortcut, description, preview_path, preview_kind, preview_frames, preview_fps, actions))
+        }) {
+            for row in rows.flatten() {
+                let (id, name, collapsed, kind, shortcut, description, preview_path,
+                     preview_kind, preview_frames, preview_fps, actions) = row;
+                cfg.groups.push(Group {
+                    id,
+                    name,
+                    collapsed: collapsed != 0,
+                    kind,
+                    children: vec![],
+                    shortcut: shortcut.filter(|s| !s.is_empty()),
+                    description: description.filter(|s| !s.is_empty()),
+                    preview_path: preview_path.filter(|s| !s.is_empty()),
+                    preview_kind: preview_kind.filter(|s| !s.is_empty()),
+                    preview_frames: preview_frames.as_deref()
+                        .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+                        .filter(|v| !v.is_empty()),
+                    preview_fps: preview_fps.and_then(|v| i32::try_from(v).ok()),
+                    actions: actions.as_deref()
+                        .filter(|s| !s.is_empty())
+                        .and_then(|s| serde_json::from_str::<Value>(s).ok()),
+                });
+            }
+        }
+    }
+
+    // ── children (unified tree: parent_id NULL = root) ──
+    if let Ok(mut stmt) = conn.prepare("SELECT parent_id, kind, child_id FROM children ORDER BY parent_id IS NOT NULL, parent_id, position") {
+        if let Ok(rows) = stmt.query_map([], |r| {
+            let parent_id: Option<i64> = r.get(0)?;
+            let kind: String = r.get(1)?;
+            let child_id: i64 = r.get(2)?;
+            Ok((parent_id, kind, child_id))
+        }) {
+            for row in rows.flatten() {
+                let cref = ChildRef { kind: row.1, id: row.2 };
+                match row.0 {
+                    None => cfg.root_children.push(cref),
+                    Some(gid) => {
+                        if let Some(g) = cfg.groups.iter_mut().find(|g| g.id == gid) {
+                            g.children.push(cref);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── table-state blobs ──
+    if let Ok(mut stmt) = conn.prepare("SELECT key, value FROM table_state") {
+        if let Ok(rows) = stmt.query_map([], |r| {
+            let k: String = r.get(0)?;
+            let v: String = r.get(1)?;
+            Ok((k, v))
+        }) {
+            for row in rows.flatten() {
+                if let Ok(v) = serde_json::from_str::<Value>(&row.1) {
+                    match row.0.as_str() {
+                        "expanded" => cfg.table_expanded_children = v,
+                        "row_selection" => cfg.table_row_selection = v,
+                        "activations" => cfg.table_activations = v,
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    cfg
+}
+
+/// Persist a full Config to `p` as SQLite. Full-replace: one transaction,
+/// DELETE every table, INSERT all rows. Mirrors the old "serialize whole Config"
+/// semantics (including omitting empty fields by simply not inserting them).
+/// Writes to a temp sibling file then renames for atomicity.
+fn save_sqlite_config(p: &Path, cfg: &Config) -> Result<(), String> {
+    let dir = p.parent().ok_or_else(|| "no parent dir".to_string())?;
+    let pid = std::process::id();
+    let tmp = dir.join(format!("{}.tmp-{}", CONFIG_FILENAME, pid));
+
+    // Build the whole DB in the temp file.
+    {
+        if tmp.exists() { let _ = fs::remove_file(&tmp); }
+        let mut conn = open_db(&tmp)?;
+        let tx = conn.transaction().map_err(|e| format!("begin: {}", e))?;
+
+        // Wipe existing rows (tables already exist from open_db/apply_schema).
+        tx.execute_batch(
+            "DELETE FROM meta; DELETE FROM presets; DELETE FROM groups; DELETE FROM children; DELETE FROM table_state;"
+        ).map_err(|e| format!("delete: {}", e))?;
+
+        // ── meta ──
+        let put_meta = |key: &str, val: Option<String>| -> Result<(), String> {
+            if let Some(v) = val {
+                tx.execute("INSERT INTO meta(key,value) VALUES(?1,?2)", rusqlite::params![key, v])
+                    .map_err(|e| format!("meta {}: {}", key, e))?;
+            }
+            Ok(())
+        };
+        put_meta("next_preset_id", Some(cfg.next_preset_id.to_string()))?;
+        put_meta("next_group_id", Some(cfg.next_group_id.to_string()))?;
+        put_meta("accent_hue", cfg.accent_hue.map(|h| h.to_string()))?;
+        put_meta("custom_text1", cfg.custom_text1.clone())?;
+        put_meta("custom_text2", cfg.custom_text2.clone())?;
+        put_meta("skin_link", cfg.skin_link.clone())?;
+
+        // ── presets ──
+        for p_val in &cfg.presets {
+            let id = p_val.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
+            let data = serde_json::to_string(p_val).map_err(|e| format!("preset serialize: {}", e))?;
+            tx.execute("INSERT INTO presets(id,data) VALUES(?1,?2)", rusqlite::params![id, data])
+                .map_err(|e| format!("preset insert: {}", e))?;
+        }
+
+        // ── groups + their children ──
+        for g in &cfg.groups {
+            let actions_txt = match &g.actions {
+                Some(a) => {
+                    let empty = json!({"skinIni":[],"fileCopies":[],"fileDeletes":[],"fileTints":[],"fileLayers":[]});
+                    if a == &empty { None } else { Some(serde_json::to_string(a).map_err(|e| format!("actions serialize: {}", e))?) }
+                }
+                None => None,
+            };
+            let frames_txt = g.preview_frames.as_ref()
+                .map(|f| serde_json::to_string(f).map_err(|e| format!("frames serialize: {}", e)))
+                .transpose()?;
+            tx.execute(
+                "INSERT INTO groups(id,name,collapsed,kind,shortcut,description,preview_path,preview_kind,preview_frames,preview_fps,actions)\
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                rusqlite::params![
+                    g.id, g.name, g.collapsed as i64, g.kind, g.shortcut, g.description,
+                    g.preview_path, g.preview_kind, frames_txt, g.preview_fps, actions_txt,
+                ],
+            ).map_err(|e| format!("group insert {}: {}", g.id, e))?;
+            for (pos, c) in g.children.iter().enumerate() {
+                tx.execute(
+                    "INSERT INTO children(parent_id,position,kind,child_id) VALUES(?1,?2,?3,?4)",
+                    rusqlite::params![g.id, pos as i64, c.kind, c.id],
+                ).map_err(|e| format!("child insert: {}", e))?;
+            }
+        }
+
+        // ── root children (parent_id NULL) ──
+        for (pos, c) in cfg.root_children.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO children(parent_id,position,kind,child_id) VALUES(NULL,?1,?2,?3)",
+                rusqlite::params![pos as i64, c.kind, c.id],
+            ).map_err(|e| format!("root child insert: {}", e))?;
+        }
+
+        // ── table-state blobs (only non-empty) ──
+        let put_blob = |key: &str, val: &Value| -> Result<(), String> {
+            let is_empty_obj = val.as_object().is_some_and(|o| o.is_empty());
+            if val.is_null() || is_empty_obj { return Ok(()); }
+            let s = serde_json::to_string(val).map_err(|e| format!("blob serialize {}: {}", key, e))?;
+            tx.execute("INSERT INTO table_state(key,value) VALUES(?1,?2)", rusqlite::params![key, s])
+                .map_err(|e| format!("table_state insert {}: {}", key, e))?;
+            Ok(())
+        };
+        put_blob("expanded", &cfg.table_expanded_children)?;
+        put_blob("row_selection", &cfg.table_row_selection)?;
+        put_blob("activations", &cfg.table_activations)?;
+
+        tx.commit().map_err(|e| format!("commit: {}", e))?;
+        // Explicit drop before rename so the connection closes (DELETE journal
+        // mode removes the journal on close) and the file is quiescent on disk.
+        drop(conn);
+    }
+
+    // Atomic replace: rename temp over the target (same volume → atomic on Windows).
+    fs::rename(&tmp, p).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        format!("rename {}: {}", p.display(), e)
+    })?;
+    // The temp DB's rollback journal (config.osp.tmp-<pid>-journal) is named
+    // after the TEMP file, so renaming the main DB does NOT take it along — it
+    // would be orphaned. Sweep any such leftover temp journals now. (DELETE
+    // journal_mode removes the journal on connection close, but a crash between
+    // commit and close can leave a 0-byte one; this sweep guarantees no cruft.)
+    if let Some(dir) = p.parent() {
+        if let Ok(rd) = fs::read_dir(dir) {
+            for entry in rd.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with(&format!("{}.tmp-", CONFIG_FILENAME)) && name.ends_with("-journal") {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Parse a legacy JSON-text .osp into a Config. This is the body of the old
+/// load_config (lines ~109-187 in the pre-SQLite source), lifted verbatim so the
+/// lazy migration path keeps every legacy-format + orphan-migration behavior.
+fn parse_legacy_json_config(raw: &str) -> Config {
+    let v: Value = match serde_json::from_str(raw) { Ok(v) => v, Err(_) => return Config::empty() };
     // Detect legacy format (pre-groups): a bare preset array or an object with
     // no nextPresetId/presets/groups. NOTE: a brand-new config that has presets
     // but no groups yet legitimately omits rootGroupIds AND groups — so those two
@@ -187,8 +501,73 @@ pub fn load_config(skin_path: &str) -> Config {
     }
 }
 
+/// Load a skin's Config. Detects the on-disk format by the SQLite magic header:
+///   - SQLite .osp  → read it directly (the modern path).
+///   - legacy JSON  → parse with parse_legacy_json_config, then persist it back
+///                    out as SQLite so every subsequent open is on the new
+///                    format (in-place lazy one-time migration, no backup file).
+///   - missing / empty → Config::empty() (same as before).
+pub fn load_config(skin_path: &str) -> Config {
+    let p = config_path(skin_path);
+    if !p.exists() { return Config::empty(); }
+
+    if is_sqlite_file(&p) {
+        // Modern path.
+        return load_sqlite_config(&p);
+    }
+
+    // Legacy JSON path → migrate in place (atomic temp+rename in save_sqlite_config).
+    let raw = match fs::read_to_string(&p) { Ok(s) => s, Err(_) => return Config::empty() };
+    let cfg = parse_legacy_json_config(&raw);
+    // Persist as SQLite going forward. Failure is non-fatal: we still return the
+    // parsed Config so the session works; the next open will retry migration.
+    let _ = save_sqlite_config(&p, &cfg);
+    cfg
+}
+
+/// Cheap preset/table-group count for the skin list. Format-aware: reads the
+/// SQLite count directly on a modern .osp; falls back to JSON parse on a legacy
+/// file. CRUCIALLY this does NOT trigger the JSON→SQLite migration — it is a
+/// read-only listing call run for every skin during scan_skins.
+pub fn count_presets_in_skin(skin_dir: &Path) -> i64 {
+    let p = skin_dir.join(CONFIG_FILENAME);
+    if !p.exists() { return 0; }
+    if is_sqlite_file(&p) {
+        // Modern SQLite path: two COUNT(*)s in one cheap read.
+        let conn = match open_db(&p) { Ok(c) => c, Err(_) => return 0 };
+        let preset_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM presets", [], |r| r.get(0)
+        ).unwrap_or(0);
+        let group_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM groups WHERE kind='table'", [], |r| r.get(0)
+        ).unwrap_or(0);
+        preset_count + group_count
+    } else {
+        // Legacy JSON path: parse directly (no migration side effect).
+        let raw = match fs::read_to_string(&p) { Ok(s) => s, Err(_) => return 0 };
+        let v: Value = match serde_json::from_str(&raw) { Ok(v) => v, Err(_) => return 0 };
+        let preset_count = v.get("presets").and_then(|p| p.as_array()).map(|a| a.len() as i64).unwrap_or(0);
+        let group_count = v.get("groups").and_then(|g| g.as_array())
+            .map(|a| a.iter().filter(|g| g.get("type").and_then(|t| t.as_str()) == Some("table")).count() as i64)
+            .unwrap_or(0);
+        preset_count + group_count
+    }
+}
+
+/// Open the .osp for a direct (incremental) write, but ONLY when the file is
+/// already in SQLite format. Returns None when the file is missing or still
+/// legacy JSON — in that case the caller falls back to the load→mutate→save
+/// full-Config path (which lazy-migrates as a side effect). This is the shared
+/// gate every Phase B hot path uses to opt into incremental writes safely.
+fn try_open_for_update(skin_path: &str) -> Option<Connection> {
+    let p = config_path(skin_path);
+    if !is_sqlite_file(&p) { return None; }
+    open_db(&p).ok()
+}
+
 // Recursively collect every preset id reachable through a group's children
-// (sub-groups included), so load_config can tell which presets are orphans.
+// (sub-groups included), so parse_legacy_json_config can tell which presets
+// are orphans when importing a legacy JSON .osp.
 fn collect_preset_ids(children: &[ChildRef], groups: &[Group], out: &mut Vec<i64>) {
     for c in children {
         match c.kind.as_str() {
@@ -205,37 +584,7 @@ fn collect_preset_ids(children: &[ChildRef], groups: &[Group], out: &mut Vec<i64
 
 fn save_config(skin_path: &str, cfg: &Config) -> Result<(), String> {
     let p = config_path(skin_path);
-    let mut v = serde_json::Map::new();
-    v.insert("nextPresetId".into(), json!(cfg.next_preset_id));
-    v.insert("nextGroupId".into(), json!(cfg.next_group_id));
-    if !cfg.root_children.is_empty() {
-        v.insert("rootChildren".into(), json!(cfg.root_children));
-    }
-    if !cfg.groups.is_empty() {
-        v.insert("groups".into(), json!(cfg.groups));
-    }
-    if !cfg.presets.is_empty() {
-        v.insert("presets".into(), json!(cfg.presets));
-    }
-    if !cfg.table_expanded_children.is_null() && cfg.table_expanded_children.as_object().is_some_and(|o| !o.is_empty()) {
-        v.insert("tableExpandedChildren".into(), cfg.table_expanded_children.clone());
-    }
-    if !cfg.table_row_selection.is_null() && cfg.table_row_selection.as_object().is_some_and(|o| !o.is_empty()) {
-        v.insert("tableRowSelection".into(), cfg.table_row_selection.clone());
-    }
-    if !cfg.table_activations.is_null() && cfg.table_activations.as_object().is_some_and(|o| !o.is_empty()) {
-        v.insert("tableActivations".into(), cfg.table_activations.clone());
-    }
-    if let Some(h) = cfg.accent_hue { v.insert("accentHue".into(), json!(h)); }
-    if let Some(s) = &cfg.custom_text1 { v.insert("customText1".into(), json!(s)); }
-    if let Some(s) = &cfg.custom_text2 { v.insert("customText2".into(), json!(s)); }
-    if let Some(s) = &cfg.skin_link { v.insert("skinLink".into(), json!(s)); }
-    // Compact (non-pretty) serialization keeps config.osp small — the file is
-    // machine-only; readers use unwrap_or defaults for any omitted keys.
-    let s = serde_json::to_string(&Value::Object(v))
-        .map_err(|e| format!("serialize: {}", e))?;
-    fs::write(&p, s).map_err(|e| format!("write {}: {}", p.display(), e))?;
-    Ok(())
+    save_sqlite_config(&p, cfg)
 }
 
 // ── Tree helpers ──
@@ -644,6 +993,30 @@ pub fn load_preset(skin_path: &str, preset_id: i64) -> Option<Value> {
 }
 
 pub fn save_preset(skin_path: &str, preset_id: Option<i64>, data: &Value) -> Result<i64, String> {
+    // Phase B: when UPDATING an existing preset (id given AND present in the
+    // table), write just its blob via INSERT OR REPLACE — the other preset
+    // blobs, groups, tree, and table-state are untouched. New presets still go
+    // through the full load→mutate→save path (they must bump next_preset_id and
+    // splice into root_children at position 0).
+    if let Some(id) = preset_id {
+        if let Some(conn) = try_open_for_update(skin_path) {
+            let exists: bool = conn.query_row(
+                "SELECT 1 FROM presets WHERE id=?1", rusqlite::params![id],
+                |_| Ok(true),
+            ).unwrap_or(false);
+            if exists {
+                let entry = build_preset_entry(id, data);
+                let s = serde_json::to_string(&entry).map_err(|e| format!("preset serialize: {}", e))?;
+                conn.execute(
+                    "INSERT OR REPLACE INTO presets(id,data) VALUES(?1,?2)",
+                    rusqlite::params![id, s],
+                ).map_err(|e| format!("preset replace: {}", e))?;
+                return Ok(id);
+            }
+            // id given but not present → fall through to the full path (it'll
+            // create it, same as the legacy behavior for a stale id).
+        }
+    }
     let mut cfg = load_config(skin_path);
     let id = match preset_id {
         Some(id) => id,
@@ -653,9 +1026,31 @@ pub fn save_preset(skin_path: &str, preset_id: Option<i64>, data: &Value) -> Res
             id
         }
     };
-    // Build the preset entry: keep meta fields as-is (including empty
-    // description/previewPath), keep all action arrays (even empty). Only the
-    // compact JSON serialization (in save_config) reduces file size.
+    let entry = build_preset_entry(id, data);
+    let is_new = preset_id.is_none();
+    if let Some(pos) = cfg.presets.iter().position(|p| p.get("id").and_then(|v| v.as_i64()) == Some(id)) {
+        cfg.presets[pos] = entry;
+    } else {
+        cfg.presets.push(entry);
+    }
+    // A brand-new preset (no id given) is placed at the TOP of root so it
+    // appears first in the tree, mirroring new groups. Existing presets keep
+    // their position (they're already in root_children via load/move).
+    if is_new {
+        let already_root = cfg.root_children.iter().any(|c| c.kind == "preset" && c.id == id);
+        if !already_root {
+            let _ = insert_into_parent(&mut cfg, id, "preset", None, Some(0));
+        }
+    }
+    save_config(skin_path, &cfg)?;
+    Ok(id)
+}
+
+// Build a normalized preset entry from raw save data: keep meta fields as-is
+// (including empty description/previewPath), keep all action arrays (even
+// empty). Shared by the direct-SQL and full-save paths so both produce the
+// identical on-disk blob.
+fn build_preset_entry(id: i64, data: &Value) -> Value {
     let mut entry = serde_json::Map::new();
     entry.insert("id".into(), json!(id));
     let mut meta = serde_json::Map::new();
@@ -677,24 +1072,7 @@ pub fn save_preset(skin_path: &str, preset_id: Option<i64>, data: &Value) -> Res
     }
     entry.insert("meta".into(), Value::Object(meta));
     entry.insert("actions".into(), data.get("actions").cloned().unwrap_or_else(|| json!({"skinIni": [], "fileCopies": [], "fileDeletes": [], "fileTints": [], "fileLayers": []})));
-    let entry = Value::Object(entry);
-    let is_new = preset_id.is_none();
-    if let Some(pos) = cfg.presets.iter().position(|p| p.get("id").and_then(|v| v.as_i64()) == Some(id)) {
-        cfg.presets[pos] = entry;
-    } else {
-        cfg.presets.push(entry);
-    }
-    // A brand-new preset (no id given) is placed at the TOP of root so it
-    // appears first in the tree, mirroring new groups. Existing presets keep
-    // their position (they're already in root_children via load/move).
-    if is_new {
-        let already_root = cfg.root_children.iter().any(|c| c.kind == "preset" && c.id == id);
-        if !already_root {
-            let _ = insert_into_parent(&mut cfg, id, "preset", None, Some(0));
-        }
-    }
-    save_config(skin_path, &cfg)?;
-    Ok(id)
+    Value::Object(entry)
 }
 
 pub fn delete_preset(skin_path: &str, preset_id: i64) {
@@ -766,25 +1144,38 @@ pub fn add_group(skin_path: &str, name: &str, parent_group_id: Option<i64>, kind
 
 /// Set or clear the shortcut on a group (for table group hotkeys).
 pub fn set_group_shortcut(skin_path: &str, group_id: i64, accelerator: &str) -> Result<(), String> {
+    // Phase B: single-column UPDATE on the groups row.
+    let val: Option<&str> = if accelerator.is_empty() { None } else { Some(accelerator) };
+    if let Some(conn) = try_open_for_update(skin_path) {
+        return update_group_col(&conn, group_id, "shortcut", val);
+    }
     let mut cfg = load_config(skin_path);
     let g = cfg.groups.iter_mut().find(|g| g.id == group_id)
         .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
-    if accelerator.is_empty() {
-        g.shortcut = None;
-    } else {
-        g.shortcut = Some(accelerator.to_string());
-    }
+    g.shortcut = val.map(|s| s.to_string());
     save_config(skin_path, &cfg)
 }
 
 /// Set/clear the shortcut on MANY groups in a single load/edit/save (avoids the
 /// N load+save round-trips of calling set_group_shortcut once per group).
 pub fn set_group_shortcuts_batch(skin_path: &str, group_ids: &[i64], accelerator: &str) -> Result<(), String> {
+    // Phase B: one UPDATE ... WHERE id IN (...).
+    let val: Option<&str> = if accelerator.is_empty() { None } else { Some(accelerator) };
+    if let Some(conn) = try_open_for_update(skin_path) {
+        if group_ids.is_empty() { return Ok(()); }
+        let placeholders: Vec<String> = (0..group_ids.len()).map(|i| format!("?{}", i + 2)).collect();
+        let sql = format!("UPDATE groups SET shortcut=?1 WHERE id IN ({})", placeholders.join(","));
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(val.map(|s| s.to_string()))];
+        for id in group_ids { params.push(Box::new(*id)); }
+        let params_ref: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        conn.execute(&sql, params_ref.as_slice()).map_err(|e| format!("update shortcut batch: {}", e))?;
+        return Ok(());
+    }
     let mut cfg = load_config(skin_path);
     let id_set: std::collections::HashSet<i64> = group_ids.iter().copied().collect();
     for g in cfg.groups.iter_mut() {
         if id_set.contains(&g.id) {
-            g.shortcut = if accelerator.is_empty() { None } else { Some(accelerator.to_string()) };
+            g.shortcut = val.map(|s| s.to_string());
         }
     }
     save_config(skin_path, &cfg)
@@ -792,16 +1183,60 @@ pub fn set_group_shortcuts_batch(skin_path: &str, group_ids: &[i64], accelerator
 
 /// Set or clear the description on a group (shown read-only in use mode).
 pub fn set_group_description(skin_path: &str, group_id: i64, description: &str) -> Result<(), String> {
+    // Phase B: single-column UPDATE on the groups row.
+    let val: Option<&str> = if description.is_empty() { None } else { Some(description) };
+    if let Some(conn) = try_open_for_update(skin_path) {
+        return update_group_col(&conn, group_id, "description", val);
+    }
     let mut cfg = load_config(skin_path);
     let g = cfg.groups.iter_mut().find(|g| g.id == group_id)
         .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
-    g.description = if description.is_empty() { None } else { Some(description.to_string()) };
+    g.description = val.map(|s| s.to_string());
     save_config(skin_path, &cfg)
+}
+
+// Phase B helper: UPDATE a single TEXT column on one groups row. `col` is a
+// compile-time-fixed column name (not user data), so string interpolation is
+// safe. Returns err.group_not_found when the id isn't present (matches the
+// load→mutate→save path's find() behavior).
+fn update_group_col(conn: &Connection, group_id: i64, col: &str, val: Option<&str>) -> Result<(), String> {
+    let sql = format!("UPDATE groups SET {}=?1 WHERE id=?2", col);
+    let n = conn.execute(&sql, rusqlite::params![val.map(|s| s.to_string()), group_id])
+        .map_err(|e| format!("update {} {}: {}", col, group_id, e))?;
+    if n == 0 {
+        return Err(crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]));
+    }
+    Ok(())
 }
 
 /// Persist the table-group UI state (expanded children + row selections +
 /// activations).
 pub fn set_table_state(skin_path: &str, expanded: &Value, row_selection: &Value, activations: &Value) -> Result<(), String> {
+    // Phase B: three INSERT OR REPLACE (or DELETE when empty) on table_state —
+    // avoids rewriting presets/groups/etc. Matches the full-save semantics: an
+    // empty object {} or null is NOT stored, and reads back as {} via defaults.
+    if let Some(mut conn) = try_open_for_update(skin_path) {
+        fn is_empty(v: &Value) -> bool {
+            v.is_null() || v.as_object().is_some_and(|o| o.is_empty())
+        }
+        let put = |conn: &Connection, key: &str, val: &Value| -> Result<(), String> {
+            if is_empty(val) {
+                conn.execute("DELETE FROM table_state WHERE key=?1", rusqlite::params![key])
+                    .map_err(|e| format!("delete table_state {}: {}", key, e))?;
+            } else {
+                let s = serde_json::to_string(val).map_err(|e| format!("serialize table_state {}: {}", key, e))?;
+                conn.execute("INSERT OR REPLACE INTO table_state(key,value) VALUES(?1,?2)", rusqlite::params![key, s])
+                    .map_err(|e| format!("upsert table_state {}: {}", key, e))?;
+            }
+            Ok(())
+        };
+        let tx = conn.transaction().map_err(|e| format!("begin: {}", e))?;
+        put(&tx, "expanded", expanded)?;
+        put(&tx, "row_selection", row_selection)?;
+        put(&tx, "activations", activations)?;
+        tx.commit().map_err(|e| format!("commit: {}", e))?;
+        return Ok(());
+    }
     let mut cfg = load_config(skin_path);
     cfg.table_expanded_children = expanded.clone();
     cfg.table_row_selection = row_selection.clone();
@@ -813,6 +1248,28 @@ pub fn set_table_state(skin_path: &str, expanded: &Value, row_selection: &Value,
 /// free-text lines, and an optional link URL. Empty strings are stored as None
 /// to keep config.osp compact (same convention as set_group_description).
 pub fn set_skin_meta(skin_path: &str, accent_hue: Option<f64>, text1: &str, text2: &str, link: &str) -> Result<(), String> {
+    // Phase B: upsert four meta rows directly (no full-Config rewrite). Empty
+    // strings → stored as NULL (the same "omit empty" convention the full save
+    // uses) so they read back as None.
+    if let Some(mut conn) = try_open_for_update(skin_path) {
+        let tx = conn.transaction().map_err(|e| format!("begin: {}", e))?;
+        let put = |tx: &Connection, key: &str, val: Option<String>| -> Result<(), String> {
+            if let Some(v) = val {
+                tx.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?1,?2)", rusqlite::params![key, v])
+                    .map_err(|e| format!("meta upsert {}: {}", key, e))?;
+            } else {
+                tx.execute("DELETE FROM meta WHERE key=?1", rusqlite::params![key])
+                    .map_err(|e| format!("meta delete {}: {}", key, e))?;
+            }
+            Ok(())
+        };
+        put(&tx, "accent_hue", accent_hue.map(|h| h.to_string()))?;
+        put(&tx, "custom_text1", if text1.is_empty() { None } else { Some(text1.to_string()) })?;
+        put(&tx, "custom_text2", if text2.is_empty() { None } else { Some(text2.to_string()) })?;
+        put(&tx, "skin_link", if link.is_empty() { None } else { Some(link.to_string()) })?;
+        tx.commit().map_err(|e| format!("commit: {}", e))?;
+        return Ok(());
+    }
     let mut cfg = load_config(skin_path);
     cfg.accent_hue = accent_hue;
     cfg.custom_text1 = if text1.is_empty() { None } else { Some(text1.to_string()) };
@@ -825,6 +1282,17 @@ pub fn set_skin_meta(skin_path: &str, accent_hue: Option<f64>, text1: &str, text
 /// unit itself). Empty actions (all four arrays empty) are stored as None to
 /// keep config.osp compact.
 pub fn set_group_actions(skin_path: &str, group_id: i64, actions: &Value) -> Result<(), String> {
+    // Phase B: single-column UPDATE on the groups row (actions as a JSON blob,
+    // NULL when the actions set is empty).
+    if let Some(conn) = try_open_for_update(skin_path) {
+        let empty = json!({"skinIni":[],"fileCopies":[],"fileDeletes":[],"fileTints":[],"fileLayers":[]});
+        let val: Option<String> = if actions == &empty {
+            None
+        } else {
+            Some(serde_json::to_string(actions).map_err(|e| format!("actions serialize: {}", e))?)
+        };
+        return update_group_col(&conn, group_id, "actions", val.as_deref());
+    }
     let mut cfg = load_config(skin_path);
     let g = cfg.groups.iter_mut().find(|g| g.id == group_id)
         .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
@@ -904,6 +1372,21 @@ pub fn set_group_preview(
     frames: Option<Vec<String>>,
     fps: Option<i32>,
 ) -> Result<(), String> {
+    // Phase B: multi-column UPDATE on the groups row (all four preview fields).
+    if let Some(conn) = try_open_for_update(skin_path) {
+        let p_val = path.filter(|s| !s.is_empty()).map(|s| s.to_string());
+        let k_val = kind.filter(|s| !s.is_empty()).map(|s| s.to_string());
+        let frames_val = frames.filter(|f| !f.is_empty())
+            .map(|f| serde_json::to_string(&f)).transpose().map_err(|e| format!("frames serialize: {}", e))?;
+        let n = conn.execute(
+            "UPDATE groups SET preview_path=?1, preview_kind=?2, preview_frames=?3, preview_fps=?4 WHERE id=?5",
+            rusqlite::params![p_val, k_val, frames_val, fps, group_id],
+        ).map_err(|e| format!("update preview: {}", e))?;
+        if n == 0 {
+            return Err(crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]));
+        }
+        return Ok(());
+    }
     let mut cfg = load_config(skin_path);
     let g = cfg.groups.iter_mut().find(|g| g.id == group_id)
         .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
@@ -1010,6 +1493,18 @@ pub fn reorder_children(skin_path: &str, parent_group_id: Option<i64>, child_ord
 }
 
 pub fn set_group_collapsed(skin_path: &str, group_id: i64, collapsed: bool) -> Result<(), String> {
+    // Phase B: direct UPDATE on the groups row (no full-Config rewrite) when the
+    // file is already SQLite. Falls back to load→mutate→save for legacy JSON.
+    if let Some(conn) = try_open_for_update(skin_path) {
+        let n = conn.execute(
+            "UPDATE groups SET collapsed=?1 WHERE id=?2",
+            rusqlite::params![collapsed as i64, group_id],
+        ).map_err(|e| format!("update collapsed: {}", e))?;
+        if n == 0 {
+            return Err(crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]));
+        }
+        return Ok(());
+    }
     let mut cfg = load_config(skin_path);
     let gi = find_group_index(&mut cfg, group_id).ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
     cfg.groups[gi].collapsed = collapsed;
@@ -1020,6 +1515,19 @@ pub fn set_group_collapsed(skin_path: &str, group_id: i64, collapsed: bool) -> R
 // Set collapsed state for many groups in ONE read+write (used by Shift+click
 // recursive expand/collapse, where per-group IPC would cause a visible stall).
 pub fn set_groups_collapsed_batch(skin_path: &str, group_ids: &[i64], collapsed: bool) -> Result<(), String> {
+    // Phase B: one UPDATE ... WHERE id IN (...) replaces rewriting the whole
+    // tree. Shift+click recursive collapse is the highest-frequency batch call.
+    if let Some(conn) = try_open_for_update(skin_path) {
+        if group_ids.is_empty() { return Ok(()); }
+        // build "?," placeholders
+        let placeholders: Vec<String> = (0..group_ids.len()).map(|i| format!("?{}", i + 2)).collect();
+        let sql = format!("UPDATE groups SET collapsed=?1 WHERE id IN ({})", placeholders.join(","));
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(collapsed as i64)];
+        for id in group_ids { params.push(Box::new(*id)); }
+        let params_ref: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        conn.execute(&sql, params_ref.as_slice()).map_err(|e| format!("update collapsed batch: {}", e))?;
+        return Ok(());
+    }
     let mut cfg = load_config(skin_path);
     for g in cfg.groups.iter_mut() {
         if group_ids.contains(&g.id) { g.collapsed = collapsed; }
@@ -1435,5 +1943,470 @@ mod compact_tests {
         // "10" expanded had an EMPTY child array → new_kids empty → nothing cloned
         // under "1" for expanded (empty array omitted), source "10" still [].
         assert_eq!(c.table_expanded_children.get("10"), Some(&json!([])));
+    }
+}
+
+#[cfg(test)]
+mod io_tests {
+    use super::*;
+    use serde_json::json;
+
+    // Portability invariant helper: after any save, the skin folder must hold
+    // ONLY config.osp — no SQLite sidecars of any journal mode (-wal, -shm,
+    // -journal) and no orphaned temp-journal from the atomic temp+rename write.
+    fn assert_no_journals(dir: &std::path::Path) {
+        let mut stray: Vec<String> = std::fs::read_dir(dir).unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|f| f.ends_with("-wal") || f.ends_with("-shm") || f.ends_with("-journal"))
+            .collect();
+        // sort for stable error output
+        stray.sort();
+        assert!(stray.is_empty(), "SQLite sidecars left in skin folder: {:?}", stray);
+    }
+
+    // A representative Config covering every field + the tricky edge cases:
+    // presets as opaque blobs, nested groups with ordered children, table-state
+    // blobs with BOTH numeric and string-embedded ids, and sparse skin meta.
+    fn sample_cfg() -> Config {
+        Config {
+            next_preset_id: 3,
+            next_group_id: 3,
+            root_children: vec![
+                ChildRef { kind: "preset".into(), id: 1 },
+                ChildRef { kind: "group".into(), id: 2 },
+            ],
+            groups: vec![
+                Group {
+                    id: 2, name: "G2".into(), collapsed: true,
+                    children: vec![ChildRef { kind: "preset".into(), id: 2 }],
+                    kind: "table".into(), shortcut: Some("Ctrl+Shift+G".into()),
+                    description: Some("desc".into()),
+                    preview_path: Some("p.png".into()), preview_kind: Some("image".into()),
+                    preview_frames: Some(vec!["f1.png".into(), "f2.png".into()]),
+                    preview_fps: Some(30), actions: None,
+                },
+            ],
+            presets: vec![
+                json!({ "id": 1, "meta": { "name": "P1", "description": "", "previewPath": "" },
+                        "actions": { "skinIni": [{"k":"v"}], "fileCopies": [], "fileDeletes": [], "fileTints": [], "fileLayers": [] } }),
+                json!({ "id": 2, "meta": { "name": "P2", "description": "d", "previewPath": "x" },
+                        "actions": { "skinIni": [], "fileCopies": [], "fileDeletes": [], "fileTints": [], "fileLayers": [] } }),
+            ],
+            // Mix numeric AND string-embedded ids — the on-disk shape the
+            // renderer writes and that compact_ids must preserve types for.
+            table_expanded_children: json!({ "2": [2] }),
+            table_row_selection: json!({ "2": { "2:__direct__": 2, "s": "100" } }),
+            table_activations: json!({ "2": { "100": [{ "dstRowKey": "2:__direct__", "dstOption": 2, "effect": "select" }] } }),
+            accent_hue: Some(210.0),
+            custom_text1: Some("t1".into()),
+            custom_text2: None,
+            skin_link: None,
+        }
+    }
+
+    #[test]
+    fn round_trip_preserves_full_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let sp = dir.path().to_string_lossy().to_string();
+        let orig = sample_cfg();
+        save_config(&sp, &orig).expect("save");
+        let loaded = load_config(&sp);
+        assert_eq!(loaded.next_preset_id, orig.next_preset_id);
+        assert_eq!(loaded.next_group_id, orig.next_group_id);
+        assert_eq!(loaded.root_children.len(), 2);
+        assert_eq!(loaded.presets.len(), 2);
+        assert_eq!(loaded.presets[0]["meta"]["name"], "P1");
+        assert_eq!(loaded.presets[0]["actions"]["skinIni"][0]["k"], "v");
+        assert_eq!(loaded.groups.len(), 1);
+        let g = &loaded.groups[0];
+        assert_eq!(g.id, 2);
+        assert!(g.collapsed);
+        assert_eq!(g.kind, "table");
+        assert_eq!(g.shortcut.as_deref(), Some("Ctrl+Shift+G"));
+        assert_eq!(g.preview_frames.as_deref(), Some(&["f1.png".to_string(), "f2.png".to_string()][..]));
+        assert_eq!(g.preview_fps, Some(30));
+        assert_eq!(g.children.len(), 1);
+        assert_eq!(g.children[0].id, 2);
+        // None fields stay None (omitted, not "").
+        assert_eq!(loaded.custom_text2, None);
+        assert_eq!(loaded.skin_link, None);
+        assert_eq!(loaded.accent_hue, Some(210.0));
+        // table-state blobs round-trip exactly (including the string id "100").
+        assert_eq!(loaded.table_row_selection["2"]["s"], "100");
+        assert!(loaded.table_activations["2"]["100"].is_array());
+    }
+
+    #[test]
+    fn empty_config_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let sp = dir.path().to_string_lossy().to_string();
+        save_config(&sp, &Config::empty()).expect("save");
+        let loaded = load_config(&sp);
+        assert_eq!(loaded.next_preset_id, 1);
+        assert!(loaded.presets.is_empty());
+        assert!(loaded.groups.is_empty());
+        assert!(loaded.root_children.is_empty());
+    }
+
+    #[test]
+    fn missing_file_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let sp = dir.path().to_string_lossy().to_string();
+        let loaded = load_config(&sp);
+        assert!(loaded.presets.is_empty());
+        assert!(loaded.groups.is_empty());
+    }
+
+    #[test]
+    fn lazy_migration_converts_json_to_sqlite() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(CONFIG_FILENAME);
+
+        // Write a legacy JSON .osp (compact format, as the old save_config did).
+        let orig = sample_cfg();
+        let json_text = serde_json::to_string(&json!({
+            "nextPresetId": orig.next_preset_id, "nextGroupId": orig.next_group_id,
+            "rootChildren": orig.root_children, "groups": orig.groups, "presets": orig.presets,
+            "tableExpandedChildren": orig.table_expanded_children,
+            "tableRowSelection": orig.table_row_selection,
+            "tableActivations": orig.table_activations,
+            "accentHue": orig.accent_hue, "customText1": orig.custom_text1,
+        })).unwrap();
+        std::fs::write(&p, &json_text).unwrap();
+        assert!(!is_sqlite_file(&p));
+
+        let sp = dir.path().to_string_lossy().to_string();
+        let loaded = load_config(&sp);
+        // Content correct…
+        assert_eq!(loaded.presets.len(), 2);
+        assert_eq!(loaded.groups[0].shortcut.as_deref(), Some("Ctrl+Shift+G"));
+        // …and the file is now SQLite.
+        assert!(is_sqlite_file(&p), "file migrated to SQLite");
+        // No backup file is written (in-place migration), and no journal/temp
+        // cruft is left behind in the skin folder.
+        assert!(!dir.path().join(format!("{}.bak", CONFIG_FILENAME)).exists(),
+            "no .bak backup written");
+        assert_no_journals(dir.path());
+
+        // Second open: SQLite branch, no re-migration, equal content.
+        let loaded2 = load_config(&sp);
+        assert_eq!(loaded2.presets.len(), loaded.presets.len());
+    }
+
+    #[test]
+    fn empty_tree_self_deletes_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let sp = dir.path().to_string_lossy().to_string();
+        // Save a non-empty config, then prune it empty.
+        save_config(&sp, &sample_cfg()).unwrap();
+        assert!(config_path(&sp).exists());
+        let empty = Config::empty();
+        save_or_prune(&sp, &empty);
+        assert!(!config_path(&sp).exists(), "empty tree deletes config.osp");
+    }
+
+    #[test]
+    fn user_version_stamped_on_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let sp = dir.path().to_string_lossy().to_string();
+        save_config(&sp, &Config::empty()).unwrap();
+        let p = config_path(&sp);
+        let conn = Connection::open(&p).unwrap();
+        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, 1);
+        let sv: String = conn.query_row(
+            "SELECT value FROM meta WHERE key='schema_version'", [],
+            |r| r.get(0),
+        ).unwrap_or_else(|_| "1".to_string());
+        // schema_version is optional (we don't force-write it), but user_version
+        // MUST be 1 — that's the load-bearing forward-compat stamp.
+        let _ = sv;
+    }
+
+    #[test]
+    fn is_sqlite_file_detection() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(CONFIG_FILENAME);
+        // Missing → false.
+        assert!(!is_sqlite_file(&p));
+        // 0-byte → false.
+        std::fs::write(&p, b"").unwrap();
+        assert!(!is_sqlite_file(&p));
+        // JSON header → false.
+        std::fs::write(&p, b"{\"presets\":[]}").unwrap();
+        assert!(!is_sqlite_file(&p));
+        // A real SQLite file → true.
+        save_config(&dir.path().to_string_lossy(), &Config::empty()).unwrap();
+        assert!(is_sqlite_file(&p));
+    }
+
+    #[test]
+    fn no_sidecar_after_save() {
+        // Portability invariant: a save must leave a SINGLE .osp with no SQLite
+        // sidecars (-wal/-shm/-journal) and no orphaned temp-journal. If this
+        // breaks, copying the skin folder loses data.
+        let dir = tempfile::tempdir().unwrap();
+        let sp = dir.path().to_string_lossy().to_string();
+        save_config(&sp, &sample_cfg()).unwrap();
+        assert_no_journals(dir.path());
+        // The .osp itself must be present.
+        assert!(dir.path().join(CONFIG_FILENAME).exists());
+    }
+
+    #[test]
+    fn no_sidecar_after_direct_update() {
+        // Phase B direct writes (each opens+closes its own connection) must also
+        // leave no journal residue — the highest-risk path for leftover -journal.
+        let dir = tempfile::tempdir().unwrap();
+        let sp = dir.path().to_string_lossy().to_string();
+        save_config(&sp, &sample_cfg()).unwrap();
+        set_group_collapsed(&sp, 2, true).unwrap();
+        set_table_state(&sp, &json!({}), &json!({}), &json!({})).unwrap();
+        set_skin_meta(&sp, Some(200.0), "x", "y", "z").unwrap();
+        assert_no_journals(dir.path());
+    }
+
+    #[test]
+    fn count_presets_reads_both_formats() {
+        let dir = tempfile::tempdir().unwrap();
+        // SQLite path: 2 presets + 1 table group = 3.
+        save_config(&dir.path().to_string_lossy(), &sample_cfg()).unwrap();
+        assert_eq!(count_presets_in_skin(dir.path()), 3);
+        // Legacy JSON path (must NOT migrate): same content, parsed directly.
+        std::fs::remove_file(dir.path().join(CONFIG_FILENAME)).unwrap();
+        std::fs::write(dir.path().join(CONFIG_FILENAME), serde_json::to_string(&json!({
+            "nextPresetId": 3, "nextGroupId": 3,
+            "presets": [{ "id": 1 }, { "id": 2 }],
+            "groups": [{ "id": 2, "name": "G2", "type": "table", "children": [] }],
+        })).unwrap()).unwrap();
+        assert_eq!(count_presets_in_skin(dir.path()), 3);
+        // Confirms count did not trigger migration:
+        assert!(!is_sqlite_file(&dir.path().join(CONFIG_FILENAME)));
+    }
+}
+
+#[cfg(test)]
+mod phase_b_tests {
+    use super::*;
+    use serde_json::json;
+
+    // Seed a SQLite .osp from a full Config, return the skin_path string. Each
+    // test starts from the same known baseline so we can assert "the direct
+    // UPDATE changed ONLY its column".
+    fn seeded(baseline: Config) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let sp = dir.path().to_string_lossy().to_string();
+        // Leak the tempdir so the .osp survives for the test body — tests are
+        // short-lived and the OS reclaims the temp on process exit.
+        std::mem::forget(dir);
+        save_config(&sp, &baseline).expect("seed save");
+        sp
+    }
+
+    fn baseline() -> Config {
+        // One preset, one table group (id 2) with collapsed=false, no shortcut,
+        // a description, preview media, and own actions; sparse skin meta.
+        Config {
+            next_preset_id: 2, next_group_id: 3,
+            root_children: vec![
+                ChildRef { kind: "preset".into(), id: 1 },
+                ChildRef { kind: "group".into(), id: 2 },
+            ],
+            groups: vec![Group {
+                id: 2, name: "G2".into(), collapsed: false,
+                children: vec![ChildRef { kind: "preset".into(), id: 1 }],
+                kind: "table".into(), shortcut: None,
+                description: Some("orig".into()),
+                preview_path: Some("a.png".into()), preview_kind: Some("image".into()),
+                preview_frames: Some(vec!["a.png".into()]), preview_fps: Some(15),
+                actions: Some(json!({"skinIni":[{"x":1}],"fileCopies":[],"fileDeletes":[],"fileTints":[],"fileLayers":[]})),
+            }],
+            presets: vec![json!({ "id": 1, "meta": { "name": "P1", "description": "", "previewPath": "" },
+                "actions": { "skinIni": [], "fileCopies": [], "fileDeletes": [], "fileTints": [], "fileLayers": [] } })],
+            table_expanded_children: json!({ "2": [] }),
+            table_row_selection: json!({ "2": { "2:__direct__": 1 } }),
+            table_activations: json!({}),
+            accent_hue: Some(140.0),
+            custom_text1: Some("orig1".into()),
+            custom_text2: None,
+            skin_link: None,
+        }
+    }
+
+    #[test]
+    fn collapsed_single_updates_only_that_column() {
+        let sp = seeded(baseline());
+        set_group_collapsed(&sp, 2, true).unwrap();
+        let cfg = load_config(&sp);
+        assert_eq!(cfg.groups[0].collapsed, true);
+        // Everything else untouched (this is the incremental-write guarantee).
+        assert_eq!(cfg.groups[0].description.as_deref(), Some("orig"));
+        assert_eq!(cfg.groups[0].preview_path.as_deref(), Some("a.png"));
+        assert!(cfg.groups[0].actions.is_some());
+        assert_eq!(cfg.presets.len(), 1);
+        assert_eq!(cfg.accent_hue, Some(140.0));
+    }
+
+    #[test]
+    fn collapsed_single_missing_group_errors() {
+        let sp = seeded(baseline());
+        let r = set_group_collapsed(&sp, 999, true);
+        assert!(r.is_err(), "updating a missing group must error");
+    }
+
+    #[test]
+    fn collapsed_batch_updates_many() {
+        let sp = seeded({
+            let mut c = baseline();
+            c.groups.push(Group {
+                id: 3, name: "G3".into(), collapsed: false, children: vec![],
+                kind: "".into(), shortcut: None, description: None,
+                preview_path: None, preview_kind: None, preview_frames: None,
+                preview_fps: None, actions: None,
+            });
+            c.next_group_id = 4;
+            c
+        });
+        set_groups_collapsed_batch(&sp, &[2, 3], true).unwrap();
+        let cfg = load_config(&sp);
+        assert!(cfg.groups.iter().all(|g| g.collapsed));
+    }
+
+    #[test]
+    fn table_state_direct_write_replaces_blobs() {
+        let sp = seeded(baseline());
+        let new_exp = json!({ "2": [2] });
+        let new_sel = json!({ "2": { "2:__direct__": "1" } });
+        let new_act = json!({ "2": { "1": [{ "dstRowKey": "2:__direct__", "dstOption": 1, "effect": "select" }] } });
+        set_table_state(&sp, &new_exp, &new_sel, &new_act).unwrap();
+        let cfg = load_config(&sp);
+        assert_eq!(cfg.table_expanded_children, new_exp);
+        assert_eq!(cfg.table_row_selection, new_sel);
+        assert_eq!(cfg.table_activations, new_act);
+        // Non-table data untouched.
+        assert_eq!(cfg.presets.len(), 1);
+        assert_eq!(cfg.groups[0].name, "G2");
+    }
+
+    #[test]
+    fn table_state_direct_write_empties_become_empty_obj() {
+        // Clearing → rows deleted → read back as {} (the omit-empty convention).
+        let sp = seeded(baseline());
+        set_table_state(&sp, &json!({}), &json!({}), &json!({})).unwrap();
+        let cfg = load_config(&sp);
+        assert_eq!(cfg.table_expanded_children, json!({}));
+        assert_eq!(cfg.table_row_selection, json!({}));
+        assert_eq!(cfg.table_activations, json!({}));
+    }
+
+    #[test]
+    fn save_preset_update_rewrites_only_that_blob() {
+        let sp = seeded({
+            let mut c = baseline();
+            // Add a second preset so we can assert it is NOT rewritten/touched.
+            c.presets.push(json!({ "id": 5, "meta": { "name": "P5", "description": "keep", "previewPath": "" },
+                "actions": { "skinIni": [], "fileCopies": [], "fileDeletes": [], "fileTints": [], "fileLayers": [] } }));
+            c.root_children.push(ChildRef { kind: "preset".into(), id: 5 });
+            c.next_preset_id = 6;
+            c
+        });
+        // Update preset 1 with a new name + actions.
+        let updated = json!({ "meta": { "name": "P1-renamed", "description": "new", "previewPath": "" },
+            "actions": { "skinIni": [{"k":"v"}], "fileCopies": [], "fileDeletes": [], "fileTints": [], "fileLayers": [] } });
+        let id = save_preset(&sp, Some(1), &updated).unwrap();
+        assert_eq!(id, 1);
+        let cfg = load_config(&sp);
+        let p1 = cfg.presets.iter().find(|p| p["id"] == 1).unwrap();
+        assert_eq!(p1["meta"]["name"], "P1-renamed");
+        assert_eq!(p1["actions"]["skinIni"][0]["k"], "v");
+        // The other preset is untouched (incremental write didn't rewrite it).
+        let p5 = cfg.presets.iter().find(|p| p["id"] == 5).unwrap();
+        assert_eq!(p5["meta"]["description"], "keep");
+        assert_eq!(cfg.groups[0].name, "G2");
+    }
+
+    #[test]
+    fn set_group_shortcut_and_description_direct() {
+        let sp = seeded(baseline());
+        set_group_shortcut(&sp, 2, "Ctrl+K").unwrap();
+        set_group_description(&sp, 2, "newdesc").unwrap();
+        let cfg = load_config(&sp);
+        assert_eq!(cfg.groups[0].shortcut.as_deref(), Some("Ctrl+K"));
+        assert_eq!(cfg.groups[0].description.as_deref(), Some("newdesc"));
+        // Clearing via empty string → None.
+        set_group_shortcut(&sp, 2, "").unwrap();
+        assert_eq!(load_config(&sp).groups[0].shortcut, None);
+    }
+
+    #[test]
+    fn set_group_actions_direct_empty_to_none() {
+        let sp = seeded(baseline());
+        // Set non-empty actions.
+        let acts = json!({"skinIni":[{"a":1}],"fileCopies":[],"fileDeletes":[],"fileTints":[],"fileLayers":[]});
+        set_group_actions(&sp, 2, &acts).unwrap();
+        assert_eq!(load_config(&sp).groups[0].actions, Some(acts));
+        // Empty actions → None (the compact-storage convention).
+        let empty = json!({"skinIni":[],"fileCopies":[],"fileDeletes":[],"fileTints":[],"fileLayers":[]});
+        set_group_actions(&sp, 2, &empty).unwrap();
+        assert_eq!(load_config(&sp).groups[0].actions, None);
+    }
+
+    #[test]
+    fn set_group_preview_direct() {
+        let sp = seeded(baseline());
+        set_group_preview(&sp, 2, Some("b.png"), Some("seq"), Some(vec!["b1.png".into(), "b2.png".into()]), Some(30)).unwrap();
+        let g = &load_config(&sp).groups[0];
+        assert_eq!(g.preview_path.as_deref(), Some("b.png"));
+        assert_eq!(g.preview_kind.as_deref(), Some("seq"));
+        assert_eq!(g.preview_frames.as_deref(), Some(&["b1.png".to_string(), "b2.png".to_string()][..]));
+        assert_eq!(g.preview_fps, Some(30));
+        // Clear preview.
+        set_group_preview(&sp, 2, None, None, None, None).unwrap();
+        let g = &load_config(&sp).groups[0];
+        assert_eq!(g.preview_path, None);
+        assert_eq!(g.preview_kind, None);
+        assert_eq!(g.preview_frames, None);
+        assert_eq!(g.preview_fps, None);
+    }
+
+    #[test]
+    fn set_skin_meta_direct() {
+        let sp = seeded(baseline());
+        set_skin_meta(&sp, Some(210.5), "t1-new", "t2-new", "https://x").unwrap();
+        let cfg = load_config(&sp);
+        assert_eq!(cfg.accent_hue, Some(210.5));
+        assert_eq!(cfg.custom_text1.as_deref(), Some("t1-new"));
+        assert_eq!(cfg.custom_text2.as_deref(), Some("t2-new"));
+        assert_eq!(cfg.skin_link.as_deref(), Some("https://x"));
+        // Clearing via empty strings → None.
+        set_skin_meta(&sp, None, "", "", "").unwrap();
+        let cfg = load_config(&sp);
+        assert_eq!(cfg.accent_hue, None);
+        assert_eq!(cfg.custom_text1, None);
+        assert_eq!(cfg.custom_text2, None);
+        assert_eq!(cfg.skin_link, None);
+        // Non-meta data untouched.
+        assert_eq!(cfg.presets.len(), 1);
+    }
+
+    #[test]
+    fn shortcuts_batch_direct() {
+        let sp = seeded({
+            let mut c = baseline();
+            c.groups.push(Group {
+                id: 3, name: "G3".into(), collapsed: false, children: vec![],
+                kind: "".into(), shortcut: None, description: None,
+                preview_path: None, preview_kind: None, preview_frames: None,
+                preview_fps: None, actions: None,
+            });
+            c.next_group_id = 4;
+            c
+        });
+        set_group_shortcuts_batch(&sp, &[2, 3], "Alt+1").unwrap();
+        let cfg = load_config(&sp);
+        assert!(cfg.groups.iter().all(|g| g.shortcut.as_deref() == Some("Alt+1")));
+        // Clear.
+        set_group_shortcuts_batch(&sp, &[2, 3], "").unwrap();
+        assert!(load_config(&sp).groups.iter().all(|g| g.shortcut.is_none()));
     }
 }

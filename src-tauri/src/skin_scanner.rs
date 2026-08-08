@@ -71,20 +71,10 @@ pub fn scan_skins(osu_path: &str) -> Vec<SkinInfo> {
     out
 }
 
-/// Count presets by parsing config.osp JSON in the skin dir. Returns 0 on any
-/// error (missing/corrupt file), matching the JS try/catch.
+/// Count presets in a skin dir. Format-aware via preset_manager: reads the
+/// SQLite count on a modern .osp, or parses legacy JSON. Returns 0 on any error
+/// (missing/corrupt file). Does NOT trigger the JSON→SQLite migration — this is
+/// a cheap read-only listing call.
 pub fn count_presets(skin_dir: &Path) -> i64 {
-    let cfg = skin_dir.join("config.osp");
-    let Ok(txt) = std::fs::read_to_string(&cfg) else { return 0 };
-    let v: serde_json::Value = match serde_json::from_str(&txt) { Ok(v) => v, Err(_) => return 0 };
-    let preset_count = v.get("presets")
-        .and_then(|p| p.as_array())
-        .map(|a| a.len() as i64)
-        .unwrap_or(0);
-    // Count table-type (multi-select) groups as 1 each (they have own actions).
-    let group_count = v.get("groups")
-        .and_then(|g| g.as_array())
-        .map(|a| a.iter().filter(|g| g.get("type").and_then(|t| t.as_str()) == Some("table")).count() as i64)
-        .unwrap_or(0);
-    preset_count + group_count
+    crate::preset_manager::count_presets_in_skin(skin_dir)
 }

@@ -26,6 +26,9 @@ tauri-plugin-prevent-default = { version = "5", features = ["platform-windows"] 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 indexmap = { version = "2", features = ["serde"] }
+# SQLite storage for config.osp (replaces the JSON text format). `bundled`
+# statically compiles the SQLite C amalgamation so end users need no system lib.
+rusqlite = { version = "0.32", features = ["bundled"] }
 base64 = "0.22"
 # Image decode/encode for the tint (recolor) feature.
 image = { version = "0.25", default-features = false, features = ["png"] }
@@ -48,6 +51,10 @@ windows-sys = { version = "0.59", features = [
 ] }
 winreg = "0.52"
 sysinfo = "0.32"
+
+[dev-dependencies]
+# Temp dirs for the SQLite round-trip / migration tests (never touches real Skins).
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

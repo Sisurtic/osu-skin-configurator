@@ -1114,9 +1114,15 @@ pub fn apply_multiple_presets(skin_path: &str, preset_ids: &[i64]) -> Value {
 /// Apply a table group's OWN actions + all its descendant presets' actions.
 /// The subtree is applied exactly once (each preset id visited once — the group
 /// tree is a tree, not a graph). INI edits are deduped by section+maniaKeys+key.
-pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) -> Result<Value, String> {
+///
+/// `own_actions_only` = true limits the apply to the group node's own actions,
+/// skipping the per-row subtree recursion. Used by edit-mode apply, where the
+/// user applies the selected checkbox GROUP itself (its direct actions) — not
+/// every preset selected within it. Use-mode passes false (apply the subtree,
+/// mirroring collectApplyUnits + tableRowSelection).
+pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>, own_actions_only: bool) -> Result<Value, String> {
     let cfg = crate::preset_manager::load_config(skin_path);
-    let _ = cfg.groups.iter().find(|g| g.id == group_id)
+    let g = cfg.groups.iter().find(|g| g.id == group_id)
         .ok_or_else(|| crate::i18n::t("err.group_not_found", &[("id", &group_id.to_string())]))?;
 
     let mut all_ini: Vec<Value> = Vec::new();
@@ -1138,6 +1144,35 @@ pub fn apply_group(skin_path: &str, group_id: i64, _preset_ids: Option<&[i64]>) 
             }
         }
     };
+
+    // Edit-mode apply: the user applies the selected checkbox GROUP node itself,
+    // so only its direct actions count — NOT the presets selected in its rows.
+    // Skip the subtree recursion entirely and apply just the group's own actions.
+    if own_actions_only {
+        let group_origin = if g.name.is_empty() { crate::i18n::t("group.unnamed", &[]) } else { g.name.clone() };
+        let mut ini: Vec<Value> = Vec::new();
+        let mut copies: Vec<Value> = Vec::new();
+        let mut deletes: Vec<Value> = Vec::new();
+        let mut tints: Vec<Value> = Vec::new();
+        let mut layers: Vec<Value> = Vec::new();
+        if let Some(ga) = &g.actions {
+            push_actions(&mut ini, ga, "skinIni", &group_origin);
+            push_actions(&mut copies, ga, "fileCopies", &group_origin);
+            push_actions(&mut deletes, ga, "fileDeletes", &group_origin);
+            push_actions(&mut tints, ga, "fileTints", &group_origin);
+            push_actions(&mut layers, ga, "fileLayers", &group_origin);
+        }
+        let mut merged_map: IndexMap<String, Value> = IndexMap::new();
+        for edit in &ini {
+            let section = edit.get("section").and_then(|v| v.as_str()).unwrap_or("");
+            let mania_keys = edit.get("maniaKeys").map(|v| v.to_string()).unwrap_or_default();
+            let key = edit.get("key").and_then(|v| v.as_str()).unwrap_or("");
+            let k = format!("{}◆{}◆{}", section, mania_keys, key);
+            merged_map.insert(k, edit.clone());
+        }
+        let merged_ini: Vec<Value> = merged_map.values().cloned().collect();
+        return Ok(apply_one_set(skin_path, &merged_ini, &copies, &deletes, &tints, &layers));
+    }
 
     // Recursively collect apply units for this checkbox (table) group, mirroring
     // the frontend collectTableRows + the user's apply semantics:

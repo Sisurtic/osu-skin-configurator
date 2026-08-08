@@ -845,7 +845,9 @@
         const groups = state.get('groups') || [];
         const g = groups.find(x => x.id === selGroup);
         if (g && g.type === 'table') {
-          ApplyDialog.showMulti({ groupIds: [selGroup], dirty });
+          // ownActionsOnly: the backend apply_group skips the per-row subtree
+          // recursion and applies just this group node's direct actions.
+          ApplyDialog.showMulti({ groupIds: [selGroup], dirty, ownActionsOnly: true });
           return;
         }
       }

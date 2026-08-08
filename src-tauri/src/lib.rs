@@ -284,10 +284,10 @@ fn groups_set_actions(app: AppHandle, skin_name: String, group_id: i64, actions:
     }
 }
 #[tauri::command]
-fn groups_apply(app: AppHandle, skin_name: String, group_id: i64, preset_ids: Option<Vec<i64>>) -> Value {
+fn groups_apply(app: AppHandle, skin_name: String, group_id: i64, preset_ids: Option<Vec<i64>>, own_actions_only: Option<bool>) -> Value {
     let sp = match resolve_skin(&app, &skin_name) { Ok(s) => s, Err(e) => return e };
     let ids_ref = preset_ids.as_deref();
-    match preset_applier::apply_group(&sp, group_id, ids_ref) {
+    match preset_applier::apply_group(&sp, group_id, ids_ref, own_actions_only.unwrap_or(false)) {
         Ok(r) => wrap_ok(r),
         Err(e) => wrap_err(&e),
     }

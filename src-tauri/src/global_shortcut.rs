@@ -155,7 +155,7 @@ fn on_trigger(app: &AppHandle, acc: &str) {
     let mut preset_ids: Vec<i64> = Vec::new();
     for t in &targets {
         if let Target::Group(gid) = t {
-            if let Ok(v) = crate::preset_applier::apply_group(&sp, *gid, None) {
+            if let Ok(v) = crate::preset_applier::apply_group(&sp, *gid, None, false) {
                 total_ini += v.get("skinIniChanges").and_then(|x| x.as_i64()).unwrap_or(0);
                 total_files += v.get("filesCopied").and_then(|x| x.as_i64()).unwrap_or(0)
                     + v.get("filesDeleted").and_then(|x| x.as_i64()).unwrap_or(0);

@@ -57,7 +57,7 @@
     setGroupDescription: (skinName, groupId, description) => call('groups_set_description', { skinName, groupId, description }),
     setGroupPreview: (skinName, groupId, preview) => call('groups_set_preview', { skinName, groupId, path: preview?.path ?? null, kind: preview?.kind ?? null, frames: preview?.frames ?? null, fps: preview?.fps ?? null }),
     setGroupActions: (skinName, groupId, actions) => call('groups_set_actions', { skinName, groupId, actions }),
-    applyGroup: (skinName, groupId, presetIds) => call('groups_apply', { skinName, groupId, presetIds: presetIds ?? null }),
+    applyGroup: (skinName, groupId, presetIds, ownActionsOnly) => call('groups_apply', { skinName, groupId, presetIds: presetIds ?? null, ownActionsOnly: ownActionsOnly ?? false }),
     flattenGroupSubgroups: (skinName, groupId) => call('groups_flatten_subgroups', { skinName, groupId }),
     setTableState: (skinName, expanded, rowSelection, activations) => call('set_table_state', { skinName, expanded, rowSelection, activations }),
     setSkinMeta: (skinName, accentHue, text1, text2, link) => call('skin_set_meta', { skinName, accentHue, text1, text2, link }),
