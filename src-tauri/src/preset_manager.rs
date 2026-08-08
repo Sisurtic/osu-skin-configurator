@@ -1360,6 +1360,10 @@ pub fn flatten_group_subgroups(skin_path: &str, group_id: i64) -> Result<(), Str
     cfg.groups[gi].children = new_children;
     let del_set: std::collections::HashSet<i64> = to_delete.into_iter().collect();
     cfg.groups.retain(|g| !del_set.contains(&g.id));
+    // The merged plain sub-groups were removed — compact ids to stay contiguous
+    // and remap any persisted table-state that referenced them, matching every
+    // other delete path (delete_preset/remove_group/delete_group_recursive).
+    compact_ids(&mut cfg);
     save_config(skin_path, &cfg)
 }
 
@@ -2408,5 +2412,57 @@ mod phase_b_tests {
         // Clear.
         set_group_shortcuts_batch(&sp, &[2, 3], "").unwrap();
         assert!(load_config(&sp).groups.iter().all(|g| g.shortcut.is_none()));
+    }
+
+    #[test]
+    fn flatten_compacts_ids_after_merging_subgroups() {
+        // Plain group 2 holds preset 10 and a plain sub-group 3 (which holds
+        // preset 11). Flattening 2 must: hoist both presets into group 2,
+        // delete sub-group 3, AND compact ids so the result is contiguous
+        // (matching delete_preset/remove_group). Without compaction, group 3's
+        // old id would leave a gap and next_group_id would be stale.
+        let sp = seeded(Config {
+            next_preset_id: 12, next_group_id: 4,
+            root_children: vec![ChildRef { kind: "group".into(), id: 2 }],
+            groups: vec![
+                Group {
+                    id: 2, name: "outer".into(), collapsed: false,
+                    children: vec![
+                        ChildRef { kind: "preset".into(), id: 10 },
+                        ChildRef { kind: "group".into(), id: 3 },
+                    ],
+                    kind: "".into(), shortcut: None, description: None,
+                    preview_path: None, preview_kind: None, preview_frames: None,
+                    preview_fps: None, actions: None,
+                },
+                Group {
+                    id: 3, name: "inner".into(), collapsed: false,
+                    children: vec![ChildRef { kind: "preset".into(), id: 11 }],
+                    kind: "".into(), shortcut: None, description: None,
+                    preview_path: None, preview_kind: None, preview_frames: None,
+                    preview_fps: None, actions: None,
+                },
+            ],
+            presets: vec![
+                json!({ "id": 10, "meta": {"name":"P10"}, "actions": {"skinIni":[],"fileCopies":[],"fileDeletes":[],"fileTints":[],"fileLayers":[]} }),
+                json!({ "id": 11, "meta": {"name":"P11"}, "actions": {"skinIni":[],"fileCopies":[],"fileDeletes":[],"fileTints":[],"fileLayers":[]} }),
+            ],
+            table_expanded_children: json!({}),
+            table_row_selection: json!({}),
+            table_activations: json!({}),
+            accent_hue: None, custom_text1: None, custom_text2: None, skin_link: None,
+        });
+        flatten_group_subgroups(&sp, 2).unwrap();
+        let cfg = load_config(&sp);
+        // Only the outer group survives; its children are both presets now.
+        assert_eq!(cfg.groups.len(), 1, "inner plain sub-group deleted");
+        let g = &cfg.groups[0];
+        assert_eq!(g.children.len(), 2);
+        assert!(g.children.iter().all(|c| c.kind == "preset"));
+        // Compaction: ids are contiguous 1..N, next ids reset to len+1.
+        assert_eq!(g.id, 1, "group id compacted to 1");
+        assert_eq!(cfg.next_group_id, 2);
+        assert_eq!(cfg.next_preset_id, 3);
+        assert!(cfg.presets.iter().enumerate().all(|(i, p)| p["id"] == (i + 1) as i64));
     }
 }

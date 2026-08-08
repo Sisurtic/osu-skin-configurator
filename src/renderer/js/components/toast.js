@@ -3,32 +3,56 @@
   const container = document.getElementById('toast-container');
   let toastId = 0;
 
-  // Coalesce rapid repeats: the last toast per type is tracked; a follow-up
-  // `show` of the same type within its lifetime UPDATES that toast in place
-  // (new text + reset timer) instead of stacking a new one. Prevents toast spam
-  // from continuous edits (e.g. dragging a slider syncs every frame).
+  // Coalesce rapid repeats per type. The last live toast of each type is
+  // tracked; a follow-up `show` of the same type reuses it instead of stacking:
+  //   - SAME message → bump an "xN" counter badge (don't rewrite the text).
+  //   - DIFFERENT message → fade the old one out, then show the new one.
+  // onClick toasts (e.g. apply-warning details) are one-shot, never coalesced.
   const lastByType = {};
   window.Toast = {
     show(message, type = 'info', duration = 3500, onClick) {
       const icon = { success: '✓', error: '✕', warning: '⚠' }[type] || '';
 
-      // Reuse the last toast of this type if it's still alive (no new element,
-      // no stack-up). onClick toasts (e.g. apply-warning details) always get a
-      // fresh element — they're one-shot, not coalesced.
+      const renderBody = (rec) => {
+        rec.el.querySelector('.toast__msg').innerHTML = `${icon} ${message}`;
+        let badge = rec.el.querySelector('.toast__count');
+        if (rec.count > 1) {
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'toast__count';
+            rec.el.appendChild(badge);
+          }
+          badge.textContent = `x${rec.count}`;
+        } else if (badge) {
+          badge.remove();
+        }
+      };
+
       if (!onClick && lastByType[type] && lastByType[type].el.parentNode && !lastByType[type].el._dismissing) {
         const rec = lastByType[type];
-        rec.el.querySelector('.toast__msg').innerHTML = `${icon} ${message}`;
-        clearTimeout(rec.timer);
-        if (duration > 0) rec.timer = setTimeout(() => Toast.dismiss(rec.el, false), duration);
+        if (rec.message === message) {
+          // Identical repeat: increment the counter, keep the original text.
+          rec.count++;
+          renderBody(rec);
+          clearTimeout(rec.timer);
+          if (duration > 0) rec.timer = setTimeout(() => Toast.dismiss(rec.el, false), duration);
+          return rec.id;
+        }
+        // Same type, different message: clear the old record so a fresh toast
+        // is created, and fade the old one out first. The new one appears only
+        // after the old finishes fading (sequential, not overlapping).
+        lastByType[type] = null;
+        setTimeout(() => Toast.show(message, type, duration, onClick), 200);
+        Toast.dismiss(rec.el, false);
         return rec.id;
       }
 
       const id = ++toastId;
       const el = document.createElement('div');
       el.className = `toast toast--${type}`;
-      el.innerHTML = `
-        <span class="toast__msg">${icon} ${message}</span>
-      `;
+      el.innerHTML = `<span class="toast__msg"></span>`;
+      const rec = { el, id, message, count: 1 };
+      renderBody(rec);
       el.addEventListener('click', () => {
         if (onClick) onClick();
         else Toast.dismiss(el, true);
@@ -39,7 +63,8 @@
       if (duration > 0) {
         timer = setTimeout(() => Toast.dismiss(el, false), duration);
       }
-      if (!onClick) lastByType[type] = { el, timer, id };
+      rec.timer = timer;
+      if (!onClick) lastByType[type] = rec;
       return id;
     },
 

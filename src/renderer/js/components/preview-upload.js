@@ -259,7 +259,7 @@
       setPreviewMeta({ path: rels[0], kind: 'image' });
     } else {
       // Multiple selection → image sequence. Ask for FPS.
-      const fps = await promptFps();
+      const fps = await promptFps(undefined, rels);
       if (fps == null) { // cancelled
         rerender();
         return;
@@ -276,8 +276,8 @@
     return n === -1 ? -1 : Math.max(1, n);
   }
 
-  function promptFps(initial) {
-    return new Promise(resolve => {
+  function promptFps(initial, frames) {
+    return new Promise(async resolve => {
       if (document.querySelector('.modal-overlay')) { resolve(12); return; }
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
@@ -285,7 +285,10 @@
         <div class="modal" style="max-width:280px">
           <div class="modal__title">${i18n.t('preview.fpsTitle')}</div>
           <div class="modal__body">
-            <div style="display:flex;align-items:center;gap:8px">
+            <div class="fps-preview-wrap" id="fps-preview-wrap">
+              <img id="fps-preview-img" class="fps-preview-img" alt="">
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
               <span style="font-size:12px;color:var(--text-secondary)">${i18n.t('preview.fpsLabel')}</span>
               <input type="number" min="-1" step="1" value="${initial || 12}" data-forbidden="0" class="form-input" id="fps-input" style="width:80px">
             </div>
@@ -297,20 +300,81 @@
         </div>`;
       document.body.appendChild(overlay);
       const input = overlay.querySelector('#fps-input');
+      const previewImg = overlay.querySelector('#fps-preview-img');
+      const previewWrap = overlay.querySelector('#fps-preview-wrap');
+
+      // Load the selected frames as data URLs and cycle the preview <img> at
+      // the current FPS so the user sees the animation speed live as they type.
+      let previewTimer = null;
+      let previewUrls = [];
+      let previewIdx = 0;
+      let alive = true;
+      const stopPreview = () => {
+        if (previewTimer) { clearInterval(previewTimer); previewTimer = null; }
+      };
+      const syncFps = () => {
+        stopPreview();
+        if (previewUrls.length < 2) return;
+        const fps = normalizeFps(+input.value || 12);
+        const interval = fps === -1 ? 1000 / previewUrls.length : 1000 / Math.max(1, fps);
+        previewTimer = setInterval(() => {
+          if (!alive) return;
+          previewImg.src = previewUrls[previewIdx % previewUrls.length];
+          previewIdx++;
+        }, interval);
+      };
+      // Load frames in the background; only the first is needed to show
+      // something, the rest enable the animation cycle.
+      if (frames && frames.length > 0) {
+        try {
+          const skin = skinNameFn();
+          const skPathResult = skin ? await api.getSkinPath(skin) : null;
+          const skPath = skPathResult && skPathResult.success ? skPathResult.data.replace(/\\/g, '/') : '';
+          const load1 = (f) => {
+            if (previewCache.has(f)) return Promise.resolve(previewCache.get(f));
+            const abs = skPath ? skPath + '/' + f : f;
+            return api.getPreviewDataUrl(abs).then(r => {
+              if (r.success && r.data) { previewCache.set(f, r.data); return r.data; }
+              return null;
+            });
+          };
+          const first = await load1(frames[0]);
+          if (!alive) return;            // dialog closed during load
+          if (first && previewImg) previewImg.src = first;
+          previewUrls = [first, ...(await Promise.all(frames.slice(1).map(load1)))].filter(Boolean);
+          if (!alive) return;
+          previewIdx = 0;
+          syncFps();
+        } catch (_) { /* preview is best-effort; fall through to static/no-img */ }
+      } else {
+        previewWrap.style.display = 'none';   // no frames → hide the preview box
+      }
+
       input.focus(); input.select();
       // 0 is invalid (like osu!'s AnimationFramerate): clamp to -1 live.
-      input.addEventListener('input', () => {
+      // Any change also re-syncs the preview cadence to the new FPS. Listen on
+      // both 'input' (typing) and 'change' — the global wheel handler sets
+      // .value directly and dispatches only 'change', not 'input'.
+      const onInputChange = () => {
         const v = parseInt(input.value, 10);
         if (!isNaN(v) && v === 0) { input.value = '-1'; }
-      });
-      const finish = (v) => { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+        syncFps();
+      };
+      input.addEventListener('input', onInputChange);
+      input.addEventListener('change', onInputChange);
+      const finish = (v) => {
+        alive = false;
+        stopPreview();
+        document.removeEventListener('keydown', onKey);
+        ModalUtils.fadeOutOverlay(overlay, () => { overlay.remove(); resolve(v); });
+      };
       const onKey = (e) => {
         if (e.key === 'Enter') { e.preventDefault(); finish(normalizeFps(+input.value || 12)); }
         if (e.key === 'Escape') { e.preventDefault(); finish(null); }
       };
       overlay.querySelector('#fps-ok').addEventListener('click', () => finish(normalizeFps(+input.value || 12)));
       overlay.querySelector('#fps-cancel').addEventListener('click', () => finish(null));
-      overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(null); });
+      ModalUtils.bindOverlayDismiss(overlay, () => finish(null));
       document.addEventListener('keydown', onKey);
     });
   }
