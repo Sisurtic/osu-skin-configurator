@@ -1562,24 +1562,6 @@
     for (let i = 0; i < count; i++) sel.add(insertAt + i);
     if (opSel) opSel.setSelected(sel, insertAt);
   }
-
-  // ── Del key: delete selected tint rows with confirmation ──
-  async function deleteSelected() {
-    const set = opSel ? opSel.getSelected() : new Set();
-    const targetIdx = set.size > 0 ? [...set] : (opSel && opSel.getAnchor() >= 0 ? [opSel.getAnchor()] : []);
-    if (targetIdx.length === 0) return;
-    const sorted = [...new Set(targetIdx)].sort((a, b) => b - a);
-    const confirmed = await ApplyDialog.showConfirmDialog(
-      i18n.t('tint.deleteRowsConfirm', { n: sorted.length }),
-      [
-        { label: `${i18n.t('tint.deleteBtn').replace(/^- ?/, '')} (${sorted.length})`, cls: 'btn--danger', value: 'delete' },
-        { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-      ]
-    );
-    if (!confirmed || confirmed !== 'delete') return;
-    applyDeleteOps(sorted);
-    Toast.info(i18n.t('tint.deleted', { n: sorted.length }));
-  }
   // Enforce: tailH (cropA) + blank (cropB) + darkenD ≤ outH (cropC), and the
   // stretch region [tail bottom, tail bottom + cropD) stays within outH.
   // cropD is measured from the tail bottom (blank + tailH) downward — the same
@@ -2109,7 +2091,7 @@
     });
 
     // The delete + shared-source cache eviction lives in applyDeleteOps (the
-    // adapter callback), so it also serves the new Del-key deleteSelected.
+    // adapter callback), invoked when rows are dropped on the delete zone.
     opSel.bindDeleteZone(container.querySelector('#tint-delete-zone'));
 
     // Divider drag → resize split.
@@ -2335,8 +2317,7 @@
   function layoutColumns() { /* preview uses canvas scaling; no-op */ }
 
   // Return the currently-selected tint rows as plain objects (deep-cloned).
-  // Mirrors deleteSelected's index resolution: empty set falls back to the
-  // anchor row (the highlighted preview row).
+  // Empty set falls back to the anchor row (the highlighted preview row).
   function getSelectedActions() {
     const set = opSel ? opSel.getSelected() : new Set();
     const tints = cur();
@@ -2375,5 +2356,5 @@
     opSel.setSelected(ns, anchor);
   }
 
-  window.TintEditor = { init, render, layoutColumns, deleteSelected, getSelectedActions, selectAdded, hasSelection: () => !!(opSel && opSel.getSelected().size > 0), clearSelection: () => opSel && opSel.clearSelection(), invalidateCache: () => { thumbCache.clear(); sourceImgCache.clear(); } };
+  window.TintEditor = { init, render, layoutColumns, getSelectedActions, selectAdded, hasSelection: () => !!(opSel && opSel.getSelected().size > 0), clearSelection: () => opSel && opSel.clearSelection(), invalidateCache: () => { thumbCache.clear(); sourceImgCache.clear(); } };
 })();

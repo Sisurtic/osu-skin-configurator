@@ -70,10 +70,9 @@
     document.body.appendChild(overlay);
 
     overlay.querySelector('#apply-cancel').addEventListener('click', close);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) close();
-    });
+    ModalUtils.bindOverlayDismiss(overlay, close);
     bindEsc();
+    setTimeout(() => overlay.querySelector('#apply-confirm')?.focus(), 0);
 
     overlay.querySelector('#apply-confirm').addEventListener('click', async () => {
       const btn = overlay.querySelector('#apply-confirm');
@@ -96,12 +95,19 @@
         const d = result.data;
         state.set('activePresets', {});
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
-        const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0, d.filesLayered || 0);
-        Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum || i18n.t('apply.fragmentNone')}]</span>`);
-        if (typeof window.playApplySound === 'function') window.playApplySound(true);
         // Surface partial-failure warnings (missing sources, copy/tint failures,
         // paths outside the skin) the backend reports alongside the success.
         const warns = d.warnings || [];
+        const totalChanges = (d.skinIniChanges || 0) + (d.filesCopied || 0) + (d.filesDeleted || 0) + (d.filesTinted || 0) + (d.filesLayered || 0);
+        // Suppress the success toast only when warnings blocked EVERY action
+        // (there were actions to apply but none landed). A preset that never
+        // had any actions (0 changes, 0 warnings) still reports success normally.
+        const allBlockedByWarnings = warns.length > 0 && totalChanges === 0;
+        if (!allBlockedByWarnings) {
+          const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0, d.filesLayered || 0);
+          Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum || i18n.t('apply.fragmentNone')}]</span>`);
+          if (typeof window.playApplySound === 'function') window.playApplySound(true);
+        }
         if (warns.length > 0) {
           Toast.warning(i18n.t('apply.appliedWithWarnings', { n: warns.length }), () => ApplyDialog.showWarningsDialog(warns));
         }
@@ -121,8 +127,9 @@
   }
   function close() {
     const overlay = document.getElementById('apply-modal');
-    if (overlay) overlay.remove();
+    if (!overlay) return;
     if (_escHandler) { document.removeEventListener('keydown', _escHandler); _escHandler = null; }
+    ModalUtils.fadeOutOverlay(overlay, () => overlay.remove());
   }
 
   function escapeHtml(str) {
@@ -298,10 +305,9 @@
     document.body.appendChild(overlay);
 
     overlay.querySelector('#apply-cancel').addEventListener('click', close);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) close();
-    });
+    ModalUtils.bindOverlayDismiss(overlay, close);
     bindEsc();
+    setTimeout(() => overlay.querySelector('[data-apply]')?.focus(), 0);
 
     // Apply buttons (delegated by data-apply). In edit mode with unsaved edits
     // the actions are: save (save then apply) / nosave (apply the saved state
@@ -366,12 +372,19 @@
         // listener of its own).
         state.setMultiple({ activePresets: {}, activeTableGroups: {} });
         if (typeof window.invalidateImageCaches === 'function') window.invalidateImageCaches();
-        const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0, d.filesLayered || 0);
-        Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum || i18n.t('apply.fragmentNone')}]</span>`);
-        if (typeof window.playApplySound === 'function') window.playApplySound(true);
         // Surface partial-failure warnings (missing sources, copy/tint failures,
         // paths outside the skin) the backend reports alongside the success.
         const warns = d.warnings || [];
+        const totalChanges = (d.skinIniChanges || 0) + (d.filesCopied || 0) + (d.filesDeleted || 0) + (d.filesTinted || 0) + (d.filesLayered || 0);
+        // Suppress the success toast only when warnings blocked EVERY action
+        // (there were actions to apply but none landed). A selection that never
+        // had any actions (0 changes, 0 warnings) still reports success normally.
+        const allBlockedByWarnings = warns.length > 0 && totalChanges === 0;
+        if (!allBlockedByWarnings) {
+          const sum = summaryText(d.skinIniChanges || 0, (d.filesCopied || 0) + (d.filesDeleted || 0), d.filesTinted || 0, d.filesLayered || 0);
+          Toast.success(`${i18n.t('apply.appliedPrefix')}<span style="font-size:11px;color:var(--text-muted)">[${sum || i18n.t('apply.fragmentNone')}]</span>`);
+          if (typeof window.playApplySound === 'function') window.playApplySound(true);
+        }
         if (warns.length > 0) {
           Toast.warning(i18n.t('apply.appliedWithWarnings', { n: warns.length }), () => ApplyDialog.showWarningsDialog(warns));
         }
@@ -388,7 +401,7 @@
   /**
    * Show a styled confirm dialog with customizable buttons.
    */
-  function showConfirmDialog(message, options) {
+  function showConfirmDialog(message, options, autoFocus = false) {
     return new Promise((resolve) => {
       if (document.querySelector('.modal-overlay')) return resolve(null);
       const overlay = document.createElement('div');
@@ -402,7 +415,7 @@
           </div>
           <div class="modal__actions">
             ${options.map(opt =>
-              `<button class="btn ${opt.cls || 'btn--secondary'} btn--sm" data-value="${opt.value}">${escapeHtml(opt.label)}</button>`
+              `<button class="btn ${opt.cls || 'btn--secondary'}" data-value="${opt.value}">${escapeHtml(opt.label)}</button>`
             ).join('')}
           </div>
         </div>
@@ -410,30 +423,31 @@
 
       document.body.appendChild(overlay);
 
+      const close = (value) => {
+        document.removeEventListener('keydown', onKey);
+        ModalUtils.fadeOutOverlay(overlay, () => { overlay.remove(); resolve(value); });
+      };
+
       overlay.querySelectorAll('.modal__actions button').forEach(btn => {
-        btn.addEventListener('click', () => {
-          overlay.remove();
-          resolve(btn.dataset.value);
-        });
+        btn.addEventListener('click', () => close(btn.dataset.value));
       });
 
-      overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) {
-          overlay.remove();
-          resolve(null);
-        }
-      });
+      ModalUtils.bindOverlayDismiss(overlay, () => close(null));
+      // Only auto-focus the first button when the caller asks for it (e.g.
+      // single-action "got it" / delete confirms). Multi-option dialogs (paste
+      // conflicts: append/overwrite/skip) must NOT auto-focus — pressing Enter
+      // would then silently pick whatever is focused.
+      if (autoFocus) setTimeout(() => overlay.querySelector('.modal__actions button')?.focus(), 0);
 
       const onKey = (e) => {
-        if (e.key === 'Escape') {
-          document.removeEventListener('keydown', onKey);
-          overlay.remove();
-          resolve(null);
-        }
+        if (e.key === 'Escape') { e.preventDefault(); close(null); return; }
+        // Enter: confirm only when a dialog button is focused (its native click
+        // fires). Never default to options[0] — that mis-resolves multi-option
+        // dialogs (e.g. paste conflict) to the first choice.
         if (e.key === 'Enter') {
-          document.removeEventListener('keydown', onKey);
-          overlay.remove();
-          resolve(options[0].value);
+          const focused = document.activeElement;
+          if (focused && focused.closest('#confirm-dialog .modal__actions')) return;
+          e.preventDefault();
         }
       };
       document.addEventListener('keydown', onKey);
@@ -474,7 +488,7 @@
           ${sections}
         </div>
         <div class="modal__actions">
-          <button class="btn btn--primary btn--sm" data-action="close">${i18n.t('dialog.close')}</button>
+          <button class="btn btn--primary" data-action="close">${i18n.t('dialog.close')}</button>
         </div>
       </div>
     `;
@@ -482,10 +496,10 @@
 
     const done = () => {
       document.removeEventListener('keydown', onKey);
-      overlay.remove();
+      ModalUtils.fadeOutOverlay(overlay, () => overlay.remove());
     };
     overlay.querySelector('[data-action="close"]').addEventListener('click', done);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) done(); });
+    ModalUtils.bindOverlayDismiss(overlay, done);
     const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(); } };
     document.addEventListener('keydown', onKey);
   }

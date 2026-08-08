@@ -1453,13 +1453,14 @@
 
       // Conflict: ask the user how to resolve this category.
       // Button order (right-aligned by .modal__actions): append - overwrite - skip.
-      // Skip = red (danger), append = yellow (warning), overwrite = primary.
+      // overwrite = red (danger, replaces existing rows); skip = secondary
+      // (non-destructive); append = yellow (warning, adds alongside).
       const opts = [];
       if (cat.allowAppend) {
         opts.push({ label: i18n.t('paste.append'), cls: 'btn--warning', value: 'append' });
       }
-      opts.push({ label: i18n.t('paste.overwrite'), cls: 'btn--primary', value: 'overwrite' });
-      opts.push({ label: i18n.t('paste.skip'), cls: 'btn--danger', value: 'skip' });
+      opts.push({ label: i18n.t('paste.overwrite'), cls: 'btn--danger', value: 'overwrite' });
+      opts.push({ label: i18n.t('paste.skip'), cls: 'btn--secondary', value: 'skip' });
       const choice = await ApplyDialog.showConfirmDialog(
         i18n.t('paste.conflictTitle', { category: cat.label, count: conflicts.length }),
         opts

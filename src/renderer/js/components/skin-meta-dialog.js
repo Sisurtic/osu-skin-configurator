@@ -49,8 +49,8 @@
           </div>
         </div>
         <div class="modal__actions">
-          <button class="btn btn--secondary btn--sm" data-act="cancel">${i18n.t('dialog.cancel')}</button>
-          <button class="btn btn--primary btn--sm" data-act="save">${i18n.t('dialog.confirm')}</button>
+          <button class="btn btn--primary" data-act="save">${i18n.t('dialog.confirm')}</button>
+          <button class="btn btn--secondary" data-act="cancel">${i18n.t('dialog.cancel')}</button>
         </div>
       </div>
     `;
@@ -111,16 +111,20 @@
     function close() {
       if (onKey) document.removeEventListener('keydown', onKey);
       onKey = null;
-      if (overlay) { overlay.remove(); overlay = null; }
+      if (overlay) {
+        const ov = overlay; overlay = null;
+        ModalUtils.fadeOutOverlay(ov, () => ov.remove());
+      }
     }
-
-    overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => {
-      // Roll back to the hue active when the dialog opened.
+    // Cancel = roll back to the hue active when the dialog opened, then close.
+    const cancel = () => {
       if (typeof window.applyAccent === 'function') {
         window.applyAccent(initialHue === DEFAULT_HUE ? null : initialHue);
       }
       close();
-    });
+    };
+
+    overlay.querySelector('[data-act="cancel"]').addEventListener('click', cancel);
 
     overlay.querySelector('[data-act="save"]').addEventListener('click', async () => {
       const text1 = overlay.querySelector('#skin-meta-text1').value;
@@ -137,23 +141,15 @@
       }
     });
 
-    // Click outside the card cancels (roll back).
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        if (typeof window.applyAccent === 'function') {
-          window.applyAccent(initialHue === DEFAULT_HUE ? null : initialHue);
-        }
-        close();
-      }
-    });
+    // Click outside the card cancels (roll back). bindOverlayDismiss ignores
+    // drags that started inside an input (mousedown ≠ overlay).
+    ModalUtils.bindOverlayDismiss(overlay, cancel);
+    setTimeout(() => overlay.querySelector('#skin-meta-text1')?.focus(), 0);
 
     onKey = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (typeof window.applyAccent === 'function') {
-          window.applyAccent(initialHue === DEFAULT_HUE ? null : initialHue);
-        }
-        close();
+        cancel();
       } else if (e.key === 'Enter' && e.target.tagName !== 'INPUT') {
         e.preventDefault();
         overlay.querySelector('[data-act="save"]').click();

@@ -868,8 +868,19 @@
           if (nums.length === 1 && count > 1) return nums[0] * count;
           return nums.reduce((a, b) => a + b, 0);
         };
-        const curWidth = findVal('ColumnWidth');
-        const curSpacing = findVal('ColumnSpacing');
+        // Filling priority for width/spacing:
+        //   1. the preset's own value for this key count (iniEdits via findVal);
+        //   2. the skin's actual skin.ini value for this key count (Mania section
+        //      whose Keys === <keys>);
+        //   3. empty (editable in the dialog).
+        let curWidth = findVal('ColumnWidth');
+        let curSpacing = findVal('ColumnSpacing');
+        if (!curWidth || !curSpacing) {
+          const skinWidth = await findSkinIniVal(keys, 'ColumnWidth');
+          const skinSpacing = await findSkinIniVal(keys, 'ColumnSpacing');
+          if (!curWidth && skinWidth) curWidth = skinWidth;
+          if (!curSpacing && skinSpacing) curSpacing = skinSpacing;
+        }
         // Always confirm via modal: existing values are shown read-only, missing are editable.
         const inputs = await promptCenterValues({ ratio: '16/9', ColumnWidth: curWidth, ColumnSpacing: curSpacing }, keys);
         if (!inputs) return;
@@ -880,8 +891,8 @@
           ratio = (!isNaN(b) && b) ? a / b : a;
           if (isNaN(ratio) || ratio <= 0) ratio = 16 / 9;
         }
-        const widthSum = sumField(inputs.ColumnWidth != null ? inputs.ColumnWidth : curWidth, keys);
-        const spacingSum = sumField(inputs.ColumnSpacing != null ? inputs.ColumnSpacing : curSpacing, keys - 1);
+        const widthSum = sumField(inputs.ColumnWidth, keys);
+        const spacingSum = sumField(inputs.ColumnSpacing, keys - 1);
         const start = (480 * ratio - (widthSum + spacingSum)) / 2;
         // Keep at most 2 decimals (integer when exact).
         edit.value = String(Math.round(start * 100) / 100);
@@ -1070,19 +1081,36 @@
   // removed; adjustFillButtons (below) is the only piece retained.
 
 
+  // Read a key (e.g. ColumnWidth/ColumnSpacing) from the selected skin's
+  // skin.ini, scoped to the [Mania] section whose Keys === maniaKeys. Returns
+  // '' when the skin/section/key is missing. Used as the fallback after the
+  // preset's own value when pre-filling the center dialog.
+  async function findSkinIniVal(maniaKeys, key) {
+    const skin = state.get('selectedSkin');
+    if (!skin) return '';
+    try {
+      const r = await api.readSkinIni(skin);
+      const sections = (r && r.success && Array.isArray(r.data)) ? r.data : [];
+      const mania = sections.find(s => s && s.section === 'Mania' && s.keys
+        && String(s.keys.Keys) === String(maniaKeys));
+      return (mania && mania.keys && mania.keys[key]) ? mania.keys[key] : '';
+    } catch (_) { return ''; }
+  }
+
   // Confirm dialog for centering ColumnStart. Shown on every center-button click.
-  // `values` = { ratio, ColumnWidth, ColumnSpacing } current strings; `keys` = maniaKeys.
-  // Existing (non-empty) values render read-only; empty ones are editable.
+  // `values` = { ratio, ColumnWidth, ColumnSpacing } initial strings; `keys` = maniaKeys.
+  // Values are pre-filled as editable defaults (preset value → skin.ini value →
+  // empty + placeholder); the user may change any of them before confirming.
   // Labels are "description(keyname)" via INI_FIELD_LABELS.fieldLabel.
   function promptCenterValues(values, keys) {
     return new Promise((resolve) => {
       if (document.querySelector('.modal-overlay')) return resolve(null);
       const fieldLabel = (k) => INI_FIELD_LABELS.fieldLabel({ key: k }) + ' (' + k + ')';
       const row = (k, val) => {
-        const has = val && val.trim() !== '';
+        const v = val && val.trim() !== '' ? val : '';
         const ph = k === 'ColumnSpacing' ? '0,0,...' : '30,30,...';
         return `<label style="display:block;margin-top:8px">${escapeHtml(fieldLabel(k))}
-          <input type="text" class="form-input center-prompt-input" data-key="${k}" autocomplete="off" spellcheck="false" ${has ? `value="${escapeHtml(val)}" readonly style="width:100%;margin-top:2px;opacity:.7;cursor:not-allowed"` : `style="width:100%;margin-top:2px" placeholder="${ph}"`}>
+          <input type="text" class="form-input center-prompt-input" data-key="${k}" value="${escapeHtml(v)}" autocomplete="off" spellcheck="false" style="width:100%;margin-top:2px" placeholder="${ph}">
         </label>`;
       };
       const overlay = document.createElement('div');
@@ -1093,14 +1121,14 @@
           <div class="modal__body">
             <p style="white-space:pre-line">${i18n.t('ini.centerPrompt')}</p>
             <label style="display:block;margin-top:8px">${i18n.t('ini.centerRatio')}
-              <input type="text" class="form-input center-prompt-input" data-key="ratio" value="${escapeHtml(values.ratio || '16/9')}" autocomplete="off" spellcheck="false" style="width:100%;margin-top:2px">
+              <input type="text" class="form-input center-prompt-input" data-key="ratio" value="${escapeHtml(values.ratio || '16/9')}" autocomplete="off" spellcheck="false" style="width:100%;margin-top:2px" placeholder="16/9">
             </label>
             ${row('ColumnWidth', values.ColumnWidth)}
             ${row('ColumnSpacing', values.ColumnSpacing)}
           </div>
           <div class="modal__actions">
-            <button class="btn btn--primary btn--sm" data-value="ok">${i18n.t('dialog.confirm')}</button>
-            <button class="btn btn--secondary btn--sm" data-value="cancel">${i18n.t('dialog.cancel')}</button>
+            <button class="btn btn--primary" data-value="ok">${i18n.t('dialog.confirm')}</button>
+            <button class="btn btn--secondary" data-value="cancel">${i18n.t('dialog.cancel')}</button>
           </div>
         </div>`;
       document.body.appendChild(overlay);
@@ -1109,16 +1137,34 @@
         overlay.querySelectorAll('.center-prompt-input').forEach(inp => { out[inp.dataset.key] = inp.value; });
         return out;
       };
+      const close = (v) => {
+        document.removeEventListener('keydown', onKey);
+        ModalUtils.fadeOutOverlay(overlay, () => { overlay.remove(); resolve(v); });
+      };
+      // Confirm only when every input is non-empty. Any empty input is
+      // intercepted with a warning toast and the dialog stays open.
+      const confirm = () => {
+        const empty = Array.from(overlay.querySelectorAll('.center-prompt-input'))
+          .some(inp => !inp.value || inp.value.trim() === '');
+        if (empty) {
+          if (window.Toast) Toast.warning(i18n.t('ini.centerEmpty'));
+          return;
+        }
+        close(collect());
+      };
       overlay.querySelectorAll('.modal__actions button').forEach(b => {
-        b.addEventListener('click', () => { const v = b.dataset.value; overlay.remove(); resolve(v === 'ok' ? collect() : null); });
+        b.addEventListener('click', () => {
+          if (b.dataset.value === 'ok') confirm();
+          else close(null);
+        });
       });
-      overlay.addEventListener('click', (e) => { if (e.target === overlay) { overlay.remove(); resolve(null); } });
+      ModalUtils.bindOverlayDismiss(overlay, () => close(null));
       const onKey = (e) => {
-        if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(null); }
-        if (e.key === 'Enter') { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(collect()); }
+        if (e.key === 'Escape') { e.preventDefault(); close(null); }
+        if (e.key === 'Enter') { e.preventDefault(); confirm(); }
       };
       document.addEventListener('keydown', onKey);
-      setTimeout(() => { const first = overlay.querySelector('.center-prompt-input:not([readonly])'); if (first) first.focus(); }, 0);
+      setTimeout(() => { const first = overlay.querySelector('.center-prompt-input'); if (first) first.focus(); }, 0);
     });
   }
 
@@ -1368,35 +1414,6 @@
     return OpTable.escapeHtml(str);
   }
 
-  // ── Del key: delete selected INI rows with confirmation ──
-  // (Selection lives in the OpTable instance; read it via sel.getSelected().)
-  async function deleteSelected() {
-    const selectedIndices = sel ? sel.getSelected() : new Set();
-    if (selectedIndices.size === 0) return;
-    const actions = getActions ? getActions() : [];
-    const sorted = [...selectedIndices].sort((a, b) => b - a);
-    const confirmed = await ApplyDialog.showConfirmDialog(
-      i18n.t('ini.deleteRowsConfirm', { n: sorted.length }),
-      [
-        { label: `${i18n.t('ini.deleteBtn').replace(/^[-+] ?/, '')} (${sorted.length})`, cls: 'btn--danger', value: 'delete' },
-        { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-      ]
-    );
-    if (!confirmed || confirmed !== 'delete') return;
-
-    // selectedIndices reference DISPLAY positions; splice from highest down.
-    const updated = [...actions];
-    for (const i of sorted) updated.splice(i, 1);
-    setActions(updated);
-    Toast.info(i18n.t('ini.deleted', { n: sorted.length }));
-    // Re-render current container. lastActionsRef differs from the new array →
-    // OpTable resets selection (nothing meaningful survives a Del-delete anyway).
-    const container = document.getElementById('tab-ini');
-    if (container && container.classList.contains('tab-content--active')) {
-      render(container);
-    }
-  }
-
   // Return the currently-selected INI rows as plain action objects (deep-
   // cloned). Indices from sel.getSelected() map directly into getActions().
   function getSelectedActions() {
@@ -1431,5 +1448,5 @@
     sel.setSelected(ns, anchor);
   }
 
-  window.IniEditor = { init, render, deleteSelected, layoutColumns: adjustFillButtons, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection() };
+  window.IniEditor = { init, render, layoutColumns: adjustFillButtons, getSelectedActions, selectAdded, hasSelection: () => !!(sel && sel.getSelected().size > 0), clearSelection: () => sel && sel.clearSelection() };
 })();

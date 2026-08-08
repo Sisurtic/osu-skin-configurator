@@ -839,7 +839,8 @@
           { label: i18n.t('dialog.saveAndSwitch'), cls: 'btn--primary', value: 'save' },
           { label: i18n.t('dialog.discard'), cls: 'btn--danger', value: 'discard' },
           { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-        ]
+        ],
+        true
       );
       if (!choice || choice === 'cancel') return;
       if (choice === 'save') {
@@ -1358,8 +1359,8 @@
       const count = globalSelected.size;
       if (view === 'program') {
         actions.innerHTML = `
-          <button class="btn btn--secondary btn--sm" id="shortcuts-reset">${i18n.t('dialog.resetDefault')}</button>
-          <button class="btn btn--primary btn--sm" id="shortcuts-close">${i18n.t('dialog.close')}</button>`;
+          <button class="btn btn--secondary" id="shortcuts-reset">${i18n.t('dialog.resetDefault')}</button>
+          <button class="btn btn--primary" id="shortcuts-close">${i18n.t('dialog.close')}</button>`;
         const resetBtn = document.getElementById('shortcuts-reset');
         if (resetBtn) resetBtn.addEventListener('click', () => {
           Shortcuts.init({});
@@ -1370,9 +1371,9 @@
       } else {
         actions.innerHTML = `
           <span class="shortcuts-toolbar__count">${i18n.t('dialog.globalSelectedCount', { count })}</span>
-          <button class="btn btn--warning btn--sm" id="global-rebind" ${count < 1 ? 'disabled' : ''}>${i18n.t('dialog.globalRebind')}</button>
-          <button class="btn btn--danger btn--sm" id="global-clear" ${count < 1 ? 'disabled' : ''}>${i18n.t('dialog.globalClear')}</button>
-          <button class="btn btn--primary btn--sm" id="shortcuts-close">${i18n.t('dialog.close')}</button>`;
+          <button class="btn btn--warning" id="global-rebind" ${count < 1 ? 'disabled' : ''}>${i18n.t('dialog.globalRebind')}</button>
+          <button class="btn btn--danger" id="global-clear" ${count < 1 ? 'disabled' : ''}>${i18n.t('dialog.globalClear')}</button>
+          <button class="btn btn--primary" id="shortcuts-close">${i18n.t('dialog.close')}</button>`;
         const rebindBtn = document.getElementById('global-rebind');
         const clearBtn = document.getElementById('global-clear');
         if (rebindBtn) rebindBtn.addEventListener('click', startGlobalRecording);
@@ -1443,8 +1444,8 @@
       if (actions) {
         actions.innerHTML = `
           <span class="shortcuts-toolbar__count">${i18n.t('dialog.globalSelectedCount', { count: globalSelected.size })}</span>
-          <button class="btn btn--secondary btn--sm" id="global-cancel">${i18n.t('dialog.cancel')}</button>
-          <button class="btn btn--primary btn--sm" id="shortcuts-close">${i18n.t('dialog.close')}</button>`;
+          <button class="btn btn--secondary" id="global-cancel">${i18n.t('dialog.cancel')}</button>
+          <button class="btn btn--primary" id="shortcuts-close">${i18n.t('dialog.close')}</button>`;
         const cancelBtn = document.getElementById('global-cancel');
         if (cancelBtn) cancelBtn.addEventListener('click', () => cancelGlobalRecording());
         const closeBtn = document.getElementById('shortcuts-close');
@@ -1597,7 +1598,7 @@
       const raw = Shortcuts.getRawBindings();
       await api.saveShortcuts(raw);
       document.removeEventListener('keydown', onKey);
-      overlay.remove();
+      ModalUtils.fadeOutOverlay(overlay, () => overlay.remove());
     };
 
     // Unified keydown: route to whichever recorder is active.
@@ -1628,9 +1629,7 @@
     if (view === 'program') renderProgramView();
     else renderGlobalView();
 
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) close();
-    });
+    ModalUtils.bindOverlayDismiss(overlay, close);
     overlay.querySelector('#shortcuts-title').addEventListener('click', () => {
       // Only toggle when global shortcuts exist (otherwise the global view is hidden).
       if (getGlobalRows().length === 0) return;

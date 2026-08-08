@@ -1030,25 +1030,8 @@
     opSel.setSelected(ns, anchor);
   }
 
-  async function deleteSelected() {
-    const set = opSel ? opSel.getSelected() : new Set();
-    const targetIdx = set.size > 0 ? [...set] : (opSel && opSel.getAnchor() >= 0 ? [opSel.getAnchor()] : []);
-    if (targetIdx.length === 0) return;
-    const sorted = [...new Set(targetIdx)].sort((a, b) => b - a);
-    const confirmed = await ApplyDialog.showConfirmDialog(
-      i18n.t('layer.deleteStacksConfirm', { n: sorted.length }),
-      [
-        { label: `${i18n.t('layer.deleteBtn').replace(/^- ?/, '')} (${sorted.length})`, cls: 'btn--danger', value: 'delete' },
-        { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-      ]
-    );
-    if (!confirmed || confirmed !== 'delete') return;
-    applyDeleteOps(sorted);
-    Toast.info(i18n.t('layer.deleted', { n: sorted.length }));
-  }
-
   window.LayerEditor = {
-    init, render, layoutColumns, deleteSelected, getSelectedActions, selectAdded,
+    init, render, layoutColumns, getSelectedActions, selectAdded,
     hasSelection: () => !!(layerSel && layerSel.getSelected().size > 0) || !!(opSel && opSel.getSelected().size > 0),
     clearSelection: () => {
       // Inner layer selection first (innermost Esc layer), then the outer op list.

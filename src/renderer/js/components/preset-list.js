@@ -459,10 +459,17 @@
         const targetGroupId = parseInt(row.dataset.groupId, 10);
         const groups0 = state.get('groups') || [];
 
-        // Does any dragged group need flattening before nesting under the target?
-        // Single source of truth: needsFlattenBeforeNest.
         const targetGroup0 = groups0.find(x => x.id === targetGroupId) || {};
-        const needsFlattenCheck = dragItems.some(d =>
+        // Does any dragged group need flattening before nesting under the target?
+        // needsFlattenBeforeNest only returns true when the dragged group HAS
+        // nested plain sub-groups — so it misses empty / preset-only groups.
+        // But dropping ANY plain group onto a table group's ROW is a 2nd-level
+        // nesting and must go through the flatten-confirm flow (which hoists the
+        // group's presets into the row and deletes the shell). So also treat
+        // "group → table row" as needing confirmation, regardless of contents.
+        const intoTableRow = isPlainRowInTable(groups0, targetGroupId)
+          && dragItems.some(d => d.type === 'group');
+        const needsFlattenCheck = intoTableRow || dragItems.some(d =>
           d.type === 'group' && needsFlattenBeforeNest(groups0, targetGroupId, d.id));
 
         if (needsFlattenCheck) {
@@ -473,7 +480,8 @@
             [
               { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
               { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-            ]
+            ],
+            true
           );
           if (choice !== 'flatten') return;
           // Which plain groups need internal flattening (have nested sub-groups)?
@@ -536,29 +544,58 @@
       const alreadyHere = dragItems.every(d => children.some(c => c.type === d.type && c.id === d.id));
       if (!alreadyHere) {
         // Cross-parent move into a plain group that is a row of a table group:
-        // prompt to flatten first (same as nest).
-        // Flatten check (single source of truth): any dragged group that would
-        // create a 2nd-level plain nesting under parentId must flatten first.
+        // a plain group landing in a table row is a 2nd-level nesting, which is
+        // only allowed after flattening (hoist its presets into the row, delete
+        // the shell). needsFlattenBeforeNest misses empty/preset-only groups, so
+        // also trigger when reordering ANY group into a table row.
         {
           const groups0 = state.get('groups') || [];
+          const intoTableRow = parentId != null && isPlainRowInTable(groups0, parentId)
+            && dragItems.some(d => d.type === 'group');
           const needFlatten = dragItems
             .filter(d => d.type === 'group' && needsFlattenBeforeNest(groups0, parentId, d.id));
-          if (needFlatten.length) {
+          if (intoTableRow || needFlatten.length) {
             const choice = await ApplyDialog.showConfirmDialog(
               i18n.t('group.flattenConfirm'),
               [
                 { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
                 { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-              ]
+              ],
+              true
             );
             if (choice !== 'flatten') return;
+            // Flatten any dragged group with nested plain sub-groups first.
             for (const d of needFlatten) await api.flattenGroupSubgroups(skin, d.id);
+          }
+          // Reordering a group INTO a table row: hoist its presets into the row
+          // and delete the shell (same as the nest-into-row branch). Presets and
+          // groups moved under a non-row parent use the plain move below.
+          if (intoTableRow) {
+            const plainGroupIds = dragItems
+              .filter(d => d.type === 'group')
+              .map(d => d.id);
+            for (const gid of plainGroupIds) {
+              await api.flattenGroupSubgroups(skin, gid);
+              const refreshed = await api.scanPresets(skin);
+              if (refreshed.success) { state.set('groups', refreshed.data.groups); }
+              const g2 = (state.get('groups') || []).find(x => x.id === gid);
+              if (g2 && g2.children) {
+                for (const c of g2.children) {
+                  if (c.type === 'preset') await api.movePresetGroup(skin, c.id, parentId);
+                  else if (c.type === 'group') await api.moveGroup(skin, c.id, parentId);
+                }
+              }
+              await api.removeGroup(skin, gid);
+            }
           }
         }
         // Cross-parent: move each item to the target parent first (append).
+        // Groups that were hoisted+deleted above are no longer valid; skip them.
         for (const d of dragItems) {
           if (d.type === 'preset') await api.movePresetGroup(skin, d.id, parentId);
-          else await api.moveGroup(skin, d.id, parentId);
+          else if (!isPlainRowInTable(state.get('groups') || [], parentId)) {
+            await api.moveGroup(skin, d.id, parentId);
+          }
         }
         // Refresh state so the children array reflects the IPC moves.
         await refreshSkinData(skin);
@@ -1180,8 +1217,7 @@
       input.focus();
 
       const close = (value) => {
-        overlay.remove();
-        resolve(value);
+        ModalUtils.fadeOutOverlay(overlay, () => { overlay.remove(); resolve(value); });
       };
 
       confirmBtn.addEventListener('click', () => {
@@ -1189,9 +1225,7 @@
         close(val || null);
       });
       cancelBtn.addEventListener('click', () => close(null));
-      overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) close(null);
-      });
+      ModalUtils.bindOverlayDismiss(overlay, () => close(null));
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { const val = input.value.trim(); close(val || null); }
         if (e.key === 'Escape') close(null);
@@ -1217,7 +1251,8 @@
         { label: i18n.t('dialog.saveAndSwitch'), cls: 'btn--primary', value: 'save' },
         { label: i18n.t('dialog.discard'), cls: 'btn--danger', value: 'discard' },
         { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-      ]
+      ],
+      true
     );
     if (!choice || choice === 'cancel') return false;
     if (choice === 'save') {
@@ -1629,7 +1664,8 @@
             [
               { label: i18n.t('group.flattenForce'), cls: 'btn--primary', value: 'flatten' },
               { label: i18n.t('dialog.cancel'), cls: 'btn--secondary', value: 'cancel' },
-            ]
+            ],
+            true
           );
           if (choice !== 'flatten') {
             // Abort entirely: remove the just-created empty group and bail.

@@ -77,6 +77,7 @@
     "pressNewKey": "按下新快捷鍵…",
     "browseOsuTitle": "選擇 osu! 安裝目錄 (包含 osu!.exe)",
     "iKnow": "我知道了",
+    "dontShowAgain": "不再提示",
     "shortcutsTitleGlobal": "全域快捷鍵",
     "clickToSwitch": "（點擊切換）",
     "colName": "名稱",
@@ -280,9 +281,9 @@
     "centerTitle": "置中計算 ColumnStart",
     "centerPrompt": "請確認置中所需數值。已有數值不可編輯。軌道欄位可輸入逗號列表，也可只輸入一個值（套用到全部軌道）；可修改寬高比：",
     "centerRatio": "寬高比",
+    "centerEmpty": "資料不能為空",
     "pickFileTitle": "選擇檔案",
-    "columnSuffix": "(列{n})",
-    "deleteRowsConfirm": "確定要刪除選中的 {n} 個 INI 操作嗎?"
+    "columnSuffix": "(列{n})"
   },
   "file": {
     "heading": "檔案移動",
@@ -309,7 +310,6 @@
     "tagDelete": "刪除",
     "destPlaceholder": "如 folder/file (留空替換原檔案)",
     "removeLabel": "— 移除 —",
-    "deleteRowsConfirm": "確定要刪除選中的 {n} 個檔案操作嗎?",
     "outsideSkin": "只能選擇皮膚資料夾內的檔案",
     "destOutsideSkin": "該路徑不在皮膚內！",
     "colDestTitle": "允許指定目標路徑檔名\n末尾加 / 作為資料夾名，否則為檔名\n檔名不存在時使用原始檔名"
@@ -335,9 +335,6 @@
     "hintSelect": "新增並選取合成以編輯",
     "empty": "暫無圖層合成，請從上方新增",
     "deleteZone": "拖曳操作到此處刪除",
-    "deleteBtn": "- 刪除",
-    "deleted": "已刪除 {n} 個圖層合成",
-    "deleteStacksConfirm": "確定要刪除選中的 {n} 個圖層合成嗎？",
     "destPlaceholder": "如 folder/file (留空為面板根目錄)",
     "noLayers": "無可用圖層",
     "dragToDelete": "拖曳圖層到此處刪除",
@@ -577,10 +574,7 @@
     "mode_normal": "正常",
     "mode_hue-shift": "色相偏移",
     "deleteZone": "拖曳操作到此處刪除",
-    "deleteBtn": "- 刪除",
-    "deleted": "已刪除 {n} 個圖像操作",
     "filled": "已填滿 {n} 個成員",
-    "deleteRowsConfirm": "確定要刪除選中的 {n} 個圖像操作嗎?",
     "colDestTitle": "允許指定目標路徑檔名\n末尾加 / 作為資料夾名，否則為檔名\n檔名不存在時使用原始檔名"
   },
   "edit": {

@@ -130,6 +130,19 @@
 .form-input::placeholder {
   color: var(--text-muted);
 }
+/* Disabled text inputs/selects/textareas: inert — default pointer, no focus,
+   no text selection. pointer-events:none is what actually kills drag-to-select
+   on webview inputs (disabled alone blocks keyboard focus/editing, not pointer
+   range-select). Scoped to input/select/textarea so it never touches the
+   dropdown's <button> trigger, which manages its own disabled state. */
+input.form-input:disabled,
+select.form-input:disabled,
+textarea.form-input:disabled {
+  opacity: 0.7;
+  cursor: default;
+  user-select: none;
+  pointer-events: none;
+}
 textarea.form-input {
   height: auto;
   resize: vertical;
@@ -514,7 +527,10 @@ tr[data-group-parent] .file-thumb__icon {
   background: var(--accent-bg-hover);
 }
 
-/* ── Modal / Dialog Overlay ── */
+/* ── Modal / Dialog Overlay ──
+   Open/close animations mirror info-dialog (overlay opacity 0.2s, dialog a
+   slight rise+scale 0.25s). Closing adds .modal-overlay--closing (driven by
+   ModalUtils.fadeOutOverlay) so every dialog fades out instead of snapping. */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -524,7 +540,13 @@ tr[data-group-parent] .file-thumb__icon {
   align-items: center;
   justify-content: center;
   z-index: 100;
+  animation: modalOverlayIn 0.2s ease-out;
 }
+.modal-overlay--closing {
+  animation: modalOverlayOut 0.2s ease-out forwards;
+}
+@keyframes modalOverlayIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalOverlayOut { from { opacity: 1; } to { opacity: 0; } }
 .modal {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -533,6 +555,11 @@ tr[data-group-parent] .file-thumb__icon {
   min-width: 400px;
   max-width: 560px;
   box-shadow: var(--shadow-lg);
+  animation: modalIn 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 .modal__title {
   font-size: 16px;
@@ -623,6 +650,25 @@ tr[data-group-parent] .file-thumb__icon {
   justify-content: flex-end;
   gap: 10px;
 }
+/* Live sequence preview inside the FPS dialog. */
+.fps-preview-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 120px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+.fps-preview-img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  image-rendering: pixelated;
+}
 
 
 
@@ -657,6 +703,14 @@ tr[data-group-parent] .file-thumb__icon {
 .toast--info { border-left: 3px solid var(--info); }
 .toast:hover { background: var(--bg-hover); }
 .toast__msg { flex: 1; }
+/* Repeat counter for identical consecutive toasts (xN). A direct child of
+   .toast (a flex row) so margin-left:auto pins it to the right edge. */
+.toast__count {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(40px); }

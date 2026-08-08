@@ -77,6 +77,7 @@
     "pressNewKey": "按下新快捷键…",
     "browseOsuTitle": "选择 osu! 安装目录 (包含 osu!.exe)",
     "iKnow": "我知道了",
+    "dontShowAgain": "不再提示",
     "shortcutsTitleGlobal": "全局快捷键",
     "clickToSwitch": "（点击切换）",
     "colName": "名称",
@@ -280,9 +281,9 @@
     "centerTitle": "居中计算 ColumnStart",
     "centerPrompt": "请确认居中所需数值。已有数值不可编辑。轨道字段可输入逗号列表，也可只输入一个值（应用到全部轨道）；可修改宽高比：",
     "centerRatio": "宽高比",
+    "centerEmpty": "数据不能为空",
     "pickFileTitle": "选择文件",
-    "columnSuffix": "(列{n})",
-    "deleteRowsConfirm": "确定要删除选中的 {n} 个 INI 操作吗？"
+    "columnSuffix": "(列{n})"
   },
   "file": {
     "heading": "文件移动",
@@ -309,7 +310,6 @@
     "tagDelete": "删除",
     "destPlaceholder": "如 folder/file (留空为皮肤根目录)",
     "removeLabel": "— 移除 —",
-    "deleteRowsConfirm": "确定要删除选中的 {n} 个文件操作吗？",
     "outsideSkin": "只能选择皮肤文件夹内的文件",
     "destOutsideSkin": "该路径不在皮肤内！",
     "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名"
@@ -361,10 +361,7 @@
     "mode_luminosity": "明度",
     "mode_hue-shift": "色相偏移",
     "deleteZone": "拖拽操作到此处删除",
-    "deleteBtn": "- 删除",
-    "deleted": "已删除 {n} 个图像操作",
     "filled": "已填充 {n} 个成员",
-    "deleteRowsConfirm": "确定要删除选中的 {n} 个图像操作吗？",
     "colDestTitle": "允许指定目标路径文件名\n末尾加 / 作为文件夹名，否则为文件名\n文件名不存在时使用源文件名",
     "mode_normal": "正常"
   },
@@ -376,9 +373,6 @@
     "hintSelect": "添加并选中合成以编辑",
     "empty": "暂无图层合成，请从上方添加",
     "deleteZone": "拖拽操作到此处删除",
-    "deleteBtn": "- 删除",
-    "deleted": "已删除 {n} 个图层合成",
-    "deleteStacksConfirm": "确定要删除选中的 {n} 个图层合成吗？",
     "destPlaceholder": "如 folder/file (留空覆盖底层源)",
     "noLayers": "无可用图层",
     "dragToDelete": "拖拽图层到此处删除",

@@ -77,6 +77,7 @@
     "pressNewKey": "新しいショートカットを押す…",
     "browseOsuTitle": "osu! インストールフォルダを選択 (osu!.exe を含む)",
     "iKnow": "了解しました",
+    "dontShowAgain": "今後表示しない",
     "shortcutsTitleGlobal": "グローバルショートカット",
     "clickToSwitch": "（クリックで切替）",
     "colName": "名前",
@@ -280,9 +281,9 @@
     "centerTitle": "ColumnStart を中央寄せ",
     "centerPrompt": "中央寄せの数値を確認してください。既存の値は編集不可です。レーン欄はカンマリスト、または単一の値（全レーンに適用）を入力できます。アスペクト比も変更可能：",
     "centerRatio": "アスペクト比",
+    "centerEmpty": "入力欄を空にすることはできません",
     "pickFileTitle": "ファイルを選択",
-    "columnSuffix": "(列{n})",
-    "deleteRowsConfirm": "選択した {n} 個の INI 操作を削除しますか?"
+    "columnSuffix": "(列{n})"
   },
   "file": {
     "heading": "ファイル移動",
@@ -309,7 +310,6 @@
     "tagDelete": "削除",
     "destPlaceholder": "例: folder/file (空 = 元のファイルを置換)",
     "removeLabel": "— 削除 —",
-    "deleteRowsConfirm": "選択した {n} 個のファイル操作を削除しますか?",
     "outsideSkin": "スキンフォルダ内のファイルのみ選択できます",
     "destOutsideSkin": "このパスはスキンフォルダの外です！",
     "colDestTitle": "対象パスのファイル名を指定可能\n末尾 / でフォルダ名、それ以外はファイル名\nファイル名がない場合は元の名前"
@@ -335,9 +335,6 @@
     "hintSelect": "合成を追加・選択して編集",
     "empty": "レイヤー合成がありません — 上から追加",
     "deleteZone": "アクションをここにドラッグして削除",
-    "deleteBtn": "- 削除",
-    "deleted": "{n} 個のレイヤー合成を削除",
-    "deleteStacksConfirm": "選択した {n} 個のレイヤー合成を削除しますか？",
     "destPlaceholder": "例: folder/file (空 = スキンのルート)",
     "noLayers": "利用可能なレイヤーがありません",
     "dragToDelete": "レイヤーをここにドラッグして削除",
@@ -577,10 +574,7 @@
     "mode_normal": "通常",
     "mode_hue-shift": "色相シフト",
     "deleteZone": "操作をここにドラッグして削除",
-    "deleteBtn": "- 削除",
-    "deleted": "{n} 個の画像操作を削除しました",
     "filled": "{n} 個のメンバーに適用しました",
-    "deleteRowsConfirm": "選択した {n} 個の画像操作を削除しますか?",
     "colDestTitle": "対象パスのファイル名を指定可能\n末尾 / でフォルダ名、それ以外はファイル名\nファイル名がない場合は元の名前"
   },
   "edit": {

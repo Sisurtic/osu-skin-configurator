@@ -77,6 +77,7 @@
     "pressNewKey": "Press a new shortcut…",
     "browseOsuTitle": "Select the osu! install folder (containing osu!.exe)",
     "iKnow": "I understand",
+    "dontShowAgain": "Don't show again",
     "shortcutsTitleGlobal": "Global shortcuts",
     "clickToSwitch": "(click to switch)",
     "colName": "Name",
@@ -280,9 +281,9 @@
     "centerTitle": "Center ColumnStart",
     "centerPrompt": "Confirm the values for centering. Existing values are read-only. Track fields accept a comma list or a single value (applied to every track); you may adjust the aspect ratio:",
     "centerRatio": "Aspect ratio",
+    "centerEmpty": "Fields cannot be empty",
     "pickFileTitle": "Pick a file",
-    "columnSuffix": "(col {n})",
-    "deleteRowsConfirm": "Delete the {n} selected INI action(s)?"
+    "columnSuffix": "(col {n})"
   },
   "file": {
     "heading": "File moves",
@@ -309,7 +310,6 @@
     "tagDelete": "Delete",
     "destPlaceholder": "e.g. folder/file (blank = replace original)",
     "removeLabel": "— Remove —",
-    "deleteRowsConfirm": "Delete the {n} selected file action(s)?",
     "outsideSkin": "Only files inside the skin folder can be selected",
     "destOutsideSkin": "This path is outside the skin folder!",
     "colDestTitle": "You may specify the target path filename\nTrailing / = folder name, otherwise a filename\nA missing filename uses the source name"
@@ -349,10 +349,7 @@
     "mode_normal": "Normal",
     "mode_hue-shift": "Hue Shift",
     "deleteZone": "Drag an action here to delete",
-    "deleteBtn": "- Delete",
-    "deleted": "Deleted {n} image action(s)",
     "filled": "Filled {n} member(s)",
-    "deleteRowsConfirm": "Delete the {n} selected image action(s)?",
     "colDestTitle": "You may specify the target path filename\nTrailing / = folder name, otherwise a filename\nA missing filename uses the source name"
   },
   "preview": {
@@ -376,9 +373,6 @@
     "hintSelect": "Add and select a composite to edit",
     "empty": "No layer composites yet — add one above",
     "deleteZone": "Drag an action here to delete",
-    "deleteBtn": "- Delete",
-    "deleted": "Deleted {n} layer composites",
-    "deleteStacksConfirm": "Delete the {n} selected layer composites?",
     "destPlaceholder": "e.g. folder/file (empty = overwrite bottom source)",
     "noLayers": "No layers available",
     "dragToDelete": "Drag a layer here to delete",

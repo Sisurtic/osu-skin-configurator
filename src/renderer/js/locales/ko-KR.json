@@ -77,6 +77,7 @@
     "pressNewKey": "새 단축키를 누르세요…",
     "browseOsuTitle": "osu! 설치 폴더 선택 (osu!.exe 포함)",
     "iKnow": "확인",
+    "dontShowAgain": "다시 표시하지 않기",
     "shortcutsTitleGlobal": "전역 단축키",
     "clickToSwitch": "(클릭하여 전환)",
     "colName": "이름",
@@ -280,9 +281,9 @@
     "centerTitle": "ColumnStart 가운데 정렬",
     "centerPrompt": "가운데 정렬에 필요한 값을 확인하세요. 기존 값은 편집할 수 없습니다. 트랙 항목은 쉼표 목록 또는 단일 값(모든 트랙에 적용)을 입력할 수 있으며, 화면비도 변경 가능:",
     "centerRatio": "화면비",
+    "centerEmpty": "입력란을 비워둘 수 없습니다",
     "pickFileTitle": "파일 선택",
-    "columnSuffix": "(열 {n})",
-    "deleteRowsConfirm": "선택한 INI 작업 {n}개를 삭제하시겠습니까?"
+    "columnSuffix": "(열 {n})"
   },
   "file": {
     "heading": "파일 이동",
@@ -309,7 +310,6 @@
     "tagDelete": "삭제",
     "destPlaceholder": "예: folder/file (비우면 원본 교체)",
     "removeLabel": "— 제거 —",
-    "deleteRowsConfirm": "선택한 파일 작업 {n}개를 삭제하시겠습니까?",
     "outsideSkin": "스킨 폴더 내의 파일만 선택할 수 있습니다",
     "destOutsideSkin": "이 경로는 스킨 폴더 밖입니다！",
     "colDestTitle": "대상 경로 파일명 지정 가능\n끝에 / 면 폴더명, 아니면 파일명\n파일명이 없으면 원본 이름 사용"
@@ -335,9 +335,6 @@
     "hintSelect": "합성을 추가/선택하여 편집",
     "empty": "레이어 합성이 없습니다 — 위에서 추가",
     "deleteZone": "작업을 여기로 드래그하여 삭제",
-    "deleteBtn": "- 삭제",
-    "deleted": "{n}개 레이어 합성 삭제됨",
-    "deleteStacksConfirm": "선택한 {n}개 레이어 합성을 삭제하시겠습니까?",
     "destPlaceholder": "예: folder/file (비우면 스킨 루트)",
     "noLayers": "사용 가능한 레이어 없음",
     "dragToDelete": "레이어를 여기로 드래그하여 삭제",
@@ -577,10 +574,7 @@
     "mode_normal": "표준",
     "mode_hue-shift": "색상 이동",
     "deleteZone": "작업을 여기로 드래그하여 삭제",
-    "deleteBtn": "- 삭제",
-    "deleted": "이미지 작업 {n}개 삭제됨",
     "filled": "{n}개 멤버에 채움",
-    "deleteRowsConfirm": "선택한 이미지 작업 {n}개를 삭제하시겠습니까?",
     "colDestTitle": "대상 경로 파일명 지정 가능\n끝에 / 면 폴더명, 아니면 파일명\n파일명이 없으면 원본 이름 사용"
   },
   "edit": {
