@@ -190,6 +190,33 @@
       const locRes = await api.listLocales();
       if (locRes && locRes.success && locRes.data) i18n.load(locRes.data);
     } catch (_) { /* fall back to keys/raw */ }
+
+    // One-time migration: move prefs previously held in WebView2 localStorage
+    // into config.json. Idempotent — each item only moves when config has no
+    // value yet but localStorage does. Must run before the locale/colors reads
+    // below so the migrated values are in place.
+    await migrateLegacyPrefs();
+
+    // Seed the active locale from the persisted config value before the first
+    // t() call (applyLocale), so the stored language wins over detect()'s
+    // navigator guess. Also mirror it to the backend's in-memory language.
+    try {
+      const r = await api.prefsGetLocale();
+      if (r && r.success && r.data && i18n.hasLocale(r.data)) {
+        i18n.prime(r.data);
+        await api.setLocale(r.data);
+      }
+    } catch (_) { /* ignore — detect() falls back to navigator */ }
+
+    // Seed the color picker's user-palette cache from config before any picker
+    // opens (the picker reads it synchronously).
+    try {
+      const cr = await api.prefsGetUserColors();
+      if (cr && cr.success && Array.isArray(cr.data) && window.ColorPicker) {
+        window.ColorPicker.setUserColors(cr.data);
+      }
+    } catch (_) { /* ignore — empty palette is fine */ }
+
     i18n.applyLocale();
 
     // Register the full re-render hook so language switches update everything
@@ -244,8 +271,17 @@
       if (window.UpdateCheck) UpdateCheck.check().catch(() => {});
 
       if (shortcutsResult.success && shortcutsResult.data) {
-        Shortcuts.init(shortcutsResult.data);
-        state.set('shortcutBindings', shortcutsResult.data);
+        let data = shortcutsResult.data;
+        // First launch (or legacy empty config): seed config.json with the full
+        // default shortcut set so the stored bindings are a complete source of
+        // truth, then persist immediately.
+        const isEmpty = !data || (typeof data === 'object' && Object.keys(data).length === 0);
+        if (isEmpty && window.Shortcuts && typeof window.Shortcuts.defaultBindings === 'function') {
+          data = window.Shortcuts.defaultBindings();
+          try { await api.saveShortcuts(data); } catch (_) { /* best-effort */ }
+        }
+        Shortcuts.init(data);
+        state.set('shortcutBindings', data);
       }
 
       toolbarPath.style.cursor = 'pointer';
@@ -328,7 +364,7 @@
       setSidebarLayer(state.get('appMode'));
       // Defer the fade-in to the next frame so renderCurrentView's layout
       // settles before transitioning opacity (avoids a flash of reflowed content).
-      requestAnimationFrame(() => requestAnimationFrame(() => {
+      requestAnimationFrame(() => requestAnimationFrame(async () => {
         document.body.classList.add('is-ready');
         // Equivalent to the language-switch path: after layout has settled
         // (container has a real width), re-render once so layoutColumns in the
@@ -344,27 +380,80 @@
           }
         });
 
-        // First-launch warning: INI editing removes comments.
-        if (typeof localStorage !== 'undefined') {
-          try {
-            if (!localStorage.getItem('ini-comment-warn-dismissed')) {
-              showIniCommentWarning();
-            }
-          } catch (_) { /* ignore */ }
-        }
+        // Startup warning: applying a preset strips skin.ini comments. Shown
+        // every launch unless the user picked "don't show again" (persisted to
+        // config.json via the mute flag).
+        try {
+          const r = await api.prefsGetMuteIniWarn();
+          if (!r || !r.success || !r.data) showIniCommentWarning();
+        } catch (_) { /* ignore */ }
       }));
     }
+  }
+
+  // One-time migration of prefs that previously lived in WebView2 localStorage
+  // into config.json. Each item moves only when config has no value yet (the
+  // serde default) but a legacy localStorage key is present — so this is
+  // idempotent across launches and a no-op for fresh installs.
+  async function migrateLegacyPrefs() {
+    if (typeof localStorage === 'undefined') return;
+    const safeGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+    const safeRemove = (k) => { try { localStorage.removeItem(k); } catch (_) {} };
+
+    // Locale: only migrate when config has none and a legacy tag exists.
+    try {
+      const cur = await api.prefsGetLocale();
+      if (cur && cur.success && !cur.data) {
+        const legacy = safeGet('osc-locale');
+        if (legacy) {
+          await api.prefsSetLocale(legacy);
+          safeRemove('osc-locale');
+        }
+      }
+    } catch (_) { /* ignore */ }
+
+    // INI warning mute flag: migrate the old '1' sentinel.
+    try {
+      const cur = await api.prefsGetMuteIniWarn();
+      if (cur && cur.success && !cur.data) {
+        if (safeGet('ini-comment-warn-dismissed') === '1') {
+          await api.prefsSetMuteIniWarn(true);
+          safeRemove('ini-comment-warn-dismissed');
+        }
+      }
+    } catch (_) { /* ignore */ }
+
+    // User color palette: migrate any non-empty saved array.
+    try {
+      const cur = await api.prefsGetUserColors();
+      if (cur && cur.success && Array.isArray(cur.data) && cur.data.length === 0) {
+        const raw = safeGet('osu-skin-configurator/user-colors');
+        if (raw) {
+          let arr = null;
+          try { arr = JSON.parse(raw); } catch (_) { arr = null; }
+          if (Array.isArray(arr) && arr.length > 0) {
+            await api.prefsSetUserColors(arr);
+            safeRemove('osu-skin-configurator/user-colors');
+          }
+        }
+      }
+    } catch (_) { /* ignore */ }
   }
 
   async function showIniCommentWarning() {
     const msg = i18n.t('warn.iniCommentLoss');
     if (!msg || msg === 'warn.iniCommentLoss') return;
     try {
-      await ApplyDialog.showConfirmDialog(msg, [
+      const choice = await ApplyDialog.showConfirmDialog(msg, [
         { label: i18n.t('dialog.iKnow'), cls: 'btn--primary', value: 'ok' },
-      ]);
+        { label: i18n.t('dialog.dontShowAgain'), cls: 'btn--secondary', value: 'mute' },
+      ], true);
+      // Only "don't show again" permanently mutes; "I know" dismisses for this
+      // launch and the warning reappears next startup.
+      if (choice === 'mute') {
+        try { await api.prefsSetMuteIniWarn(true); } catch (_) { /* ignore */ }
+      }
     } catch (_) { /* ignore */ }
-    try { localStorage.setItem('ini-comment-warn-dismissed', '1'); } catch (_) {}
   }
 
   // Force every component to re-render (used after a language switch so all

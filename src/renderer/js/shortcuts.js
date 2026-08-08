@@ -114,10 +114,21 @@
     bindings = loadedBindings || {};
   }
 
-  // Get raw bindings for persistence
-  function getRawBindings() {
-    return { ...bindings };
+  // The full default binding set as a plain { id: key } object. Used to seed
+  // config.json on first launch so the stored shortcut_bindings is a complete,
+  // human-readable source of truth (not just user overrides).
+  function defaultBindings() {
+    const out = {};
+    for (const d of DEFAULTS) out[d.id] = d.key;
+    return out;
   }
 
-  window.Shortcuts = { getBinding, setBinding, getAll, keyToString, keyToAccelerator, matchAction, init, getRawBindings, DEFAULTS };
+  // Get raw bindings for persistence. Returns the COMPLETE set (defaults with
+  // user overrides applied) so config.json always holds every shortcut, not
+  // just the ones the user customized.
+  function getRawBindings() {
+    return { ...defaultBindings(), ...bindings };
+  }
+
+  window.Shortcuts = { getBinding, setBinding, getAll, keyToString, keyToAccelerator, matchAction, init, getRawBindings, defaultBindings, DEFAULTS };
 })();

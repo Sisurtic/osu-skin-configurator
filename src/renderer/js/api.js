@@ -52,6 +52,14 @@ const api = {
   loadShortcuts: () => window.tauriAPI.loadShortcuts(),
   saveShortcuts: (bindings) => window.tauriAPI.saveShortcuts(bindings),
 
+  // --- user prefs (persisted in config.json; migrated from localStorage) ---
+  prefsGetMuteIniWarn: () => window.tauriAPI.getMuteIniWarn(),
+  prefsSetMuteIniWarn: (muted) => window.tauriAPI.setMuteIniWarn(muted),
+  prefsGetLocale: () => window.tauriAPI.getLocalePref(),
+  prefsSetLocale: (tag) => window.tauriAPI.setLocalePref(tag),
+  prefsGetUserColors: () => window.tauriAPI.getUserColors(),
+  prefsSetUserColors: (colors) => window.tauriAPI.setUserColors(colors),
+
   // --- global shortcuts (per-preset) ---
   bindGlobalShortcut: (skinName, presetIds, accelerator) => window.tauriAPI.bindGlobalShortcut(skinName, presetIds, accelerator),
   bindGlobalShortcutBatch: (skinName, presetIds, groupIds, accelerator) => window.tauriAPI.bindGlobalShortcutBatch(skinName, presetIds, groupIds, accelerator),

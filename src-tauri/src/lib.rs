@@ -406,6 +406,48 @@ fn shortcuts_save(app: AppHandle, bindings: Value) -> Value {
     wrap_ok(json!(true))
 }
 
+// ── user prefs (formerly localStorage) ──
+// Per-field get/set pairs mirroring shortcuts_load/save. These persist UI-level
+// preferences that used to live in WebView2 localStorage, so all settings now
+// reside in config.json. set_locale (above) still only updates the in-memory
+// backend language; prefs_set_locale is the persistence layer.
+
+#[tauri::command]
+fn prefs_get_mute_ini_warn(app: AppHandle) -> Value {
+    wrap_ok(json!(config_store::load(&app).mute_ini_comment_warn))
+}
+#[tauri::command]
+fn prefs_set_mute_ini_warn(app: AppHandle, muted: bool) -> Value {
+    let mut cfg = config_store::load(&app);
+    cfg.mute_ini_comment_warn = muted;
+    config_store::save(&app, &cfg);
+    wrap_ok(json!(true))
+}
+
+#[tauri::command]
+fn prefs_get_locale(app: AppHandle) -> Value {
+    wrap_ok(json!(config_store::load(&app).locale))
+}
+#[tauri::command]
+fn prefs_set_locale(app: AppHandle, tag: Option<String>) -> Value {
+    let mut cfg = config_store::load(&app);
+    cfg.locale = tag;
+    config_store::save(&app, &cfg);
+    wrap_ok(json!(true))
+}
+
+#[tauri::command]
+fn prefs_get_user_colors(app: AppHandle) -> Value {
+    wrap_ok(json!(config_store::load(&app).user_colors))
+}
+#[tauri::command]
+fn prefs_set_user_colors(app: AppHandle, colors: Vec<String>) -> Value {
+    let mut cfg = config_store::load(&app);
+    cfg.user_colors = colors;
+    config_store::save(&app, &cfg);
+    wrap_ok(json!(true))
+}
+
 // ── global shortcuts (per-preset hotkeys) ──
 
 #[tauri::command]
@@ -751,6 +793,11 @@ pub fn run() {
                 let pending = app.state::<PendingOsp>();
                 *pending.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(name);
             }
+            // Relocate config.json from the old app-config dir (Roaming) to the
+            // app-data dir (Local), co-located with the WebView2 data folder.
+            // Idempotent + non-fatal. Must run before the first config_store::load
+            // below so it reads from the new location.
+            config_store::migrate_to_data_dir(app.handle());
             // Defer non-critical startup work (global-shortcut registration scans
             // the skin dir; file_assoc writes registry + SHChangeNotify). Running
             // them synchronously here delays the window's first paint.
@@ -781,6 +828,7 @@ pub fn run() {
             groups_add, groups_remove, groups_rename, groups_move_preset, groups_move, groups_reorder, groups_set_collapsed, groups_set_collapsed_batch, groups_delete_recursive, groups_set_shortcut, groups_set_description, groups_set_preview, groups_set_actions, groups_apply, groups_flatten_subgroups, set_table_state, skin_set_meta, clone_table_state_for_groups,
             image_get_preview, file_exists,
             shortcuts_load, shortcuts_save,
+            prefs_get_mute_ini_warn, prefs_set_mute_ini_warn, prefs_get_locale, prefs_set_locale, prefs_get_user_colors, prefs_set_user_colors,
             global_shortcuts_bind, global_shortcuts_unbind, global_shortcuts_bind_batch, global_shortcuts_reload,
             app_get_open_file, app_get_version, check_latest_release, download_and_run_latest_release, cancel_update_download, locales_list, set_locale,
         ])

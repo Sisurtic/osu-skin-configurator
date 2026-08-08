@@ -1,10 +1,11 @@
 // Internationalization (i18n) core.
 //
-// Active locale is detected once at load time from (in order) a user-chosen
-// locale persisted in localStorage, then navigator.language (mirrors the OS
-// language). There IS an in-app language switcher in the toolbar; switching
-// does NOT reload — it calls applyStatic() + a full re-render so all text
-// updates in one frame. Fallback chain: active → 'zh-CN' → raw key.
+// Active locale resolution: app.js injects the user's persisted choice (from
+// config.json via i18n.prime()) before the first render; if none is persisted,
+// detect() guesses from navigator.language (mirrors the OS language). There IS
+// an in-app language switcher in the toolbar; switching does NOT reload — it
+// calls applyStatic() + a full re-render so all text updates in one frame.
+// Fallback chain: active → 'zh-CN' → raw key.
 //
 // Locale dictionaries are loaded once at startup by app.js via the Rust
 // `locales_list` command (which scans the bundled locales folder and returns
@@ -13,7 +14,6 @@
 // folder — the backend discovers it, no code/index.html changes needed.
 (function () {
   const FALLBACK = 'zh-CN';
-  const STORAGE_KEY = 'osc-locale';
 
   // Display labels for the switcher dropdown. Each locale carries its own name
   // in a `_name` key inside its JSON; we read that. LOCALE_LABELS is just a
@@ -56,8 +56,8 @@
   }
 
   function detect() {
-    const stored = (() => { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } })();
-    if (stored && hasLocale(stored)) return stored;
+    // No stored preference (app.js injects one via prime() if config has it) —
+    // guess from the OS language.
     const raw = (navigator.language || navigator.userLanguage || FALLBACK).toLowerCase();
     if (raw.startsWith('zh-tw') || raw.startsWith('zh-hk') ||
         raw.startsWith('zh-hant') || raw.startsWith('zh-mo')) return 'zh-TW';
@@ -122,12 +122,23 @@
   let _rerenderAll = null;
   function onRerender(fn) { _rerenderAll = fn; }
 
+  // Seed the active locale from the persisted config value, before the first
+  // t() call. Unlike setLocale, this does not translate, re-render, or persist
+  // — it just sets the starting locale so detect()'s navigator guess doesn't
+  // win when a stored preference exists. Called once by app.js during init.
+  function prime(tag) {
+    if (tag && hasLocale(tag)) active = tag;
+  }
+
   // Switch and persist. No reload: translate static HTML, then trigger a full
   // re-render so all dynamically-rendered strings update together.
   function setLocale(tag) {
     if (tag === locale() || !hasLocale(tag)) return;
-    try { localStorage.setItem(STORAGE_KEY, tag); } catch (_) {}
     active = tag;
+    // Persist the choice to config.json (was previously localStorage).
+    if (window.api && typeof window.api.prefsSetLocale === 'function') {
+      window.api.prefsSetLocale(tag); // fire-and-forget
+    }
     applyStatic();
     // Mirror the choice to the backend so Rust-produced strings (error
     // envelopes, apply warnings, OS notifications) follow the in-app language.
@@ -161,5 +172,5 @@
     if (docTitle) document.title = docTitle;
   }
 
-  window.i18n = { t, locale, setLocale, applyLocale, applyStatic, load, available, labelFor, onRerender, FALLBACK };
+  window.i18n = { t, locale, prime, setLocale, applyLocale, applyStatic, load, available, labelFor, onRerender, FALLBACK };
 })();

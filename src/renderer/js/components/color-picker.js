@@ -181,14 +181,22 @@
     '#ffb3d9','#ff66b3','#e6008a','#990052',
   ];
 
-  // User-saved colors persisted to localStorage (survive restarts).
-  const USER_COLORS_KEY = 'osu-skin-configurator/user-colors';
+  // User-saved colors, persisted to config.json (formerly localStorage). Held
+  // in memory so the (synchronous) getters stay sync; app.js seeds this once
+  // during init via setUserColors(), and writes fire-and-forget to the backend.
+  let userColors = [];
   function getUserColors() {
-    try { return JSON.parse(localStorage.getItem(USER_COLORS_KEY) || '[]'); }
-    catch (_) { return []; }
+    return userColors;
   }
   function saveUserColors(arr) {
-    try { localStorage.setItem(USER_COLORS_KEY, JSON.stringify(arr)); } catch (_) {}
+    userColors = Array.isArray(arr) ? arr.slice() : [];
+    if (window.api && typeof window.api.prefsSetUserColors === 'function') {
+      window.api.prefsSetUserColors(userColors); // fire-and-forget persist
+    }
+  }
+  // Seed the in-memory cache from config during init (no persist; it's a read).
+  function setUserColors(arr) {
+    userColors = Array.isArray(arr) ? arr.slice() : [];
   }
   // Tooltip text (i18n if available, else Chinese fallback). Resolved lazily at
   // render time so it follows the active language (the IIFE may load before i18n).
@@ -1009,7 +1017,7 @@
     }
   }
 
-  window.ColorPicker = { attach, forwardInput, parseColor, formatOutput, closeAll };
+  window.ColorPicker = { attach, forwardInput, parseColor, formatOutput, closeAll, setUserColors };
   // Close any open popover (called by the global ESC/Enter handler).
   function closeAll() {
     // Clear the open-state highlight BEFORE the bound close nulls activeTrigger.

@@ -74,6 +74,14 @@
     loadShortcuts: () => call('shortcuts_load'),
     saveShortcuts: (bindings) => call('shortcuts_save', { bindings }),
 
+    // --- user prefs (formerly localStorage; now persisted in config.json) ---
+    getMuteIniWarn: () => call('prefs_get_mute_ini_warn'),
+    setMuteIniWarn: (muted) => call('prefs_set_mute_ini_warn', { muted }),
+    getLocalePref: () => call('prefs_get_locale'),
+    setLocalePref: (tag) => call('prefs_set_locale', { tag }),
+    getUserColors: () => call('prefs_get_user_colors'),
+    setUserColors: (colors) => call('prefs_set_user_colors', { colors }),
+
     // --- global shortcuts (per-preset) ---
     bindGlobalShortcut: (skinName, presetIds, accelerator) => call('global_shortcuts_bind', { skinName, presetIds, accelerator }),
     bindGlobalShortcutBatch: (skinName, presetIds, groupIds, accelerator) => call('global_shortcuts_bind_batch', { skinName, presetIds, groupIds, accelerator }),
